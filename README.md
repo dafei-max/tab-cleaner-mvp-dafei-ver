@@ -19,6 +19,11 @@
 │     ├─ static/
 │     └─ uv.lock
 └─ frontend/
+   ├─ background.js
+   ├─ manifest.json
+   ├─ popup.html
+   ├─ popup.js
+   └─ sidepanel.html
 ```
 
 说明：
@@ -26,6 +31,7 @@
 - `services/` 与 `static/` 暂为空目录，预留后续扩展与静态资源。
 - 依赖由 `uv` 管理，定义在 `pyproject.toml`，已锁定于 `uv.lock`。
 - 前端目录 `frontend/` 目前为空。
+ - 前端目录 `frontend/` 包含一个最小可运行的 Chrome 扩展（MV3）。
 
 ## 快速开始（后端）
 
@@ -54,6 +60,27 @@
 4. 访问：
    - 健康检查: `http://127.0.0.1:8000/`（应返回 `{ "ok": true }`）
    - 文档: `http://127.0.0.1:8000/docs`
+
+## 前端（Chrome 扩展）
+
+1. 目录说明：
+   - `manifest.json`：MV3 清单
+   - `background.js`：Service Worker（`type:"module"`）
+   - `popup.html`/`popup.js`：工具栏弹窗
+   - `sidepanel.html`：侧边栏页面
+
+2. 安装与调试：
+   - 打开 Chrome → 扩展程序 → 开发者模式 → 加载已解压的扩展
+   - 选择目录：`tab-cleaner-mvp/frontend`
+   - 若修改了文件，点击“刷新”扩展即可生效
+
+3. 与后端联调：
+   - `popup.js` 默认请求 `http://localhost:8000/api/v1/...`
+   - 当前后端仅实现 `/` 健康检查，如需联调请在后端补充对应路由或先改为现有接口进行验证
+
+4. manifest 注意点：
+   - `permissions` 建议为：`["tabs", "storage", "activeTab"]`
+   - 使用侧边栏只需 `"side_panel"` 字段，无需额外 `"sidePanel"` 权限声明
 
 ## 常见问题
 
