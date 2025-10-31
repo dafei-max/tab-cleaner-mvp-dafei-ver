@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Cleaner MVP",
+  "version": "0.0.1",
+  "action": { "default_title": "Tab Cleaner", "default_popup": "popup.html" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["tabs", "storage", "activeTab", "sidePanel"],
+  "host_permissions": ["<all_urls>"]
+}
