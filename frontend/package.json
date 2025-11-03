@@ -1,0 +1,20 @@
+{
+  "name": "tab-cleaner-frontend",
+  "version": "0.0.1",
+  "description": "Tab Cleaner Chrome Extension Frontend",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "prop-types": "^15.8.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.3.4",
+    "vite": "6.0.4"
+  }
+}

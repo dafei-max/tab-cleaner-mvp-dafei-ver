@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Cleaner MVP",
+  "version": "0.0.1",
+  "description": "A tab management tool with rounded corners UI",
+  "action": {
+    "default_title": "Tab Cleaner - Click to open"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "tabs",
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "assets/vendor-22sbJxTV.js",
+        "assets/api-Ckj3S3CX.js",
+        "assets/content.js"
+      ],
+      "type": "module",
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/*.js",
+        "assets/*.css",
+        "static/img/*"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
