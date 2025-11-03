@@ -1,23 +1,38 @@
-// Background Service Worker
+// assets/background.js
 chrome.runtime.onInstalled.addListener(() => {
-  console.log("Tab Cleaner installed");
-});
-
-// 监听扩展图标点击：仅发送消息，依赖 manifest 自动注入 module content script
-chrome.action.onClicked.addListener(async (tab) => {
-  const url = tab?.url ?? "";
-
-  // 跳过不可注入页面
-  if (!url || url.startsWith("chrome://") || url.startsWith("chrome-extension://") || url.startsWith("about:")) {
-    console.log("Cannot run on:", url);
-    return;
-  }
-
-  try {
-    await chrome.tabs.sendMessage(tab.id, { action: "toggle" });
-    console.log("Sent toggle to tab", tab.id);
-  } catch (e) {
-    // 对扩展安装前已打开的标签，content_scripts 需刷新后才会注入
-    console.warn("Content script not ready; refresh this tab then click again.");
-  }
-});
+    console.log("Tab Cleaner installed");
+  });
+  
+  chrome.action.onClicked.addListener(async (tab) => {
+    const url = tab?.url ?? "";
+    if (!url || url.startsWith("chrome://") || url.startsWith("chrome-extension://") || url.startsWith("about:")) {
+      console.log("Cannot run on:", url);
+      return;
+    }
+  
+    // 先试通信（如果已经注入过会成功）
+    try {
+      await chrome.tabs.sendMessage(tab.id, { action: "toggle" });
+      return;
+    } catch (_) {
+      console.warn("No listener; injecting content script…");
+    }
+  
+    // 兜底：注入 content script
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["assets/content.js"], // ← 确保这个文件存在且是“非模块版”
+      });
+      // 注入完成再显示
+      setTimeout(() => {
+        chrome.tabs.sendMessage(tab.id, { action: "show" }).catch(err => {
+          console.error("sendMessage after inject failed:", err);
+        });
+      }, 150);
+    } catch (err) {
+      console.error("executeScript failed:", err);
+    }
+  });
+  
+  

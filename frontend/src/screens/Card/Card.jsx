@@ -20,6 +20,11 @@ export const Card = ({ onHomeClick, onCleanClick, onDetailsClick }) => {
       />
 
       <div className="window-button">
+      <img 
+        className="window-img" 
+        alt="window" 
+        src={getImageUrl("static/img/window.png")} 
+      />
         <div className="image">
           <div className="window">
             <div className="group">

@@ -44,6 +44,12 @@
   background: transparent;
 }
 
+.card .window-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .card .group {
   align-items: flex-start;
   background-image: url(../static/img/vector-7.svg);

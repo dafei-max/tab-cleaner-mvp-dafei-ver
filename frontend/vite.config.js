@@ -14,7 +14,7 @@ export default defineConfig({
         popup: resolve(__dirname, "src/popup/index.jsx"),
         sidepanel: resolve(__dirname, "src/sidepanel/index.jsx"),
         background: resolve(__dirname, "src/background/index.js"),
-        content: resolve(__dirname, "src/content/index.jsx"),
+        content: resolve(__dirname, "src/screens/Card/content.js"),
       },
       output: {
         entryFileNames: "assets/[name].js",

@@ -10,8 +10,7 @@
     "default_path": "sidepanel.html"
   },
   "background": {
-    "service_worker": "assets/background.js",
-    "type": "module"
+    "service_worker": "assets/background.js"
   },
   "permissions": [
     "tabs",
@@ -20,19 +19,6 @@
     "scripting"
   ],
   "host_permissions": ["<all_urls>"],
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": [
-        "assets/vendor-22sbJxTV.js",
-        "assets/api-Ckj3S3CX.js",
-        "assets/content.js"
-      ],
-      "type": "module",
-      "run_at": "document_idle",
-      "all_frames": false
-    }
-  ],
   "web_accessible_resources": [
     {
       "resources": [
