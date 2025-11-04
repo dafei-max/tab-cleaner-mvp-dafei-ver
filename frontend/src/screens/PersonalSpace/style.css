@@ -18,6 +18,22 @@
   min-width: 1440px;
 }
 
+/* 选中状态 - 蓝色外发光 */
+.personal-space .canvas img.selected {
+  box-shadow: 0 0 0 3px rgba(97, 202, 255, 0.6),
+              0 0 10px 5px rgba(97, 202, 255, 0.4);
+  outline: 2px solid #61caff;
+  outline-offset: 2px;
+  z-index: 100;
+}
+
+/* 拖拽状态 */
+.personal-space .canvas img.dragging {
+  opacity: 0.8;
+  cursor: grabbing !important;
+  z-index: 200;
+}
+
 .personal-space .clipboard {
   aspect-ratio: 0.67;
   height: 126px;
@@ -693,9 +709,9 @@
 }
 
 .personal-space .side-panel {
-  left: max(20px, calc(50% - 720px + 20px)) !important;
-  position: absolute !important;
-  top: calc(50.00% - 506px) !important;
+  left: 0 !important;
+  position: fixed !important;
+  top: 0 !important;
   z-index: 10 !important;
 }
 

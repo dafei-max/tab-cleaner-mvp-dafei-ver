@@ -1,263 +1,73 @@
-import React from "react";
+import React, { useState } from "react";
 import { Component } from "../../components/Component";
 import { getImageUrl } from "../../shared/utils";
+import { DraggableImage } from "./DraggableImage";
+import { initialImages } from "./imageData";
 import "./style.css";
 
 export const PersonalSpace = () => {
+  // 管理图片位置和选中状态
+  const [images, setImages] = useState(() =>
+    initialImages.map(img => ({
+      ...img,
+      src: getImageUrl(img.imageName),
+    }))
+  );
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
+  // 处理选中
+  const handleSelect = (id, isMultiSelect) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (isMultiSelect) {
+        // Shift 键：切换选中状态
+        if (newSet.has(id)) {
+          newSet.delete(id);
+        } else {
+          newSet.add(id);
+        }
+      } else {
+        // 普通点击：单选
+        newSet.clear();
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  // 处理拖拽结束
+  const handleDragEnd = (id, x, y) => {
+    setImages(prev =>
+      prev.map(img =>
+        img.id === id ? { ...img, x, y } : img
+      )
+    );
+  };
+
   return (
     <div className="personal-space">
       <div className="canvas">
-        <img
-          className="clipboard"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-10-16-38-29-1.png")}
-        />
+        {images.map(img => (
+          <DraggableImage
+            key={img.id}
+            id={img.id}
+            className={img.className}
+            src={img.src}
+            alt={img.alt}
+            initialX={img.x}
+            initialY={img.y}
+            width={img.width}
+            height={img.height}
+            isSelected={selectedIds.has(img.id)}
+            onSelect={handleSelect}
+            onDragEnd={handleDragEnd}
+          />
+        ))}
 
-        <img
-          className="clipboard-2"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-09-16-25-00-1.png")}
-        />
-
-        <img
-          className="clipboard-3"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-09-16-23-59-1.png")}
-        />
-
-        <img
-          className="clipboard-4"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-09-16-23-10-1.png")}
-        />
-
-        <img
-          className="clipboard-5"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-09-16-22-16-1.png")}
-        />
-
-        <img
-          className="element-pinterest"
-          alt="Element pinterest"
-          src={getImageUrl("250-pinterest-1.png")}
-        />
-
-        <img className="image-5" alt="Image" src={getImageUrl("1-4.png")} />
-
-        <img className="a" alt="A" src={getImageUrl("a-1.png")} />
-
-        <img className="image-6" alt="Image" src={getImageUrl("1-2.png")} />
-
-        <img className="ucev" alt="Ucev" src={getImageUrl("ucev-1.png")} />
-
-        <img className="image-7" alt="Image" src={getImageUrl("image.png")} />
-
-        <img
-          className="roses-romance-poster"
-          alt="Roses romance poster"
-          src={getImageUrl("roses-romance-poster-design-keiki-archive-1.png")}
-        />
-
-        <img
-          className="loriann-signori"
-          alt="Loriann signori"
-          src={getImageUrl("loriann-signori-1.png")}
-        />
-
-        <img
-          className="loriann-signori-2"
-          alt="Loriann signori"
-          src={getImageUrl("loriann-signori-artworks-gallery-1.png")}
-        />
-
-        <img className="image-8" alt="Image" src={getImageUrl("1.png")} />
-
-        <img
-          className="clipboard-6"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-05-15-56-46-1.png")}
-        />
-
-        <img
-          className="clipboard-7"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-05-15-01-30-1.png")}
-        />
-
-        <img
-          className="clipboard-8"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-05-15-01-00-1.png")}
-        />
-
-        <img
-          className="clipboard-9"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-05-15-00-32-1.png")}
-        />
-
-        <img
-          className="clipboard-10"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-05-14-59-39-1.png")}
-        />
-
-        <img
-          className="clipboard-11"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-05-14-41-00-1.png")}
-        />
-
-        <img
-          className="clipboard-12"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-05-14-40-50-1.png")}
-        />
-
-        <img
-          className="clipboard-13"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-46-30-1.png")}
-        />
-
-        <img className="image-9" alt="Image" src={getImageUrl("1-3.png")} />
-
-        <img
-          className="clipboard-14"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-45-11-1.png")}
-        />
-
-        <img
-          className="clipboard-15"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-44-51-1.png")}
-        />
-
-        <img
-          className="clipboard-16"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-44-42-1.png")}
-        />
-
-        <img
-          className="clipboard-17"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-44-29-1.png")}
-        />
-
-        <img
-          className="clipboard-18"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-44-10-1.png")}
-        />
-
-        <img
-          className="clipboard-19"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-44-04-1.png")}
-        />
-
-        <img
-          className="clipboard-20"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-43-51-1.png")}
-        />
-
-        <img
-          className="clipboard-21"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-43-45-1.png")}
-        />
-
-        <img
-          className="clipboard-22"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-43-30-1.png")}
-        />
-
-        <img
-          className="clipboard-23"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-43-18-1.png")}
-        />
-
-        <img
-          className="clipboard-24"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-43-09-1.png")}
-        />
-
-        <img
-          className="clipboard-25"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-43-02-1.png")}
-        />
-
-        <img
-          className="clipboard-26"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-42-52-1.png")}
-        />
-
-        <img
-          className="clipboard-27"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-42-37-1.png")}
-        />
-
+        {/* 保留非图片元素 */}
         <div className="i-leave-you-love-and" />
-
-        <img
-          className="clipboard-28"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-41-24-1.png")}
-        />
-
-        <img
-          className="clipboard-29"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-41-00-1.png")}
-        />
-
-        <img
-          className="clipboard-30"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-40-32-1.png")}
-        />
-
-        <img
-          className="clipboard-31"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-40-22-1.png")}
-        />
-
-        <img
-          className="clipboard-32"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-40-15-1.png")}
-        />
-
-        <img className="aha-NEAR" alt="Aha NEAR" src={getImageUrl("aha-near-1.png")} />
-
         <div className="live-NEAR" />
-
-        <img
-          className="live-NEAR-2"
-          alt="Live NEAR"
-          src={getImageUrl("live-near-1.png")}
-        />
-
         <div className="flow-on-the-edge" />
-
-        <img
-          className="clipboard-33"
-          alt="Clipboard"
-          src={getImageUrl("clipboard-2025-06-04-20-38-37-1.png")}
-        />
-
-        <img className="vector-4" alt="Vector" src={getImageUrl("vector-366-1.svg")} />
 
         <div className="text-wrapper-15">视觉参考</div>
       </div>
