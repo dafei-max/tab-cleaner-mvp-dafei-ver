@@ -158,10 +158,16 @@ export const CanvasTools = ({ canvasRef, activeTool, onLassoSelect, selectedIds 
   // 文字工具
   const handleTextClick = (e) => {
     if (activeTool !== 'text') return;
+    
+    // 如果已经有一个正在输入的文本框，不创建新的
+    if (currentText) return;
+    
     // 如果点击的是已有的文字元素，不创建新的
     if (e.target.closest('.canvas-text-element')) return;
     // 如果点击的是输入框，不创建新的
     if (e.target.closest('input')) return;
+    // 如果点击的是工具按钮，不创建
+    if (e.target.closest('.tool-button-wrapper')) return;
     
     const rect = canvas?.getBoundingClientRect();
     if (!rect) return;
@@ -170,7 +176,9 @@ export const CanvasTools = ({ canvasRef, activeTool, onLassoSelect, selectedIds 
     
     // 创建文字输入框
     const textId = `text-${Date.now()}`;
+    console.log('[Text] Creating text input at:', x, y);
     setCurrentText({ id: textId, x, y, text: '' });
+    e.preventDefault();
     e.stopPropagation(); // 阻止事件冒泡
   };
 
@@ -335,22 +343,38 @@ const TextInput = ({ x, y, onConfirm, onCancel }) => {
   const inputRef = useRef(null);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    // 延迟聚焦，确保输入框已经渲染
+    const timer = setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 10);
+    return () => clearTimeout(timer);
   }, []);
 
   const handleKeyDown = (e) => {
+    e.stopPropagation(); // 先阻止事件冒泡
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       onConfirm(text);
-    }
-    if (e.key === 'Escape') {
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
       onCancel();
     }
-    e.stopPropagation(); // 阻止事件冒泡
   };
 
   const handleMouseDown = (e) => {
+    e.preventDefault();
     e.stopPropagation(); // 阻止事件冒泡，避免触发画布点击
+  };
+
+  const handleChange = (e) => {
+    e.stopPropagation();
+    setText(e.target.value);
+  };
+
+  const handleClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   return (
@@ -359,24 +383,30 @@ const TextInput = ({ x, y, onConfirm, onCancel }) => {
         position: 'absolute',
         left: `${x}px`,
         top: `${y}px`,
-        zIndex: 70,
+        zIndex: 1000, // 提高 z-index，确保在最上层
+        pointerEvents: 'auto', // 确保可以接收事件
       }}
       onMouseDown={handleMouseDown}
+      onClick={handleClick}
     >
       <input
         ref={inputRef}
         type="text"
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={handleChange}
         onKeyDown={handleKeyDown}
         onBlur={() => {
-          if (text.trim()) {
-            onConfirm(text);
-          } else {
-            onCancel();
-          }
+          // 延迟处理 blur，避免与点击事件冲突
+          setTimeout(() => {
+            if (text.trim()) {
+              onConfirm(text);
+            } else {
+              onCancel();
+            }
+          }, 200);
         }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={handleClick}
+        onMouseDown={handleMouseDown}
         style={{
           fontFamily: /[\u4e00-\u9fa5]/.test(text)
             ? '"FZLanTingYuanS-R-GB-Regular", sans-serif'
@@ -386,10 +416,13 @@ const TextInput = ({ x, y, onConfirm, onCancel }) => {
           border: '2px solid #61caff',
           borderRadius: '4px',
           outline: 'none',
-          minWidth: '100px',
+          minWidth: '150px',
           backgroundColor: '#fff',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          pointerEvents: 'auto',
         }}
         placeholder="输入文字..."
+        autoFocus
       />
     </div>
   );
