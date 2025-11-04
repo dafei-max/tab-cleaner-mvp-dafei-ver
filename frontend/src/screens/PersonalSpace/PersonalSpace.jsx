@@ -18,9 +18,22 @@ export const PersonalSpace = () => {
   const [activeTool, setActiveTool] = useState(null); // 'draw' | 'lasso' | 'text' | null
   const canvasRef = useRef(null);
 
+  // 画布工具状态（由父组件管理，支持撤销/重做）
+  const [drawPaths, setDrawPaths] = useState([]);
+  const [textElements, setTextElements] = useState([]);
+  
+  // 撤销/重做历史记录
+  const [history, setHistory] = useState([]); // 历史记录栈
+  const [historyIndex, setHistoryIndex] = useState(-1); // 当前历史记录索引
+  const [selectedIdsHistory, setSelectedIdsHistory] = useState([]); // 选中状态历史
+
+  // AI 聚类面板显示状态
+  const [showAIClusteringPanel, setShowAIClusteringPanel] = useState(false);
+
   // 处理选中
   const handleSelect = (id, isMultiSelect) => {
     setSelectedIds(prev => {
+      const prevSelected = new Set(prev);
       const newSet = new Set(prev);
       if (isMultiSelect) {
         // Shift 键：切换选中状态
@@ -34,6 +47,8 @@ export const PersonalSpace = () => {
         newSet.clear();
         newSet.add(id);
       }
+      // 记录选中状态到历史
+      addToHistory({ type: 'selection', action: 'select', selectedIds: Array.from(newSet), prevSelectedIds: Array.from(prevSelected) });
       return newSet;
     });
   };
@@ -87,7 +102,10 @@ export const PersonalSpace = () => {
         selected.add(img.id);
       }
     });
+    const prevSelected = new Set(selectedIds);
     setSelectedIds(selected);
+    // 记录选中状态到历史
+    addToHistory({ type: 'selection', action: 'select', selectedIds: Array.from(selected), prevSelectedIds: Array.from(prevSelected) });
   };
 
   // 判断点是否在多边形内（射线法）
@@ -143,6 +161,144 @@ export const PersonalSpace = () => {
     };
     
     return ccw(p1, p3, p4) !== ccw(p2, p3, p4) && ccw(p1, p2, p3) !== ccw(p1, p2, p4);
+  };
+
+  // 历史记录管理
+  const addToHistory = (action) => {
+    setHistory(prev => {
+      // 如果当前不在历史记录末尾，删除后面的记录
+      const newHistory = prev.slice(0, historyIndex + 1);
+      // 添加新操作
+      newHistory.push(action);
+      // 限制历史记录数量（最多 50 条）
+      if (newHistory.length > 50) {
+        newHistory.shift();
+        setHistoryIndex(newHistory.length - 1);
+      } else {
+        setHistoryIndex(newHistory.length - 1);
+      }
+      return newHistory;
+    });
+  };
+
+  // 处理画布工具的历史记录变化
+  const handleHistoryChange = (action) => {
+    addToHistory(action);
+  };
+
+  // 撤销功能
+  const handleUndo = () => {
+    if (!history || history.length === 0 || historyIndex < 0) return;
+    
+    const action = history[historyIndex];
+    if (!action) return;
+    console.log('[Undo] Undoing action:', action);
+    
+    // 根据操作类型执行撤销
+    switch (action.type) {
+      case 'draw':
+        if (action.action === 'add') {
+          setDrawPaths(prev => {
+            if (!prev || !Array.isArray(prev)) return [];
+            return prev.slice(0, -1);
+          });
+        }
+        break;
+      case 'text':
+        if (action.action === 'add' && action.element) {
+          setTextElements(prev => {
+            if (!prev || !Array.isArray(prev)) return [];
+            return prev.filter(el => el.id !== action.element.id);
+          });
+        } else if (action.action === 'delete' && action.element) {
+          setTextElements(prev => {
+            if (!prev || !Array.isArray(prev)) return [action.element];
+            return [...prev, action.element];
+          });
+        }
+        break;
+      case 'lasso':
+        if (action.action === 'select') {
+          // 套索选择的撤销需要恢复之前的选中状态
+          // 注意：这里需要从历史记录中查找前一个选中状态
+          // 简化处理：如果历史记录中有前一个选中操作，恢复它
+          const prevAction = (historyIndex > 0 && history && history[historyIndex - 1]) ? history[historyIndex - 1] : null;
+          if (prevAction && prevAction.type === 'selection' && prevAction.prevSelectedIds) {
+            setSelectedIds(new Set(prevAction.prevSelectedIds));
+          } else {
+            // 如果没有前一个选中状态，清空选中
+            setSelectedIds(new Set());
+          }
+        }
+        break;
+      case 'selection':
+        if (action.prevSelectedIds) {
+          setSelectedIds(new Set(action.prevSelectedIds));
+        }
+        break;
+      case 'image-move':
+        // 恢复图片位置
+        if (action.prevImages && Array.isArray(action.prevImages)) {
+          setImages(action.prevImages);
+        }
+        break;
+    }
+    
+    setHistoryIndex(prev => prev - 1);
+  };
+
+  // 重做功能
+  const handleRedo = () => {
+    if (!history || !Array.isArray(history) || history.length === 0) return;
+    if (historyIndex >= history.length - 1) return;
+    
+    const nextIndex = historyIndex + 1;
+    const action = history[nextIndex];
+    if (!action) return;
+    console.log('[Redo] Redoing action:', action);
+    
+    // 根据操作类型执行重做
+    switch (action.type) {
+      case 'draw':
+        if (action.action === 'add' && action.path) {
+          setDrawPaths(prev => {
+            if (!prev || !Array.isArray(prev)) return [action.path];
+            return [...prev, action.path];
+          });
+        }
+        break;
+      case 'text':
+        if (action.action === 'add' && action.element) {
+          setTextElements(prev => {
+            if (!prev || !Array.isArray(prev)) return [action.element];
+            return [...prev, action.element];
+          });
+        } else if (action.action === 'delete' && action.element) {
+          setTextElements(prev => {
+            if (!prev || !Array.isArray(prev)) return [];
+            return prev.filter(el => el.id !== action.element.id);
+          });
+        }
+        break;
+      case 'lasso':
+        if (action.action === 'select') {
+          setSelectedIds(new Set(action.selectedIds || []));
+        }
+        break;
+      case 'selection':
+        if (action.selectedIds) {
+          setSelectedIds(new Set(action.selectedIds));
+        }
+        break;
+      case 'image-move':
+        // 恢复图片位置
+        setImages(prev => prev.map(img =>
+          img.id === action.imageId ? { ...img, x: action.x, y: action.y } : img
+        ));
+        break;
+    }
+    
+    setHistoryIndex(nextIndex);
   };
 
   // 根据工具设置光标样式（使用 SVG 图标）
@@ -240,7 +396,16 @@ export const PersonalSpace = () => {
       />
 
       <Component className="side-panel" property1="one" />
-      <div className="aiclustering-panel">
+      {showAIClusteringPanel && (
+        <div 
+          className="aiclustering-panel"
+          onClick={(e) => {
+            // 点击面板本身时关闭
+            if (e.target.classList.contains('aiclustering-panel')) {
+              setShowAIClusteringPanel(false);
+            }
+          }}
+        >
         <div className="design-tag">
           <div className="text-wrapper-20">设计</div>
         </div>
@@ -271,6 +436,7 @@ export const PersonalSpace = () => {
           </div>
         </div>
       </div>
+      )}
 
       <div className="tool-sets">
         <div className="tool">
@@ -307,16 +473,26 @@ export const PersonalSpace = () => {
             className="last-move-button"
             alt="Last move button"
             src={getImageUrl("last-move-button-1.svg")}
+            onClick={handleUndo}
+            style={{ cursor: 'pointer', opacity: historyIndex >= 0 ? 1 : 0.5 }}
+            title="撤销 (Undo)"
           />
 
           <img
             className="next-move-button"
             alt="Next move button"
             src={getImageUrl("next-move-button-1.svg")}
+            onClick={handleRedo}
+            style={{ cursor: 'pointer', opacity: (history && history.length > 0 && historyIndex < history.length - 1) ? 1 : 0.5 }}
+            title="重做 (Redo)"
           />
         </div>
 
-        <div className="AI-clustering-button">
+        <div 
+          className="AI-clustering-button"
+          onClick={() => setShowAIClusteringPanel(!showAIClusteringPanel)}
+          style={{ cursor: 'pointer' }}
+        >
           <img
             className="ai-clustering-icon"
             alt="Ai clustering icon"

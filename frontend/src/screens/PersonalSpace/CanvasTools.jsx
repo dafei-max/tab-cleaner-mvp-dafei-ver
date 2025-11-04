@@ -4,52 +4,26 @@ import React, { useState, useRef, useEffect } from "react";
  * 画布工具组件
  * 包含绘画、套索、文字工具
  */
-export const CanvasTools = ({ canvasRef, activeTool, onLassoSelect, selectedIds }) => {
+export const CanvasTools = ({ 
+  canvasRef, 
+  activeTool, 
+  onLassoSelect, 
+  selectedIds,
+  drawPaths,
+  setDrawPaths,
+  textElements,
+  setTextElements,
+  onHistoryChange, // 通知父组件历史记录变化
+}) => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentDrawPath, setCurrentDrawPath] = useState([]); // 当前正在绘制的路径
-  const [drawPaths, setDrawPaths] = useState([]); // 所有已保存的绘画路径
   const [lassoPath, setLassoPath] = useState([]);
   const [isLassoActive, setIsLassoActive] = useState(false);
-  const [textElements, setTextElements] = useState([]);
   const [currentText, setCurrentText] = useState(null);
   const canvas = canvasRef?.current;
   const svgRef = useRef(null);
 
-  // 从 localStorage 加载数据
-  // 注意：刷新页面时清空绘画历史，只保留文字元素
-  useEffect(() => {
-    try {
-      // 清空绘画历史（刷新页面时）
-      localStorage.removeItem('canvas_draw_paths');
-      setDrawPaths([]);
-      
-      // 保留文字元素（如果需要也清空文字，可以取消注释下面两行）
-      const savedTextElements = localStorage.getItem('canvas_text_elements');
-      if (savedTextElements) {
-        setTextElements(JSON.parse(savedTextElements));
-      }
-    } catch (e) {
-      console.error('[CanvasTools] Failed to load from localStorage:', e);
-    }
-  }, []);
-
-  // 保存绘画路径到 localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('canvas_draw_paths', JSON.stringify(drawPaths));
-    } catch (e) {
-      console.error('[CanvasTools] Failed to save draw paths:', e);
-    }
-  }, [drawPaths]);
-
-  // 保存文字元素到 localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('canvas_text_elements', JSON.stringify(textElements));
-    } catch (e) {
-      console.error('[CanvasTools] Failed to save text elements:', e);
-    }
-  }, [textElements]);
+  // 绘画路径和文字元素由父组件管理，这里只处理当前操作
 
   // 绘画工具
   const handleDrawStart = (e) => {
@@ -90,6 +64,10 @@ export const CanvasTools = ({ canvasRef, activeTool, onLassoSelect, selectedIds 
           setDrawPaths(prev => {
             const newPaths = [...prev, pathToSave];
             console.log('[Draw] Total paths after save:', newPaths.length);
+            // 通知父组件历史记录变化
+            if (onHistoryChange) {
+              onHistoryChange({ type: 'draw', action: 'add', path: pathToSave });
+            }
             return newPaths;
           });
         }
@@ -184,14 +162,30 @@ export const CanvasTools = ({ canvasRef, activeTool, onLassoSelect, selectedIds 
 
   const handleTextConfirm = (text) => {
     if (currentText && text.trim()) {
-      setTextElements(prev => [...prev, { ...currentText, text }]);
+      const newTextElement = { ...currentText, text };
+      setTextElements(prev => {
+        const newElements = [...prev, newTextElement];
+        // 通知父组件历史记录变化
+        if (onHistoryChange) {
+          onHistoryChange({ type: 'text', action: 'add', element: newTextElement });
+        }
+        return newElements;
+      });
     }
     setCurrentText(null);
   };
 
   // 删除文字元素
   const handleDeleteText = (textId) => {
-    setTextElements(prev => prev.filter(el => el.id !== textId));
+    setTextElements(prev => {
+      const deletedElement = prev.find(el => el.id === textId);
+      const newElements = prev.filter(el => el.id !== textId);
+      // 通知父组件历史记录变化
+      if (onHistoryChange && deletedElement) {
+        onHistoryChange({ type: 'text', action: 'delete', element: deletedElement });
+      }
+      return newElements;
+    });
   };
 
   // 事件监听
@@ -262,7 +256,7 @@ export const CanvasTools = ({ canvasRef, activeTool, onLassoSelect, selectedIds 
         }}
       >
         {/* 已保存的绘画路径 */}
-        {drawPaths.length > 0 && drawPaths.map((path, index) => {
+        {drawPaths && Array.isArray(drawPaths) && drawPaths.length > 0 && drawPaths.map((path, index) => {
           const pathString = getPathString(path);
           console.log(`[Draw] Rendering saved path ${index}:`, pathString.substring(0, 50));
           return (
@@ -306,7 +300,7 @@ export const CanvasTools = ({ canvasRef, activeTool, onLassoSelect, selectedIds 
       </svg>
 
       {/* 文字元素（可拖拽） */}
-      {textElements.map(textEl => (
+          {textElements && Array.isArray(textElements) && textElements.map(textEl => (
         <DraggableText
           key={textEl.id}
           id={textEl.id}
