@@ -42,43 +42,63 @@ async def _build_item_embedding(item: Dict, verbose: bool = False) -> Dict:
             text_vec = None
     
     # 图像 embedding（使用统一的 qwen2.5-vl-embedding）
-    # 流程：opengraph.py 获取 og:image URL → 下载到内存 → 处理为 Base64 → 生成 embedding
+    # 流程：
+    # - 如果是截图（Base64）：直接使用
+    # - 如果是 OpenGraph 图片 URL：下载 → 处理为 Base64 → 生成 embedding
     image_vec = None
     if USE_REMOTE_EMBEDDING and USE_IMAGE_EMBEDDING:
-        # 从 OpenGraph 数据中获取图片 URL（来自 opengraph.py 的 og:image 字段）
-        img_url = item.get("image")
-        if img_url:
+        # 从 OpenGraph 数据中获取图片（可能是 URL 或 Base64 截图）
+        img_data = item.get("image")
+        is_screenshot = item.get("is_screenshot", False)
+        
+        if img_data:
             if verbose:
-                print(f"[Pipeline] Image URL from OpenGraph: {img_url[:60]}...")
+                if is_screenshot:
+                    print(f"[Pipeline] Image is screenshot (Base64), length: {len(img_data)}")
+                else:
+                    print(f"[Pipeline] Image URL from OpenGraph: {img_data[:60]}...")
             
             try:
-                # 步骤1：下载图片到内存（来自 opengraph.py 的 og:image URL）
-                image_data = await download_image(img_url)
-                if not image_data:
+                # 检查是否为 Base64 截图（以 data:image 开头）
+                if is_screenshot or (isinstance(img_data, str) and img_data.startswith("data:image")):
+                    # 已经是 Base64 格式，直接使用
                     if verbose:
-                        print(f"[Pipeline] Failed to download image from URL")
-                    image_vec = None
+                        print(f"[Pipeline] Using screenshot Base64 directly (length: {len(img_data)})")
+                    image_vec = await embed_image(img_data)
+                    if verbose:
+                        if image_vec:
+                            print(f"[Pipeline] Image vector generated from screenshot: {len(image_vec)} dims")
+                        else:
+                            print(f"[Pipeline] Image vector: None (embedding API failed)")
                 else:
-                    if verbose:
-                        print(f"[Pipeline] Downloaded {len(image_data)} bytes from OpenGraph image URL")
-                    
-                    # 步骤2：处理图片（调整大小、压缩、转换为 Base64）
-                    img_b64 = process_image(image_data)
-                    if not img_b64:
+                    # 是 URL，需要下载并处理
+                    # 步骤1：下载图片到内存（来自 opengraph.py 的 og:image URL）
+                    image_data = await download_image(img_data)
+                    if not image_data:
                         if verbose:
-                            print(f"[Pipeline] Failed to process image (process_image returned None)")
+                            print(f"[Pipeline] Failed to download image from URL")
                         image_vec = None
                     else:
                         if verbose:
-                            print(f"[Pipeline] Processed image to Base64 (length: {len(img_b64)})")
+                            print(f"[Pipeline] Downloaded {len(image_data)} bytes from OpenGraph image URL")
                         
-                        # 步骤3：生成 embedding（使用 Base64 数据）
-                        image_vec = await embed_image(img_b64)
-                        if verbose:
-                            if image_vec:
-                                print(f"[Pipeline] Image vector generated: {len(image_vec)} dims")
-                            else:
-                                print(f"[Pipeline] Image vector: None (embedding API failed)")
+                        # 步骤2：处理图片（调整大小、压缩、转换为 Base64）
+                        img_b64 = process_image(image_data)
+                        if not img_b64:
+                            if verbose:
+                                print(f"[Pipeline] Failed to process image (process_image returned None)")
+                            image_vec = None
+                        else:
+                            if verbose:
+                                print(f"[Pipeline] Processed image to Base64 (length: {len(img_b64)})")
+                            
+                            # 步骤3：生成 embedding（使用 Base64 数据）
+                            image_vec = await embed_image(img_b64)
+                            if verbose:
+                                if image_vec:
+                                    print(f"[Pipeline] Image vector generated: {len(image_vec)} dims")
+                                else:
+                                    print(f"[Pipeline] Image vector: None (embedding API failed)")
             except Exception as e:
                 print(f"[Pipeline] ERROR getting image embedding: {type(e).__name__}: {str(e)}")
                 import traceback
@@ -86,7 +106,7 @@ async def _build_item_embedding(item: Dict, verbose: bool = False) -> Dict:
                 image_vec = None
         else:
             if verbose:
-                print(f"[Pipeline] No image URL in OpenGraph data (item.get('image') is empty)")
+                print(f"[Pipeline] No image data in OpenGraph item (item.get('image') is empty)")
     
     # 检查是否有任何 embedding
     has_embedding = (text_vec is not None) or (image_vec is not None)

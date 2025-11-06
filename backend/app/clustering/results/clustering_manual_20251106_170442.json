@@ -1,0 +1,93 @@
+{
+  "type": "manual",
+  "timestamp": "20251106_170442",
+  "result": {
+    "id": "cluster-5d043ee2",
+    "name": "绿色",
+    "type": "manual",
+    "items": [
+      {
+        "url": "https://www.pinterest.com/pin/2181499816076904/",
+        "title": "Young Mind, Old Soul",
+        "description": "Discover the fascinating world of art with this tutorial. Let your creativity bloom like the white flowers in the grass. #art #design #graphicdesign #flowers #illustrationart",
+        "image": "https://i.pinimg.com/736x/d1/b8/aa/d1b8aa98ca49d8d5ab303444f8a3aeef.jpg",
+        "site_name": "Pinterest",
+        "tab_id": 295356464,
+        "tab_title": "收藏到 ‧⁺ ❁",
+        "similarity": 0.06853037039795838,
+        "id": "og-search-295356464",
+        "x": 605,
+        "y": 532,
+        "width": 120,
+        "height": 120
+      },
+      {
+        "url": "https://www.pinterest.com/pin/8936899257847128/",
+        "title": "Pin by Sam Bond on UX-Patterns in 2025 | Instagram design creative, Graphic design inspiration, Design art",
+        "description": "Aug 20, 2025 - This Pin was discovered by Sam Bond. Discover (and save!) your own Pins on Pinterest",
+        "image": "https://i.pinimg.com/736x/f8/db/81/f8db81c209cd30cef7dff383531a7208.jpg",
+        "site_name": "Pinterest",
+        "tab_id": 295356465,
+        "tab_title": "收藏到 ART DIRECTION",
+        "similarity": 0.15844235725450304,
+        "id": "og-search-295356465",
+        "x": 830,
+        "y": 532,
+        "width": 120,
+        "height": 120
+      },
+      {
+        "url": "https://www.pinterest.com/pin/18225573487862981/",
+        "title": "Volvox aureus Green Alga in Pond Water",
+        "description": "Explore the beautiful Volvox aureus, a Chlorophyte or green alga, in pond water in the UK. Admire the larger spheres approximately 0.5mm in diameter. Perfect for nature enthusiasts and biology lovers.",
+        "image": "https://i.pinimg.com/736x/6b/8f/98/6b8f984b0220b8e4cfe3646ad987f098.jpg",
+        "site_name": "Pinterest",
+        "tab_id": 295356459,
+        "tab_title": "Volvox aureus from pond water | Alex Hyde",
+        "similarity": 0.17601112888696235,
+        "id": "og-search-295356459",
+        "x": 717,
+        "y": 727,
+        "width": 120,
+        "height": 120
+      },
+      {
+        "url": "https://www.pinterest.com/pin/492649952830045/",
+        "title": "Pin by Greta Maj on Pierrot Cinematography | Installation art, Cinematic photography, Photography inspo",
+        "description": "This Pin was discovered by Greta Maj. Discover (and save!) your own Pins on Pinterest",
+        "image": "https://i.pinimg.com/736x/dc/8b/a8/dc8ba8c36e43729abb2b7160088bf45d.jpg",
+        "site_name": "Pinterest",
+        "tab_id": 295356438,
+        "tab_title": "收藏到 Pierrot Cinematography",
+        "similarity": 0.11821408690505858,
+        "id": "og-search-295356438",
+        "x": 492,
+        "y": 727,
+        "width": 120,
+        "height": 120
+      },
+      {
+        "url": "https://www.youtube.com/watch?v=wC4R57IO7TM",
+        "title": "Tokyo Night Music | 昭和の懐かしきシティポップ 1980 | Drive,Chill, Cafe & Study【playlist】",
+        "description": "ご視聴いただきありがとうございます！このチャンネルは、レトロで懐かしい昭和のJ-POPをお楽しみいただけます♪レコードの音質や心地よいサウンドに包まれながら、青春の日々を思い返して、リラックスしたひとときをお楽しみください。This channel invites you to indulge in the no...",
+        "image": "https://i.ytimg.com/vi/wC4R57IO7TM/maxresdefault.jpg",
+        "site_name": "YouTube",
+        "tab_id": 295356409,
+        "tab_title": "(11) 东京夜间音乐 | 日本City Pop 80年代 | 放松、驾驶与学习 - YouTube",
+        "similarity": 0.18312438031573214,
+        "id": "og-search-295356409",
+        "x": 380,
+        "y": 532,
+        "width": 120,
+        "height": 120
+      }
+    ],
+    "center": {
+      "x": 664.8098999023438,
+      "y": 592.0098999023437
+    },
+    "radius": 351.0633387575158,
+    "created_at": "2025-11-06T17:04:42.820196",
+    "item_count": 5
+  }
+}

@@ -1,12 +1,19 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Component } from "../../components/Component";
+import { SearchBar } from "../../components/SearchBar";
+import { ToolSets } from "../../components/ToolSets";
 import { getImageUrl } from "../../shared/utils";
 import { DraggableImage } from "./DraggableImage";
 import { initialImages } from "./imageData";
 import { CanvasTools } from "./CanvasTools";
 import { OpenGraphCard } from "./OpenGraphCard";
 import { SelectionPanel } from "./SelectionPanel";
-import { generateEmbeddings, searchContent } from "../../shared/api";
+import { ClusterLabel } from "./ClusterLabel";
+import { useHistory } from "../../hooks/useHistory";
+import { useSearch } from "../../hooks/useSearch";
+import { calculateRadialLayout } from "../../utils/radialLayout";
+import { handleLassoSelect as handleLassoSelectUtil } from "../../utils/selection";
+import { createManualCluster, classifyByLabels, discoverClusters } from "../../shared/api";
 import "./style.css";
 
 export const PersonalSpace = () => {
@@ -27,19 +34,25 @@ export const PersonalSpace = () => {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [activeTool, setActiveTool] = useState(null); // 'draw' | 'lasso' | 'text' | null
   const canvasRef = useRef(null);
+  const containerRef = useRef(null);
   
   // 画布缩放和平移状态
   const [zoom, setZoom] = useState(1); // 缩放比例，1 = 100%
   const [pan, setPan] = useState({ x: 0, y: 0 }); // 平移位置
+  
+  // 拖拽画布状态
+  const [isPanning, setIsPanning] = useState(false);
+  // 记录拖拽开始时的鼠标位置与初始 pan（避免因 transform 导致的 rect 变化抖动）
+  const [panStartMouse, setPanStartMouse] = useState({ x: 0, y: 0 });
+  const [panStartPan, setPanStartPan] = useState({ x: 0, y: 0 });
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
 
   // 画布工具状态（由父组件管理，支持撤销/重做）
   const [drawPaths, setDrawPaths] = useState([]);
   const [textElements, setTextElements] = useState([]);
   
-  // 撤销/重做历史记录
-  const [history, setHistory] = useState([]); // 历史记录栈
-  const [historyIndex, setHistoryIndex] = useState(-1); // 当前历史记录索引
-  const [selectedIdsHistory, setSelectedIdsHistory] = useState([]); // 选中状态历史
+  // 撤销/重做历史记录（使用 hook）
+  const { history, historyIndex, addToHistory, canUndo, canRedo, setHistoryIndex } = useHistory(50);
 
   // AI 聚类面板显示状态
   const [showAIClusteringPanel, setShowAIClusteringPanel] = useState(false);
@@ -47,11 +60,21 @@ export const PersonalSpace = () => {
   // 选中分组名称
   const [selectedGroupName, setSelectedGroupName] = useState("未命名分组");
 
-  // 搜索相关状态
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
-  const [opengraphWithEmbeddings, setOpengraphWithEmbeddings] = useState([]); // 带Embedding的OpenGraph数据
-  const [searchResults, setSearchResults] = useState(null); // 搜索结果（null表示未搜索）
+  // 聚类相关状态
+  const [clusters, setClusters] = useState([]); // 所有聚类列表
+  const [isClustering, setIsClustering] = useState(false); // 是否正在聚类
+  const [aiLabels, setAiLabels] = useState(["设计", "工作文档"]); // AI 聚类标签（预设两个）
+
+  // 搜索相关状态（使用 hook）
+  const {
+    searchQuery,
+    setSearchQuery,
+    isSearching,
+    opengraphWithEmbeddings,
+    searchResults,
+    performSearch,
+    clearSearch,
+  } = useSearch(opengraphData);
 
   // 从 storage 加载 OpenGraph 数据
   useEffect(() => {
@@ -83,12 +106,12 @@ export const PersonalSpace = () => {
             if (validOG.length > 0) {
               setShowOriginalImages(false); // 隐藏原有图片
               
-            // 计算放射状布局位置，并为每个 OpenGraph 图片生成唯一 ID
-            const positionedOG = calculateRadialLayout(validOG).map((og, index) => ({
-              ...og,
-              id: `og-${index}-${Date.now()}`, // 生成唯一 ID
-            }));
-            setOpengraphData(positionedOG);
+              // 计算放射状布局位置，并为每个 OpenGraph 图片生成唯一 ID
+              const positionedOG = calculateRadialLayout(validOG).map((og, index) => ({
+                ...og,
+                id: `og-${index}-${Date.now()}`, // 生成唯一 ID
+              }));
+              setOpengraphData(positionedOG);
             }
           }
         } catch (error) {
@@ -98,255 +121,18 @@ export const PersonalSpace = () => {
     }
   }, []);
 
-  // 计算放射状布局（从圆心开始，一圈一圈向外）
-  const calculateRadialLayout = (ogData) => {
-    if (!ogData || !Array.isArray(ogData) || ogData.length === 0) {
-      return [];
-    }
-    
-    const centerX = 720; // 画布中心 X (1440 / 2)
-    const centerY = 512; // 画布中心 Y (1024 / 2)
-    const imageSize = 120; // 图片大小
-    const spacing = 150; // 每圈之间的间距
-    
-    const positioned = [];
-    let currentRing = 0;
-    let currentIndexInRing = 0;
-    let itemsInCurrentRing = 1; // 第一圈 1 个，第二圈 6 个，第三圈 12 个...
-    
-    ogData.forEach((item, index) => {
-      if (!item || typeof item !== 'object') {
-        console.warn('[PersonalSpace] Invalid item in OpenGraph data:', item);
-        return;
-      }
-      if (currentIndexInRing >= itemsInCurrentRing) {
-        currentRing++;
-        currentIndexInRing = 0;
-        // 每圈数量：1, 6, 12, 18, 24...
-        itemsInCurrentRing = currentRing === 0 ? 1 : currentRing * 6;
-      }
-      
-      const angleStep = (2 * Math.PI) / itemsInCurrentRing;
-      const angle = currentIndexInRing * angleStep;
-      const radius = currentRing * spacing + (currentRing === 0 ? 0 : spacing / 2);
-      
-      const x = centerX + Math.cos(angle) * radius - imageSize / 2;
-      const y = centerY + Math.sin(angle) * radius - imageSize / 2;
-      
-      positioned.push({
-        ...item,
-        x: Math.round(x),
-        y: Math.round(y),
-        width: imageSize,
-        height: imageSize,
-      });
-      
-      currentIndexInRing++;
-    });
-    
-    return positioned;
-  };
-
-  // 为OpenGraph数据生成Embedding（批量处理，避免过载）
-  const handleGenerateEmbeddings = async () => {
-    if (!opengraphData || opengraphData.length === 0) {
-      console.warn('[Search] No OpenGraph data to process');
-      return [];
-    }
-
-    try {
-      setIsSearching(true);
-      console.log('[Search] Generating embeddings for', opengraphData.length, 'items');
-      
-      // 分批处理，每批10个，避免过载
-      const batchSize = 10;
-      const batches = [];
-      for (let i = 0; i < opengraphData.length; i += batchSize) {
-        batches.push(opengraphData.slice(i, i + batchSize));
-      }
-
-      const allProcessedItems = [];
-      for (let i = 0; i < batches.length; i++) {
-        console.log(`[Search] Processing batch ${i + 1}/${batches.length}`);
-        const batch = batches[i];
-        const result = await generateEmbeddings(batch);
-        
-        if (result.ok && result.data) {
-          allProcessedItems.push(...result.data);
-        }
-        
-        // 批次间延迟，避免API限流
-        if (i < batches.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      }
-
-      // 检查 embedding 是否包含
-      const itemsWithEmbedding = allProcessedItems.filter(item => item.embedding).length;
-      console.log('[Search] Generated embeddings for', allProcessedItems.length, 'items,', itemsWithEmbedding, 'have embedding');
-      if (itemsWithEmbedding === 0 && allProcessedItems.length > 0) {
-        console.warn('[Search] WARNING: No embeddings in processed items!', allProcessedItems[0]);
-      }
-      
-      // 保存到状态
-      setOpengraphWithEmbeddings(allProcessedItems);
-      // 同时返回数据，避免状态更新延迟问题
-      return allProcessedItems;
-    } catch (error) {
-      console.error('[Search] Error generating embeddings:', error);
-      alert('生成Embedding失败：' + (error.message || '未知错误'));
-      return [];
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // 执行搜索
+  // 执行搜索（使用 hook）
   const handleSearch = async () => {
-    if (!searchQuery.trim()) {
-      setSearchResults(null);
-      return;
-    }
-
-    const baseItems = opengraphWithEmbeddings.length > 0 ? opengraphWithEmbeddings : opengraphData;
-
-    // 本地兜底：根据标题/描述做简单模糊排序（包含/分词重叠）
-    const fuzzyRankLocally = (query, items) => {
-      const q = query.toLowerCase().trim();
-      const qTokens = q.split(/\s+/).filter(Boolean);
-      const scored = items.map((it, idx) => {
-        const text = ((it.title || it.tab_title || "") + " " + (it.description || "")).toLowerCase();
-        let score = 0;
-        if (text.includes(q)) score += 3; // 整体包含加权
-        for (const t of qTokens) {
-          if (t && text.includes(t)) score += 1; // 分词包含加分
-        }
-        // 轻微提升标题命中
-        const titleText = (it.title || it.tab_title || "").toLowerCase();
-        if (titleText.includes(q)) score += 1;
-        // 归一化到 [0, 1] 范围（粗略近似）
-        const normalizedScore = Math.min(score / 10.0, 1.0);
-        return { ...it, similarity: normalizedScore, idx };
-      });
-      // 如果全部为0分，也返回原列表但保证有序
-      scored.sort((a, b) => (b.similarity - a.similarity) || (a.idx - b.idx));
-      return scored;
-    };
-
-    // 如果没有 Embedding，先生成
-    let itemsToSearch = opengraphWithEmbeddings.length > 0 ? opengraphWithEmbeddings : opengraphData;
-    if (opengraphWithEmbeddings.length === 0) {
-      console.log('[Search] No embeddings found, generating...');
-      const generatedItems = await handleGenerateEmbeddings();
-      // 直接使用返回的数据，避免状态更新延迟
-      if (generatedItems && generatedItems.length > 0) {
-        itemsToSearch = generatedItems;
-        console.log('[Search] Using freshly generated embeddings:', generatedItems.filter(item => item.embedding).length, 'have embedding');
-      }
-    }
-
-    try {
-      setIsSearching(true);
-      console.log('[Search] Searching for:', searchQuery);
-      const itemsWithEmbedding = itemsToSearch.filter(item => item.embedding).length;
-      console.log('[Search] Sending', itemsToSearch.length, 'items,', itemsWithEmbedding, 'have embedding');
-      
-      const result = await searchContent(
-        searchQuery,
-        null, // 暂时不支持图片搜索
-        itemsToSearch
-      );
-
-      let finalList = [];
-      if (result && result.ok && Array.isArray(result.data) && result.data.length > 0) {
-        finalList = result.data;
-      } else {
-        console.warn('[Search] Backend returned empty, using local fuzzy ranking');
-        finalList = fuzzyRankLocally(searchQuery, baseItems);
-      }
-      
-      // 按相似度排序（降序，最相关在前）
-      finalList.sort((a, b) => {
-        const simA = a.similarity ?? 0;
-        const simB = b.similarity ?? 0;
-        return simB - simA; // 降序
-      });
-      
-      console.log('[Search] Sorted results (top 5):', finalList.slice(0, 5).map(r => ({
-        title: r.title || r.tab_title,
-        similarity: r.similarity
-      })));
-      
-      // 根据相似度/分数排列结果（圆形布局，最相关在内环）
-      const searchResultItems = finalList.map((item, index) => ({
-        ...item,
-        id: item.tab_id ? `og-search-${item.tab_id}` : `og-search-${index}-${Date.now()}`,
-      }));
-      
-      // 计算圆形布局位置（已按相关性排序，最相关在内环）
-      const positionedResults = calculateRadialLayout(searchResultItems);
-      
-      console.log('[Search] Positioned results (first 3):', positionedResults.slice(0, 3).map(r => ({
-        title: r.title || r.tab_title,
-        x: r.x,
-        y: r.y,
-        similarity: r.similarity
-      })));
-      
-      // 确保每个结果都有唯一的 ID 和位置信息
-      const finalResults = positionedResults.map((item, idx) => ({
-        ...item,
-        id: item.id || `og-search-${idx}-${Date.now()}`,
-        x: item.x ?? 720, // 默认中心位置
-        y: item.y ?? 512,
-        width: item.width ?? 120,
-        height: item.height ?? 120,
-      }));
-      
-      setSearchResults(finalResults);
-      
-      // 更新显示的OpenGraph数据（这会触发重新渲染）
-      setOpengraphData(finalResults);
+    const results = await performSearch(searchQuery, calculateRadialLayout);
+    if (results && results.length > 0) {
+      setOpengraphData(results);
       setShowOriginalImages(false);
-      
-      console.log('[Search] Updated opengraphData with', finalResults.length, 'items');
-    } catch (error) {
-      console.error('[Search] Error searching:', error);
-      // 出错也做兜底
-      const fallback = fuzzyRankLocally(searchQuery, baseItems);
-      // 按相似度排序（降序）
-      fallback.sort((a, b) => {
-        const simA = a.similarity ?? 0;
-        const simB = b.similarity ?? 0;
-        return simB - simA;
-      });
-      const fallbackItems = fallback.map((item, index) => ({
-        ...item,
-        id: item.tab_id ? `og-search-${item.tab_id}` : `og-search-${index}-${Date.now()}`,
-      }));
-      const positioned = calculateRadialLayout(fallbackItems);
-      // 确保每个结果都有完整的位置信息
-      const finalFallback = positioned.map((item, idx) => ({
-        ...item,
-        id: item.id || `og-search-${idx}-${Date.now()}`,
-        x: item.x ?? 720,
-        y: item.y ?? 512,
-        width: item.width ?? 120,
-        height: item.height ?? 120,
-      }));
-      setSearchResults(finalFallback);
-      setOpengraphData(finalFallback);
-      setShowOriginalImages(false);
-      console.log('[Search] Fallback: Updated opengraphData with', finalFallback.length, 'items');
-    } finally {
-      setIsSearching(false);
     }
   };
 
-  // 清空搜索
+  // 清空搜索（使用 hook）
   const handleClearSearch = () => {
-    setSearchQuery("");
-    setSearchResults(null);
+    clearSearch();
     // 恢复原始数据
     if (opengraphData.length > 0) {
       const originalData = calculateRadialLayout(opengraphData);
@@ -421,163 +207,17 @@ export const PersonalSpace = () => {
     }
   };
 
-  // 改进的套索选择 - 更精确的碰撞检测
+  // 套索选择（使用工具函数）
   const handleLassoSelect = (lassoPath) => {
-    if (!lassoPath || lassoPath.length < 3) return;
-    
-    const selected = new Set(selectedIds); // 保留已选中的
-    
-    // 处理原有图片
-    images.forEach(img => {
-      // 检查图片是否与套索路径相交
-      const imgRect = {
-        left: img.x,
-        top: img.y,
-        right: img.x + img.width,
-        bottom: img.y + img.height,
-      };
-      
-      // 检查图片的四个角是否在套索内
-      const corners = [
-        { x: img.x, y: img.y },
-        { x: img.x + img.width, y: img.y },
-        { x: img.x, y: img.y + img.height },
-        { x: img.x + img.width, y: img.y + img.height },
-        { x: img.x + img.width / 2, y: img.y + img.height / 2 },
-      ];
-      
-      // 如果任何一个点在套索内，或套索路径穿过图片矩形，则选中
-      const hasPointInLasso = corners.some(corner => 
-        isPointInPolygon(corner.x, corner.y, lassoPath)
-      );
-      
-      const hasPathIntersection = lassoPath.some(point => 
-        point.x >= imgRect.left && point.x <= imgRect.right &&
-        point.y >= imgRect.top && point.y <= imgRect.bottom
-      );
-      
-      // 检查套索边界是否与图片矩形相交
-      const hasBoundaryIntersection = isPolylineIntersectRect(lassoPath, imgRect);
-      
-      if (hasPointInLasso || hasPathIntersection || hasBoundaryIntersection) {
-        selected.add(img.id);
-      }
-    });
-    
-    // 处理 OpenGraph 图片
-    if (opengraphData && Array.isArray(opengraphData)) {
-      opengraphData.forEach(og => {
-        if (!og || !og.x || !og.y || !og.width || !og.height) return;
-        
-        const ogRect = {
-          left: og.x,
-          top: og.y,
-          right: og.x + og.width,
-          bottom: og.y + og.height,
-        };
-        
-        // 检查 OpenGraph 图片的四个角和中心点
-        const corners = [
-          { x: og.x, y: og.y },
-          { x: og.x + og.width, y: og.y },
-          { x: og.x, y: og.y + og.height },
-          { x: og.x + og.width, y: og.y + og.height },
-          { x: og.x + og.width / 2, y: og.y + og.height / 2 },
-        ];
-        
-        const hasPointInLasso = corners.some(corner => 
-          isPointInPolygon(corner.x, corner.y, lassoPath)
-        );
-        
-        const hasPathIntersection = lassoPath.some(point => 
-          point.x >= ogRect.left && point.x <= ogRect.right &&
-          point.y >= ogRect.top && point.y <= ogRect.bottom
-        );
-        
-        const hasBoundaryIntersection = isPolylineIntersectRect(lassoPath, ogRect);
-        
-        if (hasPointInLasso || hasPathIntersection || hasBoundaryIntersection) {
-          selected.add(og.id);
-        }
-      });
-    }
-    
     const prevSelected = new Set(selectedIds);
+    const selected = handleLassoSelectUtil(lassoPath, images, opengraphData);
     setSelectedIds(selected);
     // 记录选中状态到历史
-    addToHistory({ type: 'selection', action: 'select', selectedIds: Array.from(selected), prevSelectedIds: Array.from(prevSelected) });
-  };
-
-  // 判断点是否在多边形内（射线法）
-  const isPointInPolygon = (x, y, polygon) => {
-    if (!polygon || polygon.length < 3) return false;
-    let inside = false;
-    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-      const xi = polygon[i].x, yi = polygon[i].y;
-      const xj = polygon[j].x, yj = polygon[j].y;
-      const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-      if (intersect) inside = !inside;
-    }
-    return inside;
-  };
-
-  // 检查折线是否与矩形相交
-  const isPolylineIntersectRect = (polyline, rect) => {
-    for (let i = 0; i < polyline.length - 1; i++) {
-      const p1 = polyline[i];
-      const p2 = polyline[i + 1];
-      
-      // 检查线段是否与矩形相交
-      if (isLineIntersectRect(p1, p2, rect)) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  // 检查线段是否与矩形相交
-  const isLineIntersectRect = (p1, p2, rect) => {
-    // 快速检查：线段的两端都在矩形外的同一侧
-    if ((p1.x < rect.left && p2.x < rect.left) ||
-        (p1.x > rect.right && p2.x > rect.right) ||
-        (p1.y < rect.top && p2.y < rect.top) ||
-        (p1.y > rect.bottom && p2.y > rect.bottom)) {
-      return false;
-    }
-    
-    // 检查线段是否与矩形的四条边相交
-    return (
-      lineSegmentIntersect(p1, p2, { x: rect.left, y: rect.top }, { x: rect.right, y: rect.top }) ||
-      lineSegmentIntersect(p1, p2, { x: rect.right, y: rect.top }, { x: rect.right, y: rect.bottom }) ||
-      lineSegmentIntersect(p1, p2, { x: rect.right, y: rect.bottom }, { x: rect.left, y: rect.bottom }) ||
-      lineSegmentIntersect(p1, p2, { x: rect.left, y: rect.bottom }, { x: rect.left, y: rect.top })
-    );
-  };
-
-  // 检查两条线段是否相交
-  const lineSegmentIntersect = (p1, p2, p3, p4) => {
-    const ccw = (A, B, C) => {
-      return (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x);
-    };
-    
-    return ccw(p1, p3, p4) !== ccw(p2, p3, p4) && ccw(p1, p2, p3) !== ccw(p1, p2, p4);
-  };
-
-  // 历史记录管理
-  const addToHistory = (action) => {
-    setHistory(prev => {
-      // 如果当前不在历史记录末尾，删除后面的记录
-      const newHistory = prev.slice(0, historyIndex + 1);
-      // 添加新操作
-      newHistory.push(action);
-      // 限制历史记录数量（最多 50 条）
-      if (newHistory.length > 50) {
-        newHistory.shift();
-        setHistoryIndex(newHistory.length - 1);
-      } else {
-        setHistoryIndex(newHistory.length - 1);
-      }
-      return newHistory;
+    addToHistory({ 
+      type: 'selection', 
+      action: 'select', 
+      selectedIds: Array.from(selected), 
+      prevSelectedIds: Array.from(prevSelected) 
     });
   };
 
@@ -763,6 +403,27 @@ export const PersonalSpace = () => {
     }
   };
 
+  // 判断是否点击在画布空白区域（而非图片/控件等）
+  const isBlankCanvasTarget = (e) => {
+    const target = e.target;
+    if (!target) return false;
+    const canvas = canvasRef.current;
+    if (!canvas) return false;
+    const isCanvas = target === canvas || (target.classList && target.classList.contains('canvas'));
+    const inPersonalSpace = target.closest('.personal-space');
+    // 排除图片、工具按钮、文字元素、输入框、SVG 等
+    if (target.closest('img') ||
+        target.closest('.tool-button-wrapper') ||
+        target.closest('.canvas-text-element') ||
+        target.closest('input') ||
+        target.closest('svg') ||
+        target.closest('path')) {
+      return false;
+    }
+    // 允许：点击在 canvas 本身，或点击在个人空间背景（不在图片/控件上）
+    return isCanvas || !!inPersonalSpace;
+  };
+
       // 处理点击空白处取消选择
       const handleCanvasClick = (e) => {
         // 如果有工具激活（套索、绘画、文字），不处理点击取消选择
@@ -790,64 +451,171 @@ export const PersonalSpace = () => {
         }
       };
 
-      // 处理鼠标滚轮缩放
-      const handleWheel = (e) => {
-        // 如果正在使用工具，不处理滚轮事件
-        if (activeTool) {
-          return;
-        }
-        
-        // 注意：不要在被动监听器中调用 preventDefault()
-        
+      // 处理空格键按下/释放（用于拖拽画布）
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          if (e.code === 'Space' && !activeTool) {
+            e.preventDefault();
+            setIsSpacePressed(true);
+            // 改变光标为抓取手型
+            if (canvasRef.current) {
+              canvasRef.current.style.cursor = 'grab';
+            }
+          }
+        };
+
+        const handleKeyUp = (e) => {
+          if (e.code === 'Space') {
+            setIsSpacePressed(false);
+            setIsPanning(false);
+            // 恢复光标
+            if (canvasRef.current) {
+              canvasRef.current.style.cursor = getCanvasCursor();
+            }
+          }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+
+        return () => {
+          window.removeEventListener('keydown', handleKeyDown);
+          window.removeEventListener('keyup', handleKeyUp);
+        };
+      }, [activeTool]);
+
+      // 处理鼠标拖拽画布（空格键 + 拖拽 或 中键拖拽）
+      useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const handleMouseDown = (e) => {
+          // 左键点击画布空白处即可拖拽；中键拖拽；或空格+左键
+          const leftOnBlank = (e.button === 0) && isBlankCanvasTarget(e);
+          const shouldPan = leftOnBlank || e.button === 1 || (isSpacePressed && e.button === 0);
+          
+          if (shouldPan && !activeTool) {
+            e.preventDefault();
+            setIsPanning(true);
+            // 记录开始时的屏幕坐标与初始 pan
+            setPanStartMouse({ x: e.clientX, y: e.clientY });
+            setPanStartPan({ x: pan.x, y: pan.y });
+            canvas.style.cursor = 'grabbing';
+          }
+        };
+
+        const handleMouseMove = (e) => {
+          if (isPanning) {
+            e.preventDefault();
+            const dx = e.clientX - panStartMouse.x;
+            const dy = e.clientY - panStartMouse.y;
+            setPan({ x: panStartPan.x + dx, y: panStartPan.y + dy });
+          }
+        };
+
+        const handleMouseUp = (e) => {
+          if (isPanning) {
+            e.preventDefault();
+            setIsPanning(false);
+            canvas.style.cursor = isSpacePressed ? 'grab' : getCanvasCursor();
+          }
+        };
+
+        // 阻止中键默认行为（打开新标签页）
+        const handleAuxClick = (e) => {
+          if (e.button === 1 && !activeTool) {
+            e.preventDefault();
+          }
+        };
+
+        container.addEventListener('mousedown', handleMouseDown);
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        container.addEventListener('auxclick', handleAuxClick);
+
+        return () => {
+          container.removeEventListener('mousedown', handleMouseDown);
+          window.removeEventListener('mousemove', handleMouseMove);
+          window.removeEventListener('mouseup', handleMouseUp);
+          container.removeEventListener('auxclick', handleAuxClick);
+        };
+      }, [isPanning, panStartMouse, panStartPan, isSpacePressed, activeTool, pan]);
+
+      // 处理鼠标滚轮缩放（优化版，更平滑）
+      useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        
-        // 获取 canvas 的边界框
-        const rect = canvas.getBoundingClientRect();
-        
-        // 获取鼠标相对于视口的位置
-        const mouseX = e.clientX;
-        const mouseY = e.clientY;
-        
-        // 计算鼠标相对于 canvas 中心的位置（考虑当前的缩放和平移）
-        // canvas 原本是居中定位的，所以需要计算相对于中心的偏移
-        const canvasCenterX = rect.left + rect.width / 2;
-        const canvasCenterY = rect.top + rect.height / 2;
-        
-        // 鼠标相对于 canvas 中心的距离（在视口坐标系中）
-        const offsetX = mouseX - canvasCenterX;
-        const offsetY = mouseY - canvasCenterY;
-        
-        // 计算缩放前的鼠标在画布内容空间中的位置（考虑当前的缩放和平移）
-        const contentX = (offsetX - pan.x) / zoom;
-        const contentY = (offsetY - pan.y) / zoom;
-        
-        // 计算新的缩放比例（限制在 0.1 到 5 倍之间）
-        const zoomSpeed = 0.1;
-        const zoomDelta = e.deltaY > 0 ? -zoomSpeed : zoomSpeed;
-        const newZoom = Math.max(0.1, Math.min(5, zoom + zoomDelta));
-        
-        // 计算新的平移位置，使鼠标指向的内容位置保持不变
-        // 缩放后，要使同一个内容位置仍在鼠标下
-        const newPanX = offsetX - contentX * newZoom;
-        const newPanY = offsetY - contentY * newZoom;
-        
-        setZoom(newZoom);
-        setPan({ x: newPanX, y: newPanY });
-      };
+
+        const handleWheel = (e) => {
+          // 如果正在使用工具或正在拖拽，不处理滚轮事件
+          if (activeTool || isPanning) {
+            return;
+          }
+          
+          // 检查鼠标是否在 canvas 内
+          const rect = canvas.getBoundingClientRect();
+          const mouseX = e.clientX;
+          const mouseY = e.clientY;
+          
+          if (
+            mouseX < rect.left ||
+            mouseX > rect.right ||
+            mouseY < rect.top ||
+            mouseY > rect.bottom
+          ) {
+            return; // 鼠标不在 canvas 内，不处理
+          }
+          
+          // 阻止默认滚动行为（仅在 canvas 内）
+          e.preventDefault();
+          
+          // 计算鼠标相对于视口中心的位置
+          const viewportCenterX = window.innerWidth / 2;
+          const viewportCenterY = window.innerHeight / 2;
+          
+          // 鼠标相对于视口中心的位置
+          const offsetX = mouseX - viewportCenterX;
+          const offsetY = mouseY - viewportCenterY;
+          
+          // 计算缩放前的鼠标在画布内容空间中的位置
+          const contentX = (offsetX - pan.x) / zoom;
+          const contentY = (offsetY - pan.y) / zoom;
+          
+          // 计算新的缩放比例（更平滑的缩放速度，支持 Ctrl/Cmd 键加速）
+          const isAccelerated = e.ctrlKey || e.metaKey;
+          const baseZoomSpeed = 0.05;
+          const zoomSpeed = isAccelerated ? baseZoomSpeed * 2 : baseZoomSpeed;
+          const zoomDelta = e.deltaY > 0 ? -zoomSpeed : zoomSpeed;
+          const newZoom = Math.max(0.05, Math.min(10, zoom + zoomDelta));
+          
+          // 计算新的平移位置，使鼠标指向的内容位置保持不变
+          const newPanX = offsetX - contentX * newZoom;
+          const newPanY = offsetY - contentY * newZoom;
+          
+          setZoom(newZoom);
+          setPan({ x: newPanX, y: newPanY });
+        };
+
+        // 添加非被动事件监听器
+        canvas.addEventListener('wheel', handleWheel, { passive: false });
+
+        return () => {
+          canvas.removeEventListener('wheel', handleWheel);
+        };
+      }, [activeTool, zoom, pan, isPanning]);
 
       return (
-        <div className="personal-space">
+        <div className="personal-space" ref={containerRef}>
           <div 
             className="canvas" 
             ref={canvasRef}
             style={{ 
-              cursor: getCanvasCursor(),
+              cursor: isPanning ? 'grabbing' : (isSpacePressed ? 'grab' : getCanvasCursor()),
               transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
               transformOrigin: 'center center',
+              transition: isPanning ? 'none' : 'transform 0.1s ease-out', // 平滑过渡（拖拽时禁用）
             }}
             onClick={handleCanvasClick}
-            onWheel={handleWheel}
           >
         {/* 原有图片（仅在未加载 OpenGraph 时显示） */}
         {showOriginalImages && images.map(img => (
@@ -906,6 +674,19 @@ export const PersonalSpace = () => {
           );
         })}
 
+        {/* 聚类中心标签 */}
+        {clusters.map((cluster) => (
+          <ClusterLabel
+            key={cluster.id}
+            cluster={cluster}
+            onRename={(clusterId, newName) => {
+              setClusters(prev => prev.map(c => 
+                c.id === clusterId ? { ...c, name: newName } : c
+              ));
+            }}
+          />
+        ))}
+
         {/* 保留非图片元素 */}
         <div className="i-leave-you-love-and" />
         <div className="live-NEAR" />
@@ -951,56 +732,13 @@ export const PersonalSpace = () => {
         <div className="text-wrapper-18">我的收藏</div>
       </div>
 
-      <div className="search-bar">
-        <img className="image-12" alt="Search icon" src={getImageUrl("5.svg")} />
-        
-        <input
-          type="text"
-          className="search-input"
-          placeholder="请输入搜索内容..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              handleSearch();
-            } else if (e.key === 'Escape') {
-              handleClearSearch();
-            }
-          }}
-          style={{
-            flex: 1,
-            border: 'none',
-            outline: 'none',
-            background: 'transparent',
-            fontSize: '16px',
-            fontFamily: '"SF Pro Display-Regular", Helvetica',
-            color: '#000000',
-          }}
-        />
-        
-        {isSearching && (
-          <div style={{ fontSize: '12px', color: '#666', marginRight: '8px' }}>
-            搜索中...
-          </div>
-        )}
-        
-        {searchQuery && (
-          <button
-            onClick={handleClearSearch}
-            style={{
-              border: 'none',
-              background: 'transparent',
-              cursor: 'pointer',
-              padding: '4px 8px',
-              fontSize: '12px',
-              color: '#666',
-            }}
-            title="清空搜索"
-          >
-            ✕
-          </button>
-        )}
-      </div>
+      <SearchBar
+        searchQuery={searchQuery}
+        onSearchQueryChange={setSearchQuery}
+        onSearch={handleSearch}
+        onClear={handleClearSearch}
+        isSearching={isSearching}
+      />
 
       <img
         className="view-buttons"
@@ -1019,19 +757,112 @@ export const PersonalSpace = () => {
             }
           }}
         >
-        <div className="design-tag">
-          <div className="text-wrapper-20">设计</div>
-        </div>
+        {/* 标签列表 */}
+        {aiLabels.map((label, index) => (
+          <div 
+            key={index}
+            className={index === 0 ? "design-tag" : "workdoc-tag"}
+            style={{ cursor: 'pointer', position: 'relative' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              // 点击标签可编辑（简化版：直接删除）
+              if (window.confirm(`删除标签 "${label}"？`)) {
+                setAiLabels(prev => prev.filter((_, i) => i !== index));
+              }
+            }}
+          >
+            <div className={index === 0 ? "text-wrapper-20" : "text-wrapper-21"}>{label}</div>
+          </div>
+        ))}
 
-        <div className="workdoc-tag">
-          <div className="text-wrapper-21">工作文档</div>
-        </div>
+        {/* 添加标签按钮 */}
+        {aiLabels.length < 3 && (
+          <div 
+            className="add-tag"
+            style={{ cursor: 'pointer' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              const newLabel = prompt('请输入新标签名称（最多3个标签）：');
+              if (newLabel && newLabel.trim() && aiLabels.length < 3) {
+                setAiLabels(prev => [...prev, newLabel.trim()]);
+              }
+            }}
+          >
+            <div className="text-wrapper-22">+</div>
+          </div>
+        )}
 
-        <div className="add-tag">
-          <div className="text-wrapper-22"></div>
-        </div>
-
-        <div className="upload">
+        {/* 上传按钮（触发按标签分类） */}
+        <div 
+          className="upload"
+          style={{ cursor: isClustering ? 'not-allowed' : 'pointer', opacity: isClustering ? 0.6 : 1 }}
+          onClick={async (e) => {
+            e.stopPropagation();
+            if (isClustering || aiLabels.length === 0) return;
+            
+            try {
+              setIsClustering(true);
+              const allItems = showOriginalImages ? images : opengraphData;
+              
+              // 获取已聚类的卡片 ID（排除用户自定义聚类）
+              const clusteredItemIds = clusters
+                .filter(c => c.type === 'manual')
+                .flatMap(c => (c.items || []).map(item => item.id))
+                .filter(Boolean);
+              
+              // 确保 items 包含 embedding
+              const itemsWithEmbedding = allItems.filter(item => 
+                item.text_embedding || item.image_embedding
+              );
+              
+              if (itemsWithEmbedding.length === 0) {
+                alert('请先为卡片生成 embedding（可以通过搜索功能自动生成）');
+                return;
+              }
+              
+              const result = await classifyByLabels(
+                aiLabels,
+                itemsWithEmbedding,
+                clusteredItemIds.length > 0 ? clusteredItemIds : null
+              );
+              
+              if (result && result.ok && result.clusters) {
+                // 添加聚类到列表
+                setClusters(prev => [...prev, ...result.clusters]);
+                
+                // 从原数据中移除已聚类的卡片
+                const classifiedItemIds = new Set(
+                  result.clusters.flatMap(c => (c.items || []).map(item => item.id))
+                );
+                
+                if (showOriginalImages) {
+                  setImages(prev => prev.filter(img => !classifiedItemIds.has(img.id)));
+                } else {
+                  setOpengraphData(prev => prev.filter(og => !classifiedItemIds.has(og.id)));
+                }
+                
+                // 将聚类中的卡片添加到画布
+                result.clusters.forEach(cluster => {
+                  const clusterItems = cluster.items || [];
+                  if (clusterItems.length > 0) {
+                    if (showOriginalImages) {
+                      setImages(prev => [...prev, ...clusterItems]);
+                    } else {
+                      setOpengraphData(prev => [...prev, ...clusterItems]);
+                    }
+                  }
+                });
+                
+                console.log('[Clustering] AI classify completed:', result.clusters);
+              }
+            } catch (error) {
+              console.error('[Clustering] Failed to classify by labels:', error);
+              alert('AI 分类失败：' + (error.message || '未知错误'));
+            } finally {
+              setIsClustering(false);
+            }
+          }}
+        >
           <div className="upload-tag">
             <div className="image-wrapper">
               <img className="image-13" alt="Image" src={getImageUrl("1.svg")} />
@@ -1041,7 +872,77 @@ export const PersonalSpace = () => {
 
         <div className="rectangle" />
 
-        <div className="auto-cluster">
+        {/* 自动聚类按钮 */}
+        <div 
+          className="auto-cluster"
+          style={{ cursor: isClustering ? 'not-allowed' : 'pointer', opacity: isClustering ? 0.6 : 1 }}
+          onClick={async (e) => {
+            e.stopPropagation();
+            if (isClustering) return;
+            
+            try {
+              setIsClustering(true);
+              const allItems = showOriginalImages ? images : opengraphData;
+              
+              // 获取已聚类的卡片 ID（排除用户自定义聚类）
+              const clusteredItemIds = clusters
+                .filter(c => c.type === 'manual')
+                .flatMap(c => (c.items || []).map(item => item.id))
+                .filter(Boolean);
+              
+              // 确保 items 包含 embedding
+              const itemsWithEmbedding = allItems.filter(item => 
+                item.text_embedding || item.image_embedding
+              );
+              
+              if (itemsWithEmbedding.length < 3) {
+                alert('至少需要3个有 embedding 的卡片才能进行自动聚类');
+                return;
+              }
+              
+              const result = await discoverClusters(
+                itemsWithEmbedding,
+                clusteredItemIds.length > 0 ? clusteredItemIds : null,
+                null // 自动确定聚类数量
+              );
+              
+              if (result && result.ok && result.clusters) {
+                // 添加聚类到列表
+                setClusters(prev => [...prev, ...result.clusters]);
+                
+                // 从原数据中移除已聚类的卡片
+                const clusteredItemIds = new Set(
+                  result.clusters.flatMap(c => (c.items || []).map(item => item.id))
+                );
+                
+                if (showOriginalImages) {
+                  setImages(prev => prev.filter(img => !clusteredItemIds.has(img.id)));
+                } else {
+                  setOpengraphData(prev => prev.filter(og => !clusteredItemIds.has(og.id)));
+                }
+                
+                // 将聚类中的卡片添加到画布
+                result.clusters.forEach(cluster => {
+                  const clusterItems = cluster.items || [];
+                  if (clusterItems.length > 0) {
+                    if (showOriginalImages) {
+                      setImages(prev => [...prev, ...clusterItems]);
+                    } else {
+                      setOpengraphData(prev => [...prev, ...clusterItems]);
+                    }
+                  }
+                });
+                
+                console.log('[Clustering] AI discover completed:', result.clusters);
+              }
+            } catch (error) {
+              console.error('[Clustering] Failed to discover clusters:', error);
+              alert('自动聚类失败：' + (error.message || '未知错误'));
+            } finally {
+              setIsClustering(false);
+            }
+          }}
+        >
           <div className="frame-wrapper">
             <div className="frame-10">
               <div className="text-wrapper-23">自动聚类</div>
@@ -1051,70 +952,15 @@ export const PersonalSpace = () => {
       </div>
       )}
 
-      <div className="tool-sets">
-        <div className="tool">
-          <ToolButton
-            className="lasso-button"
-            alt="Lasso button"
-            src={getImageUrl("lasso-button-1.svg")}
-            tooltip="套索工具"
-            isActive={activeTool === 'lasso'}
-            onClick={() => setActiveTool(activeTool === 'lasso' ? null : 'lasso')}
-          />
-
-          <ToolButton
-            className="draw-button"
-            alt="Draw button"
-            src={getImageUrl("draw-button-1.svg")}
-            tooltip="绘画工具"
-            isActive={activeTool === 'draw'}
-            onClick={() => setActiveTool(activeTool === 'draw' ? null : 'draw')}
-          />
-
-          <ToolButton
-            className="text-button"
-            alt="Text button"
-            src={getImageUrl("text-button-1.svg")}
-            tooltip="文字工具"
-            isActive={activeTool === 'text'}
-            onClick={() => setActiveTool(activeTool === 'text' ? null : 'text')}
-          />
-        </div>
-
-        <div className="move">
-          <img
-            className="last-move-button"
-            alt="Last move button"
-            src={getImageUrl("last-move-button-1.svg")}
-            onClick={handleUndo}
-            style={{ cursor: 'pointer', opacity: historyIndex >= 0 ? 1 : 0.5 }}
-            title="撤销 (Undo)"
-          />
-
-          <img
-            className="next-move-button"
-            alt="Next move button"
-            src={getImageUrl("next-move-button-1.svg")}
-            onClick={handleRedo}
-            style={{ cursor: 'pointer', opacity: (history && history.length > 0 && historyIndex < history.length - 1) ? 1 : 0.5 }}
-            title="重做 (Redo)"
-          />
-        </div>
-
-        <div 
-          className="AI-clustering-button"
-          onClick={() => setShowAIClusteringPanel(!showAIClusteringPanel)}
-          style={{ cursor: 'pointer' }}
-        >
-          <img
-            className="ai-clustering-icon"
-            alt="Ai clustering icon"
-            src={getImageUrl("ai-clustering-icon-1.svg")}
-          />
-
-          <div className="text-wrapper-24">AI 聚类</div>
-        </div>
-      </div>
+      <ToolSets
+        activeTool={activeTool}
+        onToolChange={setActiveTool}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onAIClusteringClick={() => setShowAIClusteringPanel(!showAIClusteringPanel)}
+      />
 
           {/* OpenGraph 卡片（点击图片后显示） */}
           {selectedOG && (
@@ -1165,9 +1011,68 @@ export const PersonalSpace = () => {
                 // 清空选中状态
                 setSelectedIds(new Set());
               }}
-              onRename={(newName) => {
+              onRename={async (newName) => {
                 console.log('[SelectionPanel] Rename to:', newName);
                 setSelectedGroupName(newName);
+                
+                // 重命名后立即自动创建聚类
+                if (selectedIds.size > 0 && newName.trim()) {
+                  try {
+                    const selectedArray = Array.from(selectedIds);
+                    const allItems = showOriginalImages ? images : opengraphData;
+                    
+                    // 计算聚类中心位置（在选中卡片的中心）
+                    let centerX = 720;
+                    let centerY = 512;
+                    if (selectedArray.length > 0) {
+                      const selectedItems = allItems.filter(item => selectedIds.has(item.id));
+                      if (selectedItems.length > 0) {
+                        const sumX = selectedItems.reduce((sum, item) => sum + (item.x || 720), 0);
+                        const sumY = selectedItems.reduce((sum, item) => sum + (item.y || 512), 0);
+                        centerX = sumX / selectedItems.length;
+                        centerY = sumY / selectedItems.length;
+                      }
+                    }
+                    
+                    const result = await createManualCluster(
+                      selectedArray,
+                      newName.trim(),
+                      allItems,
+                      centerX,
+                      centerY
+                    );
+                    
+                    if (result && result.ok && result.cluster) {
+                      const cluster = result.cluster;
+                      
+                      // 添加聚类到列表
+                      setClusters(prev => [...prev, cluster]);
+                      
+                      // 从原数据中移除已聚类的卡片，并更新画布
+                      if (showOriginalImages) {
+                        setImages(prev => prev.filter(img => !selectedIds.has(img.id)));
+                      } else {
+                        setOpengraphData(prev => prev.filter(og => !selectedIds.has(og.id)));
+                      }
+                      
+                      // 将聚类中的卡片添加到画布（使用聚类返回的位置）
+                      const clusterItems = cluster.items || [];
+                      if (clusterItems.length > 0) {
+                        if (showOriginalImages) {
+                          setImages(prev => [...prev, ...clusterItems]);
+                        } else {
+                          setOpengraphData(prev => [...prev, ...clusterItems]);
+                        }
+                      }
+                      
+                      // 不自动取消选中（根据需求）
+                      console.log('[Clustering] Manual cluster created:', cluster);
+                    }
+                  } catch (error) {
+                    console.error('[Clustering] Failed to create manual cluster:', error);
+                    alert('创建聚类失败：' + (error.message || '未知错误'));
+                  }
+                }
               }}
               onOpen={() => {
                 console.log('[SelectionPanel] Open clicked');
@@ -1303,52 +1208,3 @@ export const PersonalSpace = () => {
       );
     };
 
-/**
- * 工具按钮组件（带 tooltip）
- */
-const ToolButton = ({ className, alt, src, tooltip, isActive, onClick }) => {
-  const [showTooltip, setShowTooltip] = useState(false);
-  const buttonRef = useRef(null);
-
-  return (
-    <div
-      className={`tool-button-wrapper ${isActive ? 'active' : ''}`}
-      ref={buttonRef}
-      onMouseEnter={() => setShowTooltip(true)}
-      onMouseLeave={() => setShowTooltip(false)}
-      onClick={onClick}
-      style={{ position: 'relative', cursor: 'pointer' }}
-    >
-      <img
-        className={className}
-        alt={alt}
-        src={src}
-        style={{
-          opacity: isActive ? 1 : 0.7,
-          filter: isActive ? 'none' : 'grayscale(20%)',
-        }}
-      />
-      {showTooltip && (
-        <div
-          className="tool-tooltip"
-          style={{
-            position: 'absolute',
-            bottom: '-30px',        // 调整垂直位置：负数向上，正数向下
-            left: '50%',            // 调整水平位置：'50%' 居中，或 '0' 左对齐，'100%' 右对齐
-            transform: 'translateX(-50%)', // 水平居中，或 'translate(-50%, -100%)' 完全居中
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            color: '#fff',
-            padding: '4px 8px',
-            borderRadius: '4px',
-            fontSize: '12px',
-            whiteSpace: 'nowrap',
-            zIndex: 1000,
-            pointerEvents: 'none',
-          }}
-        >
-          {tooltip}
-        </div>
-      )}
-    </div>
-  );
-};

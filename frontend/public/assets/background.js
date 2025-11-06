@@ -174,26 +174,54 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         console.log(`[Tab Cleaner Background] Found ${validTabs.length} valid tabs`);
 
         // 调用后端 API 抓取 OpenGraph
-        const response = await fetch('http://localhost:8000/api/v1/tabs/opengraph', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            tabs: validTabs.map(tab => ({
-              url: tab.url,
-              title: tab.title,
-              id: tab.id,
-            }))
-          })
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        let response;
+        let opengraphData;
+        
+        // 创建超时控制器（兼容性更好的方式）
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30秒超时
+        
+        try {
+          response = await fetch('http://localhost:8000/api/v1/tabs/opengraph', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              tabs: validTabs.map(tab => ({
+                url: tab.url,
+                title: tab.title,
+                id: tab.id,
+              }))
+            }),
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId); // 请求成功，清除超时
+        } catch (fetchError) {
+          clearTimeout(timeoutId); // 确保清除超时
+          
+          // 处理网络错误（连接失败、超时等）
+          if (fetchError.name === 'AbortError') {
+            throw new Error('请求超时：后端服务器响应时间过长（超过30秒），请检查服务器状态');
+          } else if (fetchError.message && (fetchError.message.includes('Failed to fetch') || fetchError.message.includes('NetworkError'))) {
+            throw new Error('无法连接到后端服务器（http://localhost:8000）。请确保：\n1. 后端服务已启动\n2. 后端服务运行在 http://localhost:8000\n3. 没有防火墙阻止连接');
+          } else {
+            throw new Error(`网络请求失败：${fetchError.message || fetchError.toString()}`);
+          }
         }
 
-        const opengraphData = await response.json();
-        console.log('[Tab Cleaner Background] OpenGraph data received:', opengraphData);
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => '未知错误');
+          throw new Error(`HTTP 错误 (${response.status})：${errorText}`);
+        }
+
+        try {
+          opengraphData = await response.json();
+          console.log('[Tab Cleaner Background] OpenGraph data received:', opengraphData);
+        } catch (jsonError) {
+          throw new Error(`响应解析失败：${jsonError.message}`);
+        }
 
         // 保存到 storage，供个人空间使用
         // 确保数据结构一致：{ok: true, data: [...]}
@@ -227,7 +255,31 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         sendResponse({ ok: true, data: opengraphData });
       } catch (error) {
         console.error('[Tab Cleaner Background] Failed to fetch OpenGraph:', error);
-        sendResponse({ ok: false, error: error.message });
+        
+        // 提供更详细的错误信息
+        let errorMessage = error.message || '未知错误';
+        if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
+          errorMessage = '无法连接到后端服务器。请确保：\n1. 后端服务已启动（运行在 http://localhost:8000）\n2. 后端服务正常运行\n3. 没有防火墙阻止连接';
+        }
+        
+        // 即使失败，也尝试打开个人空间（使用之前保存的数据）
+        try {
+          chrome.tabs.create({
+            url: chrome.runtime.getURL("personalspace.html")
+          });
+        } catch (tabError) {
+          console.warn('[Tab Cleaner Background] Failed to open personal space:', tabError);
+        }
+        
+        sendResponse({ 
+          ok: false, 
+          error: errorMessage,
+          details: {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+          }
+        });
       }
     });
 

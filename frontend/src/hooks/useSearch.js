@@ -1,0 +1,193 @@
+import { useState, useRef, useEffect } from "react";
+import { generateEmbeddings, searchContent } from "../shared/api";
+
+/**
+ * 搜索功能 Hook
+ * 
+ * @param {Array} opengraphData - OpenGraph 数据（通过 ref 访问最新值）
+ * @returns {Object} 搜索相关的状态和方法
+ */
+export const useSearch = (opengraphData = []) => {
+  // 使用 ref 保存最新的 opengraphData，避免闭包问题
+  const opengraphDataRef = useRef(opengraphData);
+  useEffect(() => {
+    opengraphDataRef.current = opengraphData;
+  }, [opengraphData]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
+  const [opengraphWithEmbeddings, setOpengraphWithEmbeddings] = useState([]);
+  const [searchResults, setSearchResults] = useState(null);
+
+  // 本地模糊排序（兜底方案）
+  const fuzzyRankLocally = (query, items) => {
+    const q = query.toLowerCase().trim();
+    const qTokens = q.split(/\s+/).filter(Boolean);
+    const scored = items.map((it, idx) => {
+      const text = ((it.title || it.tab_title || "") + " " + (it.description || "")).toLowerCase();
+      let score = 0;
+      if (text.includes(q)) score += 3;
+      for (const t of qTokens) {
+        if (t && text.includes(t)) score += 1;
+      }
+      const titleText = (it.title || it.tab_title || "").toLowerCase();
+      if (titleText.includes(q)) score += 1;
+      const normalizedScore = Math.min(score / 10.0, 1.0);
+      return { ...it, similarity: normalizedScore, idx };
+    });
+    scored.sort((a, b) => (b.similarity - a.similarity) || (a.idx - b.idx));
+    return scored;
+  };
+
+  // 生成 Embedding
+  const generateEmbeddingsForData = async (data) => {
+    if (!data || data.length === 0) {
+      console.warn('[useSearch] No data to process');
+      return [];
+    }
+
+    try {
+      setIsSearching(true);
+      console.log('[useSearch] Generating embeddings for', data.length, 'items');
+      
+      const batchSize = 10;
+      const batches = [];
+      for (let i = 0; i < data.length; i += batchSize) {
+        batches.push(data.slice(i, i + batchSize));
+      }
+
+      const allProcessedItems = [];
+      for (let i = 0; i < batches.length; i++) {
+        console.log(`[useSearch] Processing batch ${i + 1}/${batches.length}`);
+        const batch = batches[i];
+        const result = await generateEmbeddings(batch);
+        
+        if (result.ok && result.data) {
+          allProcessedItems.push(...result.data);
+        }
+        
+        if (i < batches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      const itemsWithEmbedding = allProcessedItems.filter(item => item.embedding).length;
+      console.log('[useSearch] Generated embeddings for', allProcessedItems.length, 'items,', itemsWithEmbedding, 'have embedding');
+      
+      setOpengraphWithEmbeddings(allProcessedItems);
+      return allProcessedItems;
+    } catch (error) {
+      console.error('[useSearch] Error generating embeddings:', error);
+      return [];
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // 执行搜索
+  const performSearch = async (query, calculateRadialLayout) => {
+    if (!query.trim()) {
+      setSearchResults(null);
+      return [];
+    }
+
+    // 使用 ref 获取最新的 opengraphData
+    const currentOGData = opengraphDataRef.current;
+    let itemsToSearch = opengraphWithEmbeddings.length > 0 ? opengraphWithEmbeddings : currentOGData;
+    
+    // 如果没有 Embedding，先生成
+    if (opengraphWithEmbeddings.length === 0) {
+      console.log('[useSearch] No embeddings found, generating...');
+      const generatedItems = await generateEmbeddingsForData(currentOGData);
+      if (generatedItems && generatedItems.length > 0) {
+        itemsToSearch = generatedItems;
+        console.log('[useSearch] Using freshly generated embeddings:', generatedItems.filter(item => item.embedding).length, 'have embedding');
+      }
+    }
+
+    try {
+      setIsSearching(true);
+      console.log('[useSearch] Searching for:', query);
+      
+      const result = await searchContent(query, null, itemsToSearch);
+
+      let finalList = [];
+      if (result && result.ok && Array.isArray(result.data) && result.data.length > 0) {
+        finalList = result.data;
+      } else {
+        console.warn('[useSearch] Backend returned empty, using local fuzzy ranking');
+        finalList = fuzzyRankLocally(query, currentOGData);
+      }
+      
+      // 按相似度排序
+      finalList.sort((a, b) => {
+        const simA = a.similarity ?? 0;
+        const simB = b.similarity ?? 0;
+        return simB - simA;
+      });
+      
+      // 计算布局位置
+      const searchResultItems = finalList.map((item, index) => ({
+        ...item,
+        id: item.tab_id ? `og-search-${item.tab_id}` : `og-search-${index}-${Date.now()}`,
+      }));
+      
+      const positionedResults = calculateRadialLayout(searchResultItems);
+      
+      const finalResults = positionedResults.map((item, idx) => ({
+        ...item,
+        id: item.id || `og-search-${idx}-${Date.now()}`,
+        x: item.x ?? 720,
+        y: item.y ?? 512,
+        width: item.width ?? 120,
+        height: item.height ?? 120,
+      }));
+      
+      setSearchResults(finalResults);
+      return finalResults;
+    } catch (error) {
+      console.error('[useSearch] Error searching:', error);
+      // 出错也做兜底
+      const fallback = fuzzyRankLocally(query, currentOGData);
+      fallback.sort((a, b) => {
+        const simA = a.similarity ?? 0;
+        const simB = b.similarity ?? 0;
+        return simB - simA;
+      });
+      const fallbackItems = fallback.map((item, index) => ({
+        ...item,
+        id: item.tab_id ? `og-search-${item.tab_id}` : `og-search-${index}-${Date.now()}`,
+      }));
+      const positioned = calculateRadialLayout(fallbackItems);
+      const finalFallback = positioned.map((item, idx) => ({
+        ...item,
+        id: item.id || `og-search-${idx}-${Date.now()}`,
+        x: item.x ?? 720,
+        y: item.y ?? 512,
+        width: item.width ?? 120,
+        height: item.height ?? 120,
+      }));
+      setSearchResults(finalFallback);
+      return finalFallback;
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // 清空搜索
+  const clearSearch = () => {
+    setSearchQuery("");
+    setSearchResults(null);
+  };
+
+  return {
+    searchQuery,
+    setSearchQuery,
+    isSearching,
+    opengraphWithEmbeddings,
+    searchResults,
+    performSearch,
+    clearSearch,
+    generateEmbeddingsForData,
+  };
+};
+

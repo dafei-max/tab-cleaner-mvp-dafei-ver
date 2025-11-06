@@ -9,6 +9,8 @@ import json
 from opengraph import fetch_multiple_opengraph
 from ai_insight import analyze_opengraph_data
 from search import process_opengraph_for_search, search_relevant_items
+from clustering import create_manual_cluster, classify_by_labels, discover_clusters
+from clustering.storage import save_clustering_result, save_multiple_clusters
 
 app = FastAPI(title="Tab Cleaner MVP", version="0.0.1")
 
@@ -58,7 +60,13 @@ async def fetch_tabs_opengraph(request: OpenGraphRequest):
                 **result,
                 "tab_id": request.tabs[i].id,
                 "tab_title": request.tabs[i].title,
+                # 确保 is_screenshot 字段被包含
+                "is_screenshot": result.get("is_screenshot", False),
             })
+        
+        # 统计截图数量
+        screenshot_count = sum(1 for item in opengraph_data if item.get("is_screenshot", False))
+        print(f"[API] OpenGraph data: {len(opengraph_data)} items, {screenshot_count} screenshots")
         
         return {"ok": True, "data": opengraph_data}
     except Exception as e:
@@ -240,4 +248,140 @@ async def search_content(request: SearchRequest):
         
         return {"ok": True, "data": result_data}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# 聚类 API
+class ManualClusterRequest(BaseModel):
+    item_ids: List[str]
+    cluster_name: str
+    items_data: List[Dict[str, Any]]
+    center_x: Optional[float] = 720
+    center_y: Optional[float] = 512
+
+
+class AIClassifyRequest(BaseModel):
+    labels: List[str]
+    items_data: List[Dict[str, Any]]
+    exclude_item_ids: Optional[List[str]] = None
+
+
+class AIDiscoverRequest(BaseModel):
+    items_data: List[Dict[str, Any]]
+    exclude_item_ids: Optional[List[str]] = None
+    n_clusters: Optional[int] = None
+
+
+@app.post("/api/v1/clustering/manual")
+async def create_manual_cluster_api(request: ManualClusterRequest):
+    """
+    创建用户自定义聚类
+    
+    请求参数:
+    - item_ids: 选中的卡片 ID 列表
+    - cluster_name: 聚类名称
+    - items_data: 所有卡片数据
+    - center_x: 聚类中心 X 坐标（可选，默认 720）
+    - center_y: 聚类中心 Y 坐标（可选，默认 512）
+    
+    返回:
+    - 聚类对象，包含 id, name, type, items, center, radius 等信息
+    """
+    try:
+        if not request.item_ids or not request.cluster_name:
+            raise HTTPException(status_code=400, detail="item_ids and cluster_name are required")
+        
+        cluster = create_manual_cluster(
+            item_ids=request.item_ids,
+            cluster_name=request.cluster_name,
+            items_data=request.items_data,
+            center_x=request.center_x or 720,
+            center_y=request.center_y or 512,
+        )
+        
+        # 保存结果到本地
+        try:
+            save_clustering_result(cluster, result_type="manual")
+        except Exception as save_error:
+            print(f"[API] Failed to save clustering result: {save_error}")
+        
+        return {"ok": True, "cluster": cluster}
+    except Exception as e:
+        print(f"[API] ERROR in create_manual_cluster: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/clustering/ai-classify")
+async def classify_by_labels_api(request: AIClassifyRequest):
+    """
+    AI 按标签分类
+    
+    请求参数:
+    - labels: 用户定义的标签列表（最多3个）
+    - items_data: 所有卡片数据（需要包含 text_embedding 和 image_embedding）
+    - exclude_item_ids: 要排除的卡片 ID 列表（可选，例如用户自定义聚类中的卡片）
+    
+    返回:
+    - 分类结果，包含每个标签对应的聚类
+    """
+    try:
+        if not request.labels or len(request.labels) == 0:
+            raise HTTPException(status_code=400, detail="labels are required")
+        
+        result = await classify_by_labels(
+            labels=request.labels,
+            items_data=request.items_data,
+            exclude_item_ids=request.exclude_item_ids,
+        )
+        
+        # 保存结果到本地
+        try:
+            save_multiple_clusters(result.get("clusters", []), result_type="ai-classify")
+        except Exception as save_error:
+            print(f"[API] Failed to save clustering result: {save_error}")
+        
+        return {"ok": True, **result}
+    except Exception as e:
+        print(f"[API] ERROR in classify_by_labels: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/clustering/ai-discover")
+async def discover_clusters_api(request: AIDiscoverRequest):
+    """
+    AI 自发现聚类（使用 K-means 对所有卡片进行无监督聚类）
+    
+    请求参数:
+    - items_data: 所有卡片数据（需要包含 text_embedding 和 image_embedding）
+    - exclude_item_ids: 要排除的卡片 ID 列表（可选，例如用户自定义聚类中的卡片）
+    - n_clusters: 聚类数量（可选，如果不指定，自动确定3-5组）
+    
+    返回:
+    - 聚类结果，包含每个聚类的信息（包括 AI 生成的名称）
+    """
+    try:
+        if not request.items_data:
+            raise HTTPException(status_code=400, detail="items_data is required")
+        
+        result = await discover_clusters(
+            items_data=request.items_data,
+            exclude_item_ids=request.exclude_item_ids,
+            n_clusters=request.n_clusters,
+        )
+        
+        # 保存结果到本地
+        try:
+            save_multiple_clusters(result.get("clusters", []), result_type="ai-discover")
+        except Exception as save_error:
+            print(f"[API] Failed to save clustering result: {save_error}")
+        
+        return {"ok": True, **result}
+    except Exception as e:
+        print(f"[API] ERROR in discover_clusters: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
