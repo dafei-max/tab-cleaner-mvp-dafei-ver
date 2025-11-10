@@ -125,18 +125,11 @@ async def classify_by_labels(
         else:
             label_clusters[best_label].append(item_id)
     
-    # 构建聚类结果
+    # 构建聚类结果（先不计算位置，让前端统一处理）
     clusters = []
-    cluster_positions = [
-        (720, 512),   # 第一个聚类中心
-        (1120, 512),  # 第二个聚类中心
-        (1520, 512),  # 第三个聚类中心
-        (920, 712),   # "其他"聚类中心
-    ]
-    
     items_map = {item.get("id"): item for item in available_items if item.get("id")}
     
-    for idx, (label, item_ids) in enumerate(label_clusters.items()):
+    for label, item_ids in label_clusters.items():
         if not item_ids:
             continue  # 跳过空聚类
         
@@ -146,36 +139,21 @@ async def classify_by_labels(
         if not cluster_items:
             continue
         
-        # 计算布局（使用预定义的位置）
-        center_x, center_y = cluster_positions[min(idx, len(cluster_positions) - 1)]
-        positioned_items = calculate_cluster_layout(
-            cluster_items,
-            center_x=center_x,
-            center_y=center_y,
-        )
-        
-        # 计算聚类半径
-        max_radius = 0
-        for item in positioned_items:
-            dx = item.get("x", center_x) - center_x
-            dy = item.get("y", center_y) - center_y
-            radius = (dx ** 2 + dy ** 2) ** 0.5
-            max_radius = max(max_radius, radius)
-        
+        # 先不计算位置，返回原始 items（前端会统一计算位置避免重叠）
         cluster = {
             "id": f"cluster-{uuid.uuid4().hex[:8]}",
             "name": label,
             "type": "ai-classify",
-            "items": positioned_items,
-            "center": {"x": center_x, "y": center_y},
-            "radius": max_radius + 60,
+            "items": cluster_items,  # 暂时不计算位置，前端统一处理
+            "center": {"x": 720, "y": 512},  # 临时位置，前端会重新计算
+            "radius": 200,  # 临时半径
             "created_at": datetime.now().isoformat(),
-            "item_count": len(positioned_items),
+            "item_count": len(cluster_items),
             "label": label,
         }
         
         clusters.append(cluster)
-        print(f"[AI Classify] Created cluster '{label}' with {len(positioned_items)} items")
+        print(f"[AI Classify] Created cluster '{label}' with {len(cluster_items)} items")
     
     return {
         "clusters": clusters,

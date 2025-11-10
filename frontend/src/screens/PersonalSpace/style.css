@@ -36,6 +36,12 @@
   opacity: 0.8;
   cursor: grabbing !important;
   z-index: 200;
+  transition: none !important; /* 拖拽时禁用动画 */
+}
+
+/* 动画状态 */
+.personal-space .canvas img.animating {
+  will-change: left, top; /* 优化动画性能 */
 }
 
 /* OpenGraph 图片样式 */

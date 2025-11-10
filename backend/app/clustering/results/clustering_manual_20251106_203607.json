@@ -1,0 +1,86 @@
+{
+  "type": "manual",
+  "timestamp": "20251106_203607",
+  "result": {
+    "id": "cluster-5b8b1412",
+    "name": "pin k",
+    "type": "manual",
+    "items": [
+      {
+        "description": "The London and Shanghai-based agency exemplifies the diverse range of styles of Asian creatives working today.",
+        "error": null,
+        "image": "https://i.pinimg.com/736x/b8/59/55/b85955160388ee32a4f82e34643cd7c5.jpg",
+        "is_screenshot": false,
+        "site_name": "Pinterest",
+        "success": true,
+        "tab_id": 295356426,
+        "tab_title": "sponsored content illustration for caper illustration agency - graphic design trends",
+        "title": "sponsored content illustration for caper illustration agency - graphic design trends | Blumen",
+        "url": "https://www.pinterest.com/pin/9570217953310688/",
+        "x": 1035,
+        "y": 452,
+        "width": 120,
+        "height": 120,
+        "id": "og-8-1762432513892"
+      },
+      {
+        "description": "I am here to manifest me passing and learning Histo and every other subject🫡",
+        "error": null,
+        "image": "https://i.pinimg.com/736x/52/cf/b3/52cfb3d1f01dc91b3a0e4d5c19b85791.jpg",
+        "is_screenshot": false,
+        "site_name": "Pinterest",
+        "success": true,
+        "tab_id": 295356440,
+        "tab_title": "SO COOOLL AAAHHH",
+        "title": "SO COOOLL AAAHHH | Molekulare biologie, Biologie, Chemie deckblatt",
+        "url": "https://www.pinterest.com/pin/4855512093738828/",
+        "x": 335,
+        "y": 640,
+        "width": 120,
+        "height": 120,
+        "id": "og-14-1762432513892"
+      },
+      {
+        "description": "This Pin was discovered by IX Onorato. Discover (and save!) your own Pins on Pinterest",
+        "error": null,
+        "image": "https://i.pinimg.com/736x/6f/32/db/6f32db1f76077d2b9c870b50b06bfae9.jpg",
+        "is_screenshot": false,
+        "site_name": "Pinterest",
+        "success": true,
+        "tab_id": 295356431,
+        "tab_title": "Y2K",
+        "title": "Pin by IX Onorato on METAVERSE | Animation design, Concept, Art inspiration drawing",
+        "url": "https://www.pinterest.com/pin/237283474111811566/",
+        "x": 848,
+        "y": 777,
+        "width": 120,
+        "height": 120,
+        "id": "og-10-1762432513892"
+      },
+      {
+        "description": "As you may know, I recently launched a live chat series with CookieCon 2018 instructors, which debuted with cookie and pie phenom Chris Taylor on May 18. Well, I’m extending that chat series into our Cookier Close-ups with in-depth interviews with these same folks. Today, we’re back with Chris Taylor...",
+        "error": null,
+        "image": "https://i.pinimg.com/736x/ec/5f/28/ec5f28d2f47733bb88cb31eb836403a3.jpg",
+        "is_screenshot": false,
+        "site_name": "Pinterest",
+        "success": true,
+        "tab_id": 295356454,
+        "tab_title": "Cookier Close-up with Chris Taylor, First in Our CookieCon 2018 Speakers Series",
+        "title": "Cookier Close-up with Chris Taylor, First in Our CookieCon 2018 Speakers Series | Cookie Connection | Cookie decorating, Science cake, Cookies",
+        "url": "https://www.pinterest.com/pin/10273905394580284/",
+        "x": 435,
+        "y": 452,
+        "width": 120,
+        "height": 120,
+        "id": "og-4-1762432513892"
+      }
+    ],
+    "center": {
+      "x": 663.25,
+      "y": 580.25
+    },
+    "radius": 200,
+    "created_at": "2025-11-06T20:36:07.115290",
+    "item_count": 4
+  }
+}

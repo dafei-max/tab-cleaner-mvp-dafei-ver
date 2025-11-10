@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { CARD_ANIMATION, calculateDistance, calculateDurationByDistance } from "../../motion";
 
 /**
  * 可拖拽图片组件
@@ -13,6 +14,7 @@ export const DraggableImage = ({
   initialY,
   width,
   height,
+  animationDelay = 0,
   isSelected,
   onSelect,
   onDragEnd,
@@ -20,12 +22,46 @@ export const DraggableImage = ({
   const [position, setPosition] = useState({ x: initialX, y: initialY });
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isAnimating, setIsAnimating] = useState(false);
+  const prevPositionRef = useRef({ x: initialX, y: initialY });
   const imgRef = useRef(null);
 
-  // 当 initialX 或 initialY 改变时（从父组件更新），同步位置
+  // 当 initialX 或 initialY 改变时（从父组件更新），同步位置并触发动画
   useEffect(() => {
     if (!isDragging) {
-      setPosition({ x: initialX, y: initialY });
+      const prevX = prevPositionRef.current.x;
+      const prevY = prevPositionRef.current.y;
+      
+      // 如果位置发生变化，触发动画
+      if (prevX !== initialX || prevY !== initialY) {
+        const distance = calculateDistance(prevX, prevY, initialX, initialY);
+        
+        // 只有当距离足够大时才触发动画（避免微小抖动）
+        if (distance > 5) {
+          setIsAnimating(true);
+          setPosition({ x: initialX, y: initialY });
+          
+          // 根据距离计算动画时长
+          const duration = calculateDurationByDistance(
+            distance,
+            CARD_ANIMATION.MOVE_DURATION,
+            CARD_ANIMATION.MOVE_DURATION * 2
+          );
+          
+          // 动画结束后重置状态
+          const timer = setTimeout(() => {
+            setIsAnimating(false);
+          }, duration);
+          
+          prevPositionRef.current = { x: initialX, y: initialY };
+          
+          return () => clearTimeout(timer);
+        } else {
+          // 距离太小，直接更新位置，不触发动画
+          setPosition({ x: initialX, y: initialY });
+          prevPositionRef.current = { x: initialX, y: initialY };
+        }
+      }
     }
   }, [initialX, initialY, isDragging]);
 
@@ -92,10 +128,35 @@ export const DraggableImage = ({
     };
   }, [isDragging, dragOffset, id, position.x, position.y, onDragEnd]);
 
+  // 计算动画样式
+  const getAnimationStyle = () => {
+    if (isDragging || !isAnimating) {
+      return {}; // 拖拽时或没有动画时，不使用 transition
+    }
+    
+    const distance = calculateDistance(
+      prevPositionRef.current.x,
+      prevPositionRef.current.y,
+      position.x,
+      position.y
+    );
+    
+    const duration = calculateDurationByDistance(
+      distance,
+      CARD_ANIMATION.MOVE_DURATION,
+      CARD_ANIMATION.MOVE_DURATION * 2
+    );
+    
+    return {
+      transition: `left ${duration}ms ${CARD_ANIMATION.MOVE_EASING}, top ${duration}ms ${CARD_ANIMATION.MOVE_EASING}`,
+      transitionDelay: `${animationDelay}ms`,
+    };
+  };
+
   return (
     <img
       ref={imgRef}
-      className={`${className} ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}
+      className={`${className} ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isAnimating ? 'animating' : ''}`}
       src={src}
       alt={alt}
       style={{
@@ -108,6 +169,7 @@ export const DraggableImage = ({
         userSelect: 'none',
         borderRadius: className === 'opengraph-image' ? '8px' : undefined,
         objectFit: className === 'opengraph-image' ? 'cover' : undefined,
+        ...getAnimationStyle(),
       }}
       onMouseDown={handleMouseDown}
       draggable={false}

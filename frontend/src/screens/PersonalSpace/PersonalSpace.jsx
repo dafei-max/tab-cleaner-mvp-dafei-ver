@@ -9,11 +9,14 @@ import { CanvasTools } from "./CanvasTools";
 import { OpenGraphCard } from "./OpenGraphCard";
 import { SelectionPanel } from "./SelectionPanel";
 import { ClusterLabel } from "./ClusterLabel";
+import { AILabelTag } from "./AILabelTag";
 import { useHistory } from "../../hooks/useHistory";
 import { useSearch } from "../../hooks/useSearch";
 import { calculateRadialLayout } from "../../utils/radialLayout";
 import { handleLassoSelect as handleLassoSelectUtil } from "../../utils/selection";
+import { calculateMultipleClustersLayout } from "../../utils/clusterLayout";
 import { createManualCluster, classifyByLabels, discoverClusters } from "../../shared/api";
+import { calculateStaggerDelay, CLUSTER_ANIMATION } from "../../motion";
 import "./style.css";
 
 export const PersonalSpace = () => {
@@ -125,7 +128,23 @@ export const PersonalSpace = () => {
   const handleSearch = async () => {
     const results = await performSearch(searchQuery, calculateRadialLayout);
     if (results && results.length > 0) {
-      setOpengraphData(results);
+      // 确保搜索结果包含 embedding（从 opengraphWithEmbeddings 中获取）
+      const resultsWithEmbedding = results.map(result => {
+        // 尝试从 opengraphWithEmbeddings 中找到对应的 embedding
+        const withEmbedding = opengraphWithEmbeddings.find(item => 
+          item.url === result.url || item.tab_id === result.tab_id
+        );
+        if (withEmbedding) {
+          return {
+            ...result,
+            text_embedding: withEmbedding.text_embedding,
+            image_embedding: withEmbedding.image_embedding,
+            embedding: withEmbedding.embedding,
+          };
+        }
+        return result;
+      });
+      setOpengraphData(resultsWithEmbedding);
       setShowOriginalImages(false);
     }
   };
@@ -636,7 +655,7 @@ export const PersonalSpace = () => {
         ))}
 
         {/* OpenGraph 图片（使用 DraggableImage，支持拖拽和工具） */}
-        {!showOriginalImages && opengraphData && Array.isArray(opengraphData) && opengraphData.length > 0 && opengraphData.map((og) => {
+        {!showOriginalImages && opengraphData && Array.isArray(opengraphData) && opengraphData.length > 0 && opengraphData.map((og, index) => {
           // 确保有必要的字段
           if (!og || typeof og !== 'object' || !og.id) {
             return null;
@@ -646,6 +665,7 @@ export const PersonalSpace = () => {
           const y = og.y ?? 512;
           
           // 直接使用 DraggableImage，位置由组件内部管理
+          // 如果有 animationDelay，传递给组件用于错开动画
           return (
             <DraggableImage
               key={og.id}
@@ -657,6 +677,7 @@ export const PersonalSpace = () => {
               initialY={y}
               width={og.width || 120}
               height={og.height || 120}
+              animationDelay={og.animationDelay || 0}
               isSelected={selectedIds.has(og.id)}
               onSelect={(id, isMultiSelect) => {
                 handleSelect(id, isMultiSelect);
@@ -759,20 +780,19 @@ export const PersonalSpace = () => {
         >
         {/* 标签列表 */}
         {aiLabels.map((label, index) => (
-          <div 
+          <AILabelTag
             key={index}
-            className={index === 0 ? "design-tag" : "workdoc-tag"}
-            style={{ cursor: 'pointer', position: 'relative' }}
-            onClick={(e) => {
-              e.stopPropagation();
-              // 点击标签可编辑（简化版：直接删除）
-              if (window.confirm(`删除标签 "${label}"？`)) {
-                setAiLabels(prev => prev.filter((_, i) => i !== index));
+            label={label}
+            index={index}
+            onRename={(idx, newLabel) => {
+              setAiLabels(prev => prev.map((l, i) => i === idx ? newLabel : l));
+            }}
+            onDelete={(idx) => {
+              if (window.confirm(`删除标签 "${aiLabels[idx]}"？`)) {
+                setAiLabels(prev => prev.filter((_, i) => i !== idx));
               }
             }}
-          >
-            <div className={index === 0 ? "text-wrapper-20" : "text-wrapper-21"}>{label}</div>
-          </div>
+          />
         ))}
 
         {/* 添加标签按钮 */}
@@ -802,7 +822,27 @@ export const PersonalSpace = () => {
             
             try {
               setIsClustering(true);
-              const allItems = showOriginalImages ? images : opengraphData;
+              // 优先使用 opengraphWithEmbeddings（包含 embedding），否则使用 opengraphData
+              let allItems = showOriginalImages ? images : opengraphData;
+              
+              // 如果 opengraphWithEmbeddings 有数据，优先使用（包含 embedding）
+              if (!showOriginalImages && opengraphWithEmbeddings.length > 0) {
+                // 合并 opengraphData 的位置信息和 opengraphWithEmbeddings 的 embedding
+                allItems = opengraphData.map(item => {
+                  const withEmbedding = opengraphWithEmbeddings.find(e => 
+                    e.url === item.url || e.tab_id === item.tab_id
+                  );
+                  if (withEmbedding) {
+                    return {
+                      ...item,
+                      text_embedding: withEmbedding.text_embedding,
+                      image_embedding: withEmbedding.image_embedding,
+                      embedding: withEmbedding.embedding,
+                    };
+                  }
+                  return item;
+                });
+              }
               
               // 获取已聚类的卡片 ID（排除用户自定义聚类）
               const clusteredItemIds = clusters
@@ -814,6 +854,8 @@ export const PersonalSpace = () => {
               const itemsWithEmbedding = allItems.filter(item => 
                 item.text_embedding || item.image_embedding
               );
+              
+              console.log('[Clustering] Total items:', allItems.length, 'Items with embedding:', itemsWithEmbedding.length);
               
               if (itemsWithEmbedding.length === 0) {
                 alert('请先为卡片生成 embedding（可以通过搜索功能自动生成）');
@@ -828,27 +870,50 @@ export const PersonalSpace = () => {
               
               if (result && result.ok && result.clusters) {
                 // 添加聚类到列表
-                setClusters(prev => [...prev, ...result.clusters]);
+                const updatedClusters = [...clusters, ...result.clusters];
+                
+                // 重新计算所有聚类的位置（避免重叠）
+                const repositionedClusters = calculateMultipleClustersLayout(updatedClusters);
+                setClusters(repositionedClusters);
                 
                 // 从原数据中移除已聚类的卡片
                 const classifiedItemIds = new Set(
                   result.clusters.flatMap(c => (c.items || []).map(item => item.id))
                 );
                 
+                // 更新剩余卡片的位置（补位）
                 if (showOriginalImages) {
-                  setImages(prev => prev.filter(img => !classifiedItemIds.has(img.id)));
+                  setImages(prev => {
+                    const remaining = prev.filter(img => !classifiedItemIds.has(img.id));
+                    // 重新计算剩余卡片的圆形布局（从中心开始）
+                    return calculateRadialLayout(remaining);
+                  });
                 } else {
-                  setOpengraphData(prev => prev.filter(og => !classifiedItemIds.has(og.id)));
+                  setOpengraphData(prev => {
+                    const remaining = prev.filter(og => !classifiedItemIds.has(og.id));
+                    // 重新计算剩余卡片的圆形布局（从中心开始）
+                    return calculateRadialLayout(remaining);
+                  });
                 }
                 
-                // 将聚类中的卡片添加到画布
-                result.clusters.forEach(cluster => {
+                // 将聚类中的卡片添加到画布（使用重新计算的位置）
+                // 需要为每个聚类内的 items 重新计算圆形布局，并添加错开动画
+                repositionedClusters.slice(clusters.length).forEach((cluster, clusterIndex) => {
                   const clusterItems = cluster.items || [];
                   if (clusterItems.length > 0) {
+                    // 使用聚类中心位置重新计算圆形布局
+                    const positionedItems = calculateRadialLayout(clusterItems, {
+                      centerX: cluster.center.x,
+                      centerY: cluster.center.y,
+                    }).map((item, itemIndex) => ({
+                      ...item,
+                      // 添加动画延迟，错开动画时间
+                      animationDelay: calculateStaggerDelay(itemIndex, clusterItems.length) + (clusterIndex * 100),
+                    }));
                     if (showOriginalImages) {
-                      setImages(prev => [...prev, ...clusterItems]);
+                      setImages(prev => [...prev, ...positionedItems]);
                     } else {
-                      setOpengraphData(prev => [...prev, ...clusterItems]);
+                      setOpengraphData(prev => [...prev, ...positionedItems]);
                     }
                   }
                 });
@@ -882,7 +947,27 @@ export const PersonalSpace = () => {
             
             try {
               setIsClustering(true);
-              const allItems = showOriginalImages ? images : opengraphData;
+              // 优先使用 opengraphWithEmbeddings（包含 embedding），否则使用 opengraphData
+              let allItems = showOriginalImages ? images : opengraphData;
+              
+              // 如果 opengraphWithEmbeddings 有数据，优先使用（包含 embedding）
+              if (!showOriginalImages && opengraphWithEmbeddings.length > 0) {
+                // 合并 opengraphData 的位置信息和 opengraphWithEmbeddings 的 embedding
+                allItems = opengraphData.map(item => {
+                  const withEmbedding = opengraphWithEmbeddings.find(e => 
+                    e.url === item.url || e.tab_id === item.tab_id
+                  );
+                  if (withEmbedding) {
+                    return {
+                      ...item,
+                      text_embedding: withEmbedding.text_embedding,
+                      image_embedding: withEmbedding.image_embedding,
+                      embedding: withEmbedding.embedding,
+                    };
+                  }
+                  return item;
+                });
+              }
               
               // 获取已聚类的卡片 ID（排除用户自定义聚类）
               const clusteredItemIds = clusters
@@ -894,6 +979,8 @@ export const PersonalSpace = () => {
               const itemsWithEmbedding = allItems.filter(item => 
                 item.text_embedding || item.image_embedding
               );
+              
+              console.log('[Clustering] Total items:', allItems.length, 'Items with embedding:', itemsWithEmbedding.length);
               
               if (itemsWithEmbedding.length < 3) {
                 alert('至少需要3个有 embedding 的卡片才能进行自动聚类');
@@ -908,27 +995,50 @@ export const PersonalSpace = () => {
               
               if (result && result.ok && result.clusters) {
                 // 添加聚类到列表
-                setClusters(prev => [...prev, ...result.clusters]);
+                const updatedClusters = [...clusters, ...result.clusters];
+                
+                // 重新计算所有聚类的位置（避免重叠）
+                const repositionedClusters = calculateMultipleClustersLayout(updatedClusters);
+                setClusters(repositionedClusters);
                 
                 // 从原数据中移除已聚类的卡片
                 const clusteredItemIds = new Set(
                   result.clusters.flatMap(c => (c.items || []).map(item => item.id))
                 );
                 
+                // 更新剩余卡片的位置（补位）
                 if (showOriginalImages) {
-                  setImages(prev => prev.filter(img => !clusteredItemIds.has(img.id)));
+                  setImages(prev => {
+                    const remaining = prev.filter(img => !clusteredItemIds.has(img.id));
+                    // 重新计算剩余卡片的圆形布局（从中心开始）
+                    return calculateRadialLayout(remaining);
+                  });
                 } else {
-                  setOpengraphData(prev => prev.filter(og => !clusteredItemIds.has(og.id)));
+                  setOpengraphData(prev => {
+                    const remaining = prev.filter(og => !clusteredItemIds.has(og.id));
+                    // 重新计算剩余卡片的圆形布局（从中心开始）
+                    return calculateRadialLayout(remaining);
+                  });
                 }
                 
-                // 将聚类中的卡片添加到画布
-                result.clusters.forEach(cluster => {
+                // 将聚类中的卡片添加到画布（使用重新计算的位置）
+                // 需要为每个聚类内的 items 重新计算圆形布局，并添加错开动画
+                repositionedClusters.slice(clusters.length).forEach((cluster, clusterIndex) => {
                   const clusterItems = cluster.items || [];
                   if (clusterItems.length > 0) {
+                    // 使用聚类中心位置重新计算圆形布局
+                    const positionedItems = calculateRadialLayout(clusterItems, {
+                      centerX: cluster.center.x,
+                      centerY: cluster.center.y,
+                    }).map((item, itemIndex) => ({
+                      ...item,
+                      // 添加动画延迟，错开动画时间
+                      animationDelay: calculateStaggerDelay(itemIndex, clusterItems.length) + (clusterIndex * 100),
+                    }));
                     if (showOriginalImages) {
-                      setImages(prev => [...prev, ...clusterItems]);
+                      setImages(prev => [...prev, ...positionedItems]);
                     } else {
-                      setOpengraphData(prev => [...prev, ...clusterItems]);
+                      setOpengraphData(prev => [...prev, ...positionedItems]);
                     }
                   }
                 });
@@ -1046,27 +1156,50 @@ export const PersonalSpace = () => {
                       const cluster = result.cluster;
                       
                       // 添加聚类到列表
-                      setClusters(prev => [...prev, cluster]);
+                      const updatedClusters = [...clusters, cluster];
+                      
+                      // 重新计算所有聚类的位置（避免重叠）
+                      const repositionedClusters = calculateMultipleClustersLayout(updatedClusters);
+                      setClusters(repositionedClusters);
                       
                       // 从原数据中移除已聚类的卡片，并更新画布
+                      // 更新剩余卡片的位置（补位）
                       if (showOriginalImages) {
-                        setImages(prev => prev.filter(img => !selectedIds.has(img.id)));
+                        setImages(prev => {
+                          const remaining = prev.filter(img => !selectedIds.has(img.id));
+                          // 重新计算剩余卡片的圆形布局（从中心开始）
+                          return calculateRadialLayout(remaining);
+                        });
                       } else {
-                        setOpengraphData(prev => prev.filter(og => !selectedIds.has(og.id)));
+                        setOpengraphData(prev => {
+                          const remaining = prev.filter(og => !selectedIds.has(og.id));
+                          // 重新计算剩余卡片的圆形布局（从中心开始）
+                          return calculateRadialLayout(remaining);
+                        });
                       }
                       
-                      // 将聚类中的卡片添加到画布（使用聚类返回的位置）
-                      const clusterItems = cluster.items || [];
+                      // 将聚类中的卡片添加到画布（使用重新计算的位置）
+                      const finalCluster = repositionedClusters[repositionedClusters.length - 1];
+                      const clusterItems = finalCluster.items || [];
                       if (clusterItems.length > 0) {
+                        // 使用聚类中心位置重新计算圆形布局，并添加错开动画
+                        const positionedItems = calculateRadialLayout(clusterItems, {
+                          centerX: finalCluster.center.x,
+                          centerY: finalCluster.center.y,
+                        }).map((item, itemIndex) => ({
+                          ...item,
+                          // 添加动画延迟，错开动画时间
+                          animationDelay: calculateStaggerDelay(itemIndex, clusterItems.length),
+                        }));
                         if (showOriginalImages) {
-                          setImages(prev => [...prev, ...clusterItems]);
+                          setImages(prev => [...prev, ...positionedItems]);
                         } else {
-                          setOpengraphData(prev => [...prev, ...clusterItems]);
+                          setOpengraphData(prev => [...prev, ...positionedItems]);
                         }
                       }
                       
                       // 不自动取消选中（根据需求）
-                      console.log('[Clustering] Manual cluster created:', cluster);
+                      console.log('[Clustering] Manual cluster created:', finalCluster);
                     }
                   } catch (error) {
                     console.error('[Clustering] Failed to create manual cluster:', error);

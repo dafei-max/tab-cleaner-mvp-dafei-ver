@@ -42,35 +42,21 @@ def create_manual_cluster(
     if not cluster_items:
         raise ValueError("No valid items found for cluster")
     
-    # 计算圆形布局
-    positioned_items = calculate_cluster_layout(
-        cluster_items,
-        center_x=center_x,
-        center_y=center_y,
-    )
-    
     # 生成聚类 ID
     cluster_id = f"cluster-{uuid.uuid4().hex[:8]}"
     
-    # 计算聚类半径（基于最外层 item 的距离）
-    max_radius = 0
-    for item in positioned_items:
-        dx = item.get("x", center_x) - center_x
-        dy = item.get("y", center_y) - center_y
-        radius = (dx ** 2 + dy ** 2) ** 0.5
-        max_radius = max(max_radius, radius)
-    
+    # 先不计算位置，返回原始 items（前端会统一计算位置避免重叠）
     cluster = {
         "id": cluster_id,
         "name": cluster_name,
         "type": "manual",
-        "items": positioned_items,
-        "center": {"x": center_x, "y": center_y},
-        "radius": max_radius + 60,  # 加上一些边距
+        "items": cluster_items,  # 暂时不计算位置，前端统一处理
+        "center": {"x": center_x, "y": center_y},  # 临时位置，前端会重新计算
+        "radius": 200,  # 临时半径
         "created_at": datetime.now().isoformat(),
-        "item_count": len(positioned_items),
+        "item_count": len(cluster_items),
     }
     
-    print(f"[Manual Cluster] Created cluster '{cluster_name}' with {len(positioned_items)} items")
+    print(f"[Manual Cluster] Created cluster '{cluster_name}' with {len(cluster_items)} items")
     return cluster
 

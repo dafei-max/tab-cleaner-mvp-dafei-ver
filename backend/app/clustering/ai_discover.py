@@ -241,31 +241,16 @@ async def discover_clusters(
         cluster_name = await _generate_cluster_name(cluster_items)
         print(f"[AI Discover] Generated cluster name: '{cluster_name}' for {len(cluster_items)} items")
         
-        # 计算布局
-        center_x, center_y = cluster_positions[min(cluster_idx, len(cluster_positions) - 1)]
-        positioned_items = calculate_cluster_layout(
-            cluster_items,
-            center_x=center_x,
-            center_y=center_y,
-        )
-        
-        # 计算聚类半径
-        max_radius = 0
-        for item in positioned_items:
-            dx = item.get("x", center_x) - center_x
-            dy = item.get("y", center_y) - center_y
-            radius = (dx ** 2 + dy ** 2) ** 0.5
-            max_radius = max(max_radius, radius)
-        
+        # 先不计算位置，返回原始 items（前端会统一计算位置避免重叠）
         cluster = {
             "id": f"cluster-{uuid.uuid4().hex[:8]}",
             "name": cluster_name,
             "type": "ai-discover",
-            "items": positioned_items,
-            "center": {"x": center_x, "y": center_y},
-            "radius": max_radius + 60,
+            "items": cluster_items,  # 暂时不计算位置，前端统一处理
+            "center": {"x": 720, "y": 512},  # 临时位置，前端会重新计算
+            "radius": 200,  # 临时半径
             "created_at": datetime.now().isoformat(),
-            "item_count": len(positioned_items),
+            "item_count": len(cluster_items),
         }
         
         clusters.append(cluster)
