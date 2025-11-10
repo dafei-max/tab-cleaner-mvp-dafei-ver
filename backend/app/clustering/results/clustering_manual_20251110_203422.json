@@ -1,0 +1,103 @@
+{
+  "type": "manual",
+  "timestamp": "20251110_203422",
+  "result": {
+    "id": "cluster-a0306efe",
+    "name": "go",
+    "type": "manual",
+    "items": [
+      {
+        "description": "You don’t need to have it all figured out, just take one brave small step forward.This is your soundtrack for calm focus and quiet bravery. For the days you ...",
+        "error": null,
+        "image": "https://i.ytimg.com/vi/ZODwKOGuCpo/maxresdefault.jpg?sqp=-oaymwEmCIAKENAF8quKqQMa8AEB-AH-CYAC0AWKAgwIABABGHIgTSgyMA8=&rs=AOn4CLCLsg7fQbtT_TDDyaX17DnJvm_c9g",
+        "is_screenshot": false,
+        "site_name": "YouTube",
+        "success": true,
+        "tab_id": 295357098,
+        "tab_title": "Change starts with one courageous decision today. - YouTube",
+        "title": "Change starts with one courageous decision today.",
+        "url": "https://www.youtube.com/watch?v=ZODwKOGuCpo",
+        "x": 647.9938314594626,
+        "y": 635.8890490154964,
+        "width": 120,
+        "height": 120,
+        "id": "og-10-1762778034410"
+      },
+      {
+        "description": "Hello everyone!Inspired by the Animal Crossing video game. All the tracks are carefully selected and rearranged to create the most relaxing musical atmospher...",
+        "error": null,
+        "image": "https://i.ytimg.com/vi/WrxsO5s6umc/maxresdefault.jpg?sqp=-oaymwEmCIAKENAF8quKqQMa8AEB-AH-CYAC0AWKAgwIABABGH8gFSgaMA8=&rs=AOn4CLBvfRHsciqi1wyFKeaSqCXE5K1l9Q",
+        "is_screenshot": false,
+        "site_name": "YouTube",
+        "success": true,
+        "tab_id": 295357097,
+        "tab_title": "You look tired, take a little break :).... stranger (relaxing animal crossing w/ ambience) - YouTube",
+        "title": "You look tired, take a little break :).... stranger (relaxing animal crossing w/ ambience)",
+        "url": "https://www.youtube.com/watch?v=WrxsO5s6umc",
+        "x": 832.9938314594626,
+        "y": 585.8967312901354,
+        "width": 120,
+        "height": 120,
+        "id": "og-9-1762778034410"
+      },
+      {
+        "description": "Persona 5 Royal Gameplay Walkthrough PS5 Xbox Series X PC No Commentary 2160p 60fps HD let's play playthrough review guide Showcasing all cutscenes movie edi...",
+        "error": null,
+        "image": "https://i.ytimg.com/vi/2B7jq74NS4g/maxresdefault.jpg",
+        "is_screenshot": false,
+        "site_name": "YouTube",
+        "success": true,
+        "tab_id": 295357096,
+        "tab_title": "PERSONA 5 ROYAL Gameplay Walkthrough FULL GAME (HD) No Commentary 100% - YouTube",
+        "title": "PERSONA 5 ROYAL Gameplay Walkthrough FULL GAME (HD) No Commentary 100%",
+        "url": "https://www.youtube.com/watch?v=2B7jq74NS4g",
+        "x": 969.0018002564063,
+        "y": 450.8890490154965,
+        "width": 120,
+        "height": 120,
+        "id": "og-8-1762778034410"
+      },
+      {
+        "description": "Hope you enjoy the video! :)Welcome Gamer Nintendo, PS, N64, NES... , you are in a safe place here. Here you can reminisce about your own glory days when you...",
+        "error": null,
+        "image": "https://i.ytimg.com/vi/WZdFoDlt2I8/maxresdefault.jpg",
+        "is_screenshot": false,
+        "site_name": "YouTube",
+        "success": true,
+        "tab_id": 295357095,
+        "tab_title": "a playlist nintendo music to make life feel simple & vibe again - YouTube",
+        "title": "a playlist nintendo music to make life feel simple & vibe again",
+        "url": "https://www.youtube.com/watch?v=WZdFoDlt2I8",
+        "x": 1017.9938314594624,
+        "y": 265.8890490154965,
+        "width": 120,
+        "height": 120,
+        "id": "og-7-1762778034410"
+      },
+      {
+        "description": "2025. 4. 23. - Pinterest에서 사용자만의 핀을 찾아서 저장하세요.",
+        "error": null,
+        "image": "https://i.pinimg.com/736x/eb/b8/af/ebb8af18e4869518056b56c8ba591fdd.jpg",
+        "is_screenshot": false,
+        "site_name": "Pinterest",
+        "success": true,
+        "tab_id": 295357110,
+        "tab_title": "Zenerik AI | Arkabrik",
+        "title": "HTWO에 있는 핀",
+        "url": "https://www.pinterest.com/pin/844493675975383/",
+        "x": 1298.0393546710934,
+        "y": 265.8967329897471,
+        "width": 120,
+        "height": 120,
+        "id": "og-22-1762778034410"
+      }
+    ],
+    "center": {
+      "x": 953.2045298611774,
+      "y": 440.89212226527434
+    },
+    "radius": 200,
+    "created_at": "2025-11-10T20:34:22.932398",
+    "item_count": 5
+  }
+}

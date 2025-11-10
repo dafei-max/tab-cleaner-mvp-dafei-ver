@@ -1295,22 +1295,20 @@ export const PersonalSpace = () => {
                       // 获取所有卡片数据
                       const allItems = showOriginalImages ? images : opengraphData;
                       
-                      // 计算已聚类的卡片 ID
-                      const clusteredItemIds = new Set(
-                        [...clusters, cluster].flatMap(c => (c.items || []).map(item => item.id))
-                      );
+                      // ✅ 修复：只计算新聚类中的卡片 ID（不包括旧聚类）
+                      const newClusterItemIds = new Set(selectedArray);
                       
-                      // 获取剩余未聚类的卡片
-                      const remainingItems = allItems.filter(item => !clusteredItemIds.has(item.id));
+                      // ✅ 获取剩余未聚类的卡片（从所有卡片中移除新聚类的卡片）
+                      const remainingItems = allItems.filter(item => !newClusterItemIds.has(item.id));
                       
-                      // 构建聚类列表：包括新创建的聚类和剩余卡片的默认聚类
-                      const updatedClusters = [...clusters, cluster];
+                      // ✅ 获取已有聚类中的卡片（不包括新聚类和剩余卡片）
+                      // 排除旧的默认聚类，避免重复
+                      const existingClusters = clusters.filter(c => c.id !== 'default-cluster');
                       
-                      // 检查是否已存在默认聚类
-                      const existingDefaultClusterIndex = updatedClusters.findIndex(c => c.id === 'default-cluster');
+                      // ✅ 构建最终的聚类列表
+                      const updatedClusters = [...existingClusters, cluster];
                       
-                      // 如果有剩余卡片，创建或更新默认聚类
-                      // 按照参考实现：更新旧聚类（去掉被移除的卡片），让剩余卡片重新排布
+                      // ✅ 如果有剩余卡片，添加默认聚类
                       if (remainingItems.length > 0) {
                         const defaultCluster = {
                           id: 'default-cluster',
@@ -1336,16 +1334,8 @@ export const PersonalSpace = () => {
                           radius: 200,
                           item_count: remainingItems.length,
                         };
-                        if (existingDefaultClusterIndex >= 0) {
-                          // 更新已存在的默认聚类（参考实现：oldCluster.cardIds = oldCluster.cardIds.filter(...)）
-                          updatedClusters[existingDefaultClusterIndex] = defaultCluster;
-                        } else {
-                          // 创建新的默认聚类
-                          updatedClusters.push(defaultCluster);
-                        }
-                      } else if (existingDefaultClusterIndex >= 0) {
-                        // 如果没有剩余卡片，移除默认聚类
-                        updatedClusters.splice(existingDefaultClusterIndex, 1);
+                        // 总是添加新的默认聚类（因为已经排除了旧的）
+                        updatedClusters.push(defaultCluster);
                       }
                       
                       // 重新计算所有聚类的位置（避免重叠）- 这设置了聚类圆心的目标位置
@@ -1360,17 +1350,20 @@ export const PersonalSpace = () => {
                       // 更新聚类列表（Spring 系统会自动处理圆心和卡片位置的动画）
                       setClusters(repositionedClusters);
                       
-                      // 调试日志
+                      // ✅ 调试日志
                       const isDev = process.env.NODE_ENV === 'development';
                       if (isDev) {
-                        console.log('[Clustering] Updated clusters:', {
-                          total: repositionedClusters.length,
+                        console.log('[Clustering] Manual cluster created:', {
+                          newCluster: cluster.id,
+                          newClusterItems: cluster.items?.length || 0,
+                          remainingItems: remainingItems.length,
+                          totalClusters: repositionedClusters.length,
                           clusterDetails: repositionedClusters.map(c => ({
                             id: c.id,
                             name: c.name,
+                            type: c.type,
                             itemCount: c.items?.length || 0,
                             center: c.center,
-                            itemIds: (c.items || []).map(i => i.id).slice(0, 5), // 只显示前5个
                           })),
                         });
                       }

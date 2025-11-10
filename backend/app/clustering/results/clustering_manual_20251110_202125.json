@@ -1,0 +1,52 @@
+{
+  "type": "manual",
+  "timestamp": "20251110_202125",
+  "result": {
+    "id": "cluster-33a98bef",
+    "name": "QQ",
+    "type": "manual",
+    "items": [
+      {
+        "description": "Oct 12, 2025 - iphone phone layout background wallpaper inspo inspiration frutiger aero y2k 2000s homescreen lockscreen widgetsmith",
+        "error": null,
+        "image": "https://i.pinimg.com/736x/23/ad/51/23ad51250ac15f5149282609a29bee2b.jpg",
+        "is_screenshot": false,
+        "site_name": "Pinterest",
+        "success": true,
+        "tab_id": 295357103,
+        "tab_title": "Current home screen",
+        "title": "Current home screen in 2025 | Iphone phone, Best apps, Facetime",
+        "url": "https://www.pinterest.com/pin/1049831363190697105/",
+        "x": 475,
+        "y": 132,
+        "width": 120,
+        "height": 120,
+        "id": "og-15-1762777276471"
+      },
+      {
+        "description": "Discover recipes, home ideas, style inspiration and other ideas to try.",
+        "error": null,
+        "image": "https://s.pinimg.com/images/facebook_share_image.png",
+        "is_screenshot": false,
+        "site_name": "Pinterest",
+        "success": true,
+        "tab_id": 295357102,
+        "tab_title": "Pinterest",
+        "title": "Pinterest",
+        "url": "https://www.pinterest.com/",
+        "x": 340,
+        "y": 267,
+        "width": 120,
+        "height": 120,
+        "id": "og-14-1762777276471"
+      }
+    ],
+    "center": {
+      "x": 407.5,
+      "y": 199.5
+    },
+    "radius": 200,
+    "created_at": "2025-11-10T20:21:25.665701",
+    "item_count": 2
+  }
+}
