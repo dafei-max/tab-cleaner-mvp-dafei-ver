@@ -3,15 +3,16 @@
 
 [phases.setup]
 # 指定需要的 Nix 包（Python 和 pip）
-nixPkgs = ["python312", "python312Packages.pip", "python312Packages.setuptools"]
+# 注意：python312Packages.pip 确保 pip 在 PATH 中可用
+nixPkgs = ["python312", "python312Packages.pip", "python312Packages.setuptools", "python312Packages.wheel"]
 
 [phases.install]
-# 使用 python3 -m pip 确保使用正确的 Python 环境
-# 优先使用 uv（更快），如果失败则回退到 pip
+# 在 Nix 环境中，pip 可能不在 python3 -m 路径中
+# 使用 pip3 或 pip（Nix 包管理器提供的）来安装依赖
 cmds = [
-  "python3 -m pip install --upgrade pip setuptools wheel",
-  "python3 -m pip install uv || pip install uv",
-  "uv pip install --system -r pyproject.toml || python3 -m pip install -r requirements.txt"
+  "pip3 install --upgrade pip setuptools wheel || python3 -m ensurepip --upgrade --default-pip",
+  "pip3 install uv || python3 -m pip install uv",
+  "uv pip install --system -r pyproject.toml || pip3 install -r requirements.txt"
 ]
 
 [phases.build]
