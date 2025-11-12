@@ -7,14 +7,14 @@ nixPkgs = ["python312", "uv"]
 
 [phases.build]
 # 使用 uv 安装依赖（先创建虚拟环境，避免 PEP 668 限制）
-# 注意：每个命令在独立的 shell 中运行，所以需要在一个命令中完成激活和安装
+# uv venv 创建虚拟环境后，使用 --python 参数指定 Python 解释器路径
 cmds = [
   "uv venv",
-  ". .venv/bin/activate && uv pip install -e .",
-  ". .venv/bin/activate && playwright install chromium || echo 'Playwright installation skipped'"
+  "uv pip install --python .venv/bin/python -e .",
+  "playwright install chromium || echo 'Playwright installation skipped'"
 ]
 
 [start]
-# 激活虚拟环境并运行 uvicorn
-cmd = "source .venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port $PORT"
+# 使用虚拟环境中的 Python 直接运行 uvicorn
+cmd = ".venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port $PORT"
 
