@@ -1,10 +1,9 @@
 # Nixpacks 配置（Railway 使用）
 # 显式指定 Python 和工具包，确保 pip 和 uv 在 PATH 中
-[providers]
-pkgs = ["python312", "python312Packages.pip", "python312Packages.setuptools"]
 
 [phases.setup]
-nixPkgs = ["python312", "python312Packages.pip"]
+# 指定需要的 Nix 包（Python 和 pip）
+nixPkgs = ["python312", "python312Packages.pip", "python312Packages.setuptools"]
 
 [phases.install]
 # 使用 python3 -m pip 确保使用正确的 Python 环境
