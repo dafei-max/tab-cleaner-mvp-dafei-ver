@@ -22,10 +22,15 @@ app.add_middleware(
 )
 
 # serve static pages (for share link)
+# 注意：如果不需要静态文件服务，可以删除 static 目录
 static_dir = Path(__file__).parent / "static"
-# 只有当 static 目录存在时才挂载
-if static_dir.exists():
-    app.mount("/public", StaticFiles(directory=static_dir, html=True), name="public")
+# 只有当 static 目录存在且不为空时才挂载
+if static_dir.exists() and static_dir.is_dir():
+    try:
+        app.mount("/public", StaticFiles(directory=static_dir, html=True), name="public")
+    except Exception as e:
+        # 如果挂载失败（例如目录为空），记录警告但不影响应用启动
+        print(f"[Warning] Failed to mount static directory: {e}")
 
 @app.get("/")
 def root():
