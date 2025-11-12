@@ -3,7 +3,7 @@ name = "tab-cleaner-api"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
     # ===== Web 框架相关 =====
     # FastAPI: 现代、快速的 Web 框架，用于构建 API

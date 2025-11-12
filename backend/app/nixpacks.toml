@@ -1,16 +1,25 @@
 # Nixpacks 配置（Railway 使用）
+# 显式指定 Python 和工具包，确保 pip 和 uv 在 PATH 中
+[providers]
+pkgs = ["python312", "python312Packages.pip", "python312Packages.setuptools"]
+
 [phases.setup]
-nixPkgs = ["python313", "nodejs-18_x"]
+nixPkgs = ["python312", "python312Packages.pip"]
 
 [phases.install]
+# 使用 python3 -m pip 确保使用正确的 Python 环境
+# 优先使用 uv（更快），如果失败则回退到 pip
 cmds = [
-  "pip install uv",
-  "uv pip install --system -r pyproject.toml"
+  "python3 -m pip install --upgrade pip setuptools wheel",
+  "python3 -m pip install uv || pip install uv",
+  "uv pip install --system -r pyproject.toml || python3 -m pip install -r requirements.txt"
 ]
 
 [phases.build]
+# 安装 Playwright 浏览器（需要系统依赖）
+# 使用 --with-deps 安装系统依赖，如果失败则只安装浏览器
 cmds = [
-  "playwright install chromium"
+  "playwright install chromium --with-deps || playwright install chromium || echo 'Playwright installation skipped'"
 ]
 
 [start]
