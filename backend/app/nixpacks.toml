@@ -1,27 +1,27 @@
 # Nixpacks 配置（Railway 使用）
-# 显式指定 Python 和工具包，确保 pip 和 uv 在 PATH 中
+# 解决 PEP 668 限制：Nix 环境中的 Python 是外部管理的，需要使用 uv 或虚拟环境
 
 [phases.setup]
-# 指定需要的 Nix 包（Python 和 pip）
-# 注意：python312Packages.pip 确保 pip 在 PATH 中可用
-nixPkgs = ["python312", "python312Packages.pip", "python312Packages.setuptools", "python312Packages.wheel"]
+# 指定需要的 Nix 包（Python）
+nixPkgs = ["python312"]
 
 [phases.install]
-# 在 Nix 环境中，pip 可能不在 python3 -m 路径中
-# 使用 pip3 或 pip（Nix 包管理器提供的）来安装依赖
+# 安装 uv（用于管理 Python 依赖，避免 PEP 668 限制）
 cmds = [
-  "pip3 install --upgrade pip setuptools wheel || python3 -m ensurepip --upgrade --default-pip",
-  "pip3 install uv || python3 -m pip install uv",
-  "uv pip install --system -r pyproject.toml || pip3 install -r requirements.txt"
+  "curl -LsSf https://astral.sh/uv/install.sh | sh",
+  "export PATH=\"$HOME/.cargo/bin:$PATH\""
 ]
 
 [phases.build]
-# 安装 Playwright 浏览器（需要系统依赖）
-# 使用 --with-deps 安装系统依赖，如果失败则只安装浏览器
+# 使用 uv 安装依赖（uv 会创建虚拟环境，避免 PEP 668 限制）
+# uv 会自动处理 pyproject.toml
 cmds = [
+  "export PATH=\"$HOME/.cargo/bin:$PATH\"",
+  "uv pip install -e .",
   "playwright install chromium --with-deps || playwright install chromium || echo 'Playwright installation skipped'"
 ]
 
 [start]
-cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT"
+# 使用 uv 运行（uv 会自动使用正确的 Python 环境）
+cmd = "export PATH=\"$HOME/.cargo/bin:$PATH\" && uv run uvicorn main:app --host 0.0.0.0 --port $PORT"
 
