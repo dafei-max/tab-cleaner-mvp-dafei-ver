@@ -3,13 +3,13 @@ import { Component } from "../../components/Component";
 import { SearchBar } from "../../components/SearchBar";
 import { ToolSets } from "../../components/ToolSets";
 import { getImageUrl } from "../../shared/utils";
-import { DraggableImage } from "./DraggableImage";
 import { initialImages } from "./imageData";
-import { CanvasTools } from "./CanvasTools";
 import { OpenGraphCard } from "./OpenGraphCard";
 import { SelectionPanel } from "./SelectionPanel";
-import { ClusterLabel } from "./ClusterLabel";
-import { AILabelTag } from "./AILabelTag";
+import { ViewButtons } from "./ViewButtons";
+import { MasonryGrid } from "./MasonryGrid";
+import { RadialCanvas } from "./RadialCanvas";
+import { AIClusteringPanel } from "./AIClusteringPanel";
 import { useHistory } from "../../hooks/useHistory";
 import { useSearch } from "../../hooks/useSearch";
 import { calculateRadialLayout } from "../../utils/radialLayout";
@@ -69,6 +69,9 @@ export const PersonalSpace = () => {
   const [isClustering, setIsClustering] = useState(false); // 是否正在聚类
   const [aiLabels, setAiLabels] = useState(["设计", "工作文档"]); // AI 聚类标签（预设两个）
   const clusterDragStartRef = useRef(new Map()); // 拖动开始时保存每个聚类的初始位置和卡片位置
+
+  // 视图模式：'radial' 或 'masonry'
+  const [viewMode, setViewMode] = useState('radial');
 
   // 搜索相关状态（使用 hook）
   const {
@@ -189,6 +192,7 @@ export const PersonalSpace = () => {
     updateCardPosition,
     updateClusterCenter
   );
+
 
   // 执行搜索（使用 hook）
   const handleSearch = async () => {
@@ -689,262 +693,322 @@ export const PersonalSpace = () => {
         };
       }, [activeTool, zoom, pan, isPanning]);
 
+      // 处理卡片双击
+      const handleCardDoubleClick = useCallback((og) => {
+        const now = Date.now();
+        if (lastOGClickRef.current.id === og.id && now - lastOGClickRef.current.time < 300) {
+          setSelectedOG(og);
+          lastOGClickRef.current = { time: 0, id: null };
+        } else {
+          lastOGClickRef.current = { time: now, id: og.id };
+        }
+      }, []);
+
+      // 处理聚类重命名
+      const handleClusterRename = useCallback((clusterId, newName) => {
+        setClusters(prev => prev.map(c => 
+          c.id === clusterId ? { ...c, name: newName } : c
+        ));
+      }, []);
+
+      // 处理聚类拖拽
+      const handleClusterDrag = useCallback((clusterId, newCenter, isDragEnd) => {
+        // 如果是拖动开始（第一次调用），保存初始位置
+        if (!clusterDragStartRef.current.has(clusterId)) {
+          const cluster = clusters.find(c => c.id === clusterId);
+          if (cluster) {
+            const initialCenter = cluster.center || { x: 720, y: 512 };
+            const initialItems = (cluster.items || []).map(item => ({
+              id: item.id,
+              x: item.x || initialCenter.x,
+              y: item.y || initialCenter.y,
+            }));
+            clusterDragStartRef.current.set(clusterId, {
+              center: initialCenter,
+              items: initialItems,
+            });
+          }
+        }
+
+        const dragStart = clusterDragStartRef.current.get(clusterId);
+        if (!dragStart) return;
+
+        // 计算偏移量（基于拖动开始时的初始位置）
+        const offsetX = newCenter.x - dragStart.center.x;
+        const offsetY = newCenter.y - dragStart.center.y;
+
+        // 更新聚类的中心位置
+        setClusters(prev => prev.map(c => {
+          if (c.id === clusterId) {
+            // 更新聚类中的 items 位置（保持相对位置不变）
+            const updatedItems = (c.items || []).map(item => {
+              const initialItem = dragStart.items.find(init => init.id === item.id);
+              if (initialItem) {
+                return {
+                  ...item,
+                  x: initialItem.x + offsetX,
+                  y: initialItem.y + offsetY,
+                };
+              }
+              return item;
+            });
+
+            return {
+              ...c,
+              center: newCenter,
+              items: updatedItems,
+            };
+          }
+          return c;
+        }));
+
+        // 实时更新画布中的卡片位置（拖动过程中和拖动结束时都更新）
+        if (showOriginalImages) {
+          setImages(prevImages => prevImages.map(img => {
+            const initialItem = dragStart.items.find(init => init.id === img.id);
+            if (initialItem) {
+              return {
+                ...img,
+                x: initialItem.x + offsetX,
+                y: initialItem.y + offsetY,
+              };
+            }
+            return img;
+          }));
+        } else {
+          setOpengraphData(prevOG => prevOG.map(og => {
+            const initialItem = dragStart.items.find(init => init.id === og.id);
+            if (initialItem) {
+              return {
+                ...og,
+                x: initialItem.x + offsetX,
+                y: initialItem.y + offsetY,
+              };
+            }
+            return og;
+          }));
+        }
+
+        // 拖动结束时，清除保存的初始位置
+        if (isDragEnd) {
+          clusterDragStartRef.current.delete(clusterId);
+        }
+      }, [clusters, showOriginalImages]);
+
+      // AI 聚类处理函数
+      const handleAddLabel = useCallback(() => {
+        const newLabel = prompt('请输入新标签名称（最多3个标签）：');
+        if (newLabel && newLabel.trim() && aiLabels.length < 3) {
+          setAiLabels(prev => [...prev, newLabel.trim()]);
+        }
+      }, [aiLabels.length]);
+
+      const handleLabelRename = useCallback((idx, newLabel) => {
+        setAiLabels(prev => prev.map((l, i) => i === idx ? newLabel : l));
+      }, []);
+
+      const handleLabelDelete = useCallback((idx) => {
+        if (window.confirm(`删除标签 "${aiLabels[idx]}"？`)) {
+          setAiLabels(prev => prev.filter((_, i) => i !== idx));
+        }
+      }, [aiLabels]);
+
+      const handleClassify = useCallback(async () => {
+        if (isClustering || aiLabels.length === 0) return;
+        
+        try {
+          setIsClustering(true);
+          let allItems = showOriginalImages ? images : opengraphData;
+          
+          if (!showOriginalImages && opengraphWithEmbeddings.length > 0) {
+            allItems = opengraphData.map(item => {
+              const withEmbedding = opengraphWithEmbeddings.find(e => 
+                e.url === item.url || e.tab_id === item.tab_id
+              );
+              if (withEmbedding) {
+                return {
+                  ...item,
+                  text_embedding: withEmbedding.text_embedding,
+                  image_embedding: withEmbedding.image_embedding,
+                  embedding: withEmbedding.embedding,
+                };
+              }
+              return item;
+            });
+          }
+          
+          const clusteredItemIds = clusters
+            .filter(c => c.type === 'manual')
+            .flatMap(c => (c.items || []).map(item => item.id))
+            .filter(Boolean);
+          
+          const itemsWithEmbedding = allItems.filter(item => 
+            item.text_embedding || item.image_embedding
+          );
+          
+          if (itemsWithEmbedding.length === 0) {
+            alert('请先为卡片生成 embedding（可以通过搜索功能自动生成）');
+            return;
+          }
+          
+          const result = await classifyByLabels(
+            aiLabels,
+            itemsWithEmbedding,
+            clusteredItemIds.length > 0 ? clusteredItemIds : null
+          );
+          
+          if (result && result.ok && result.clusters) {
+            const updatedClusters = [...clusters, ...result.clusters];
+            const repositionedClusters = calculateMultipleClustersLayout(updatedClusters, {
+              canvasWidth: 1440,
+              canvasHeight: 1024,
+              clusterSpacing: 500,
+              clusterCenterRadius: 250,
+            });
+            setClusters(repositionedClusters);
+            
+            const classifiedItemIds = new Set(
+              result.clusters.flatMap(c => (c.items || []).map(item => item.id))
+            );
+            
+            if (showOriginalImages) {
+              setImages(prev => {
+                const remaining = prev.filter(img => !classifiedItemIds.has(img.id));
+                return calculateRadialLayout(remaining);
+              });
+            } else {
+              setOpengraphData(prev => {
+                const remaining = prev.filter(og => !classifiedItemIds.has(og.id));
+                return calculateRadialLayout(remaining);
+              });
+            }
+          }
+        } catch (error) {
+          console.error('[Clustering] Failed to classify by labels:', error);
+          alert('AI 分类失败：' + (error.message || '未知错误'));
+        } finally {
+          setIsClustering(false);
+        }
+      }, [isClustering, aiLabels, showOriginalImages, images, opengraphData, opengraphWithEmbeddings, clusters]);
+
+      const handleDiscover = useCallback(async () => {
+        if (isClustering) return;
+        
+        try {
+          setIsClustering(true);
+          let allItems = showOriginalImages ? images : opengraphData;
+          
+          if (!showOriginalImages && opengraphWithEmbeddings.length > 0) {
+            allItems = opengraphData.map(item => {
+              const withEmbedding = opengraphWithEmbeddings.find(e => 
+                e.url === item.url || e.tab_id === item.tab_id
+              );
+              if (withEmbedding) {
+                return {
+                  ...item,
+                  text_embedding: withEmbedding.text_embedding,
+                  image_embedding: withEmbedding.image_embedding,
+                  embedding: withEmbedding.embedding,
+                };
+              }
+              return item;
+            });
+          }
+          
+          const clusteredItemIds = clusters
+            .filter(c => c.type === 'manual')
+            .flatMap(c => (c.items || []).map(item => item.id))
+            .filter(Boolean);
+          
+          const itemsWithEmbedding = allItems.filter(item => 
+            item.text_embedding || item.image_embedding
+          );
+          
+          if (itemsWithEmbedding.length < 3) {
+            alert('至少需要3个有 embedding 的卡片才能进行自动聚类');
+            return;
+          }
+          
+          const result = await discoverClusters(
+            itemsWithEmbedding,
+            clusteredItemIds.length > 0 ? clusteredItemIds : null,
+            null
+          );
+          
+          if (result && result.ok && result.clusters) {
+            const updatedClusters = [...clusters, ...result.clusters];
+            const repositionedClusters = calculateMultipleClustersLayout(updatedClusters, {
+              canvasWidth: 1440,
+              canvasHeight: 1024,
+              clusterSpacing: 500,
+              clusterCenterRadius: 250,
+            });
+            setClusters(repositionedClusters);
+            
+            const clusteredItemIds = new Set(
+              result.clusters.flatMap(c => (c.items || []).map(item => item.id))
+            );
+            
+            if (showOriginalImages) {
+              setImages(prev => {
+                const remaining = prev.filter(img => !clusteredItemIds.has(img.id));
+                return calculateRadialLayout(remaining);
+              });
+            } else {
+              setOpengraphData(prev => {
+                const remaining = prev.filter(og => !clusteredItemIds.has(og.id));
+                return calculateRadialLayout(remaining);
+              });
+            }
+          }
+        } catch (error) {
+          console.error('[Clustering] Failed to discover clusters:', error);
+          alert('AI 发现聚类失败：' + (error.message || '未知错误'));
+        } finally {
+          setIsClustering(false);
+        }
+      }, [isClustering, showOriginalImages, images, opengraphData, opengraphWithEmbeddings, clusters]);
+
       return (
         <div className="personal-space" ref={containerRef}>
-          <div 
-            className="canvas" 
-            ref={canvasRef}
-            style={{ 
-              cursor: isPanning ? 'grabbing' : (isSpacePressed ? 'grab' : getCanvasCursor()),
-              transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-              transformOrigin: 'center center',
-              transition: isPanning ? 'none' : 'transform 0.1s ease-out', // 平滑过渡（拖拽时禁用）
-            }}
-            onClick={handleCanvasClick}
-          >
-        {/* 原有图片（仅在未加载 OpenGraph 时显示） */}
-        {showOriginalImages && images.map(img => (
-          <DraggableImage
-            key={img.id}
-            id={img.id}
-            className={img.className}
-            src={img.src}
-            alt={img.alt}
-            initialX={img.x}
-            initialY={img.y}
-            width={img.width}
-            height={img.height}
-            isSelected={selectedIds.has(img.id)}
-            onSelect={handleSelect}
-            onDragEnd={handleDragEnd}
-            zoom={zoom}
-            pan={pan}
-          />
-        ))}
-
-        {/* OpenGraph 图片（使用 DraggableImage，支持拖拽和工具） */}
-        {!showOriginalImages && opengraphData && Array.isArray(opengraphData) && opengraphData.length > 0 && (() => {
-          // 找到相似度最高的卡片（搜索结果已按相似度排序，第一个就是最高的）
-          // 只在有搜索查询且有相似度数据时高亮
-          const hasSearchResults = searchQuery.trim() && opengraphData.some(og => og.similarity !== undefined && og.similarity > 0);
-          const topResult = hasSearchResults
-            ? opengraphData.find(og => og.similarity !== undefined && og.similarity > 0)
-            : null;
-          const topResultId = topResult?.id;
-          
-          return opengraphData.map((og, index) => {
-            // 确保有必要的字段
-            if (!og || typeof og !== 'object' || !og.id) {
-              return null;
-            }
-            // 如果没有 x, y，使用默认值（中心位置）
-            const x = og.x ?? 720;
-            const y = og.y ?? 512;
-            
-            // 直接使用 DraggableImage，位置由组件内部管理
-            // 如果有 animationDelay，传递给组件用于错开动画
-            // 文档卡片使用更大的尺寸以便显示更多信息（标题、类型等）
-            const isDocCard = og.is_doc_card || false;
-            
-            // 计算卡片尺寸：保持 OpenGraph 图片比例，统一缩小
-            let cardWidth, cardHeight;
-            if (isDocCard) {
-              // 文档卡片：固定尺寸
-              cardWidth = 200;
-              cardHeight = 150;
-            } else {
-              // 普通卡片：按 OpenGraph 图片比例，统一缩小
-              const BASE_HEIGHT = 120; // 统一的基础高度（缩小后的尺寸）
-              
-              // 优先使用后端返回的图片尺寸（从 OpenGraph meta 标签获取）
-              if (og.image_width && og.image_height) {
-                const aspectRatio = og.image_width / og.image_height;
-                cardHeight = BASE_HEIGHT;
-                cardWidth = BASE_HEIGHT * aspectRatio;
-                console.log(`[CardSize] 使用后端尺寸: ${og.image_width}x${og.image_height}, 计算后: ${cardWidth.toFixed(0)}x${cardHeight}px`);
-              } else if (og.original_width && og.original_height) {
-                // 兼容旧字段名
-                const aspectRatio = og.original_width / og.original_height;
-                cardHeight = BASE_HEIGHT;
-                cardWidth = BASE_HEIGHT * aspectRatio;
-                console.log(`[CardSize] 使用旧字段尺寸: ${og.original_width}x${og.original_height}, 计算后: ${cardWidth.toFixed(0)}x${cardHeight}px`);
-              } else if (og.width && og.height) {
-                // 如果有存储的尺寸，使用存储的宽高比
-                const aspectRatio = og.width / og.height;
-                cardHeight = BASE_HEIGHT;
-                cardWidth = BASE_HEIGHT * aspectRatio;
-                console.log(`[CardSize] 使用存储尺寸: ${og.width}x${og.height}, 计算后: ${cardWidth.toFixed(0)}x${cardHeight}px`);
-              } else {
-                // 默认尺寸（假设 16:9 比例）
-                cardHeight = BASE_HEIGHT;
-                cardWidth = BASE_HEIGHT * (16/9);  // 约 213px
-                console.warn(`[CardSize] 无尺寸数据，使用默认 16:9: ${cardWidth.toFixed(0)}x${cardHeight}px`, {
-                  id: og.id,
-                  url: og.url?.substring(0, 50),
-                  hasImageWidth: !!og.image_width,
-                  hasImageHeight: !!og.image_height,
-                  hasOriginalWidth: !!og.original_width,
-                  hasOriginalHeight: !!og.original_height,
-                  hasWidth: !!og.width,
-                  hasHeight: !!og.height
-                });
-              }
-            }
-            
-            // 判断是否为最接近的搜索结果
-            const isTopResult = topResultId === og.id;
-            
-            return (
-              <DraggableImage
-                key={og.id}
-                id={og.id}
-                className={`opengraph-image ${isDocCard ? 'doc-card' : ''} ${isTopResult ? 'top-result' : ''}`}
-                src={og.image || 'https://via.placeholder.com/120'}
-                alt={og.title || og.url}
-                initialX={x}
-                initialY={y}
-                width={cardWidth}
-                height={cardHeight}
-                animationDelay={og.animationDelay || 0}
-                isSelected={selectedIds.has(og.id)}
-                onSelect={(id, isMultiSelect) => {
-                  handleSelect(id, isMultiSelect);
-                }}
-                zoom={zoom}
-                pan={pan}
-                onDragEnd={(id, x, y) => {
-                  handleDragEnd(id, x, y);
-                }}
-                onClick={() => {
-                  // 快速双击显示 OpenGraph 卡片（300ms 内两次点击同一图片）
-                  const now = Date.now();
-                  if (lastOGClickRef.current.id === og.id && now - lastOGClickRef.current.time < 300) {
-                    setSelectedOG(og);
-                    lastOGClickRef.current = { time: 0, id: null };
-                  } else {
-                    lastOGClickRef.current = { time: now, id: og.id };
-                  }
-                }}
-              />
-            );
-          });
-        })()}
-
-        {/* 聚类中心标签 */}
-        {clusters.map((cluster) => (
-          <ClusterLabel
-            key={cluster.id}
-            cluster={cluster}
-            onRename={(clusterId, newName) => {
-              setClusters(prev => prev.map(c => 
-                c.id === clusterId ? { ...c, name: newName } : c
-              ));
-            }}
-            onDrag={(clusterId, newCenter, isDragEnd) => {
-              // 如果是拖动开始（第一次调用），保存初始位置
-              if (!clusterDragStartRef.current.has(clusterId)) {
-                const cluster = clusters.find(c => c.id === clusterId);
-                if (cluster) {
-                  const initialCenter = cluster.center || { x: 720, y: 512 };
-                  const initialItems = (cluster.items || []).map(item => ({
-                    id: item.id,
-                    x: item.x || initialCenter.x,
-                    y: item.y || initialCenter.y,
-                  }));
-                  clusterDragStartRef.current.set(clusterId, {
-                    center: initialCenter,
-                    items: initialItems,
-                  });
-                }
-              }
-
-              const dragStart = clusterDragStartRef.current.get(clusterId);
-              if (!dragStart) return;
-
-              // 计算偏移量（基于拖动开始时的初始位置）
-              const offsetX = newCenter.x - dragStart.center.x;
-              const offsetY = newCenter.y - dragStart.center.y;
-
-              // 更新聚类的中心位置
-              setClusters(prev => prev.map(c => {
-                if (c.id === clusterId) {
-                  // 更新聚类中的 items 位置（保持相对位置不变）
-                  const updatedItems = (c.items || []).map(item => {
-                    const initialItem = dragStart.items.find(init => init.id === item.id);
-                    if (initialItem) {
-                      return {
-                        ...item,
-                        x: initialItem.x + offsetX,
-                        y: initialItem.y + offsetY,
-                      };
-                    }
-                    return item;
-                  });
-
-                  return {
-                    ...c,
-                    center: newCenter,
-                    items: updatedItems,
-                  };
-                }
-                return c;
-              }));
-
-              // 实时更新画布中的卡片位置（拖动过程中和拖动结束时都更新）
-              if (showOriginalImages) {
-                setImages(prevImages => prevImages.map(img => {
-                  const initialItem = dragStart.items.find(init => init.id === img.id);
-                  if (initialItem) {
-                    return {
-                      ...img,
-                      x: initialItem.x + offsetX,
-                      y: initialItem.y + offsetY,
-                    };
-                  }
-                  return img;
-                }));
-              } else {
-                setOpengraphData(prevOG => prevOG.map(og => {
-                  const initialItem = dragStart.items.find(init => init.id === og.id);
-                  if (initialItem) {
-                    return {
-                      ...og,
-                      x: initialItem.x + offsetX,
-                      y: initialItem.y + offsetY,
-                    };
-                  }
-                  return og;
-                }));
-              }
-
-              // 拖动结束时，清除保存的初始位置
-              if (isDragEnd) {
-                clusterDragStartRef.current.delete(clusterId);
-              }
-            }}
-          />
-        ))}
-
-        {/* 保留非图片元素 */}
-        <div className="i-leave-you-love-and" />
-        <div className="live-NEAR" />
-        <div className="flow-on-the-edge" />
-
-        <div className="text-wrapper-15">视觉参考</div>
-
-        {/* 画布工具层 */}
-        <CanvasTools
-          canvasRef={canvasRef}
-          activeTool={activeTool}
-          onLassoSelect={handleLassoSelect}
-          selectedIds={selectedIds}
-          drawPaths={drawPaths}
-          setDrawPaths={setDrawPaths}
-          textElements={textElements}
-          setTextElements={setTextElements}
-          onHistoryChange={handleHistoryChange}
-        />
-      </div>
+          {viewMode === 'masonry' ? (
+            <MasonryGrid
+              opengraphData={!showOriginalImages ? opengraphData : []}
+              searchQuery={searchQuery}
+              onCardClick={handleCardDoubleClick}
+              lastOGClickRef={lastOGClickRef}
+            />
+          ) : (
+            <RadialCanvas
+              canvasRef={canvasRef}
+              containerRef={containerRef}
+              showOriginalImages={showOriginalImages}
+              images={images}
+              opengraphData={opengraphData}
+              searchQuery={searchQuery}
+              selectedIds={selectedIds}
+              clusters={clusters}
+              clusterDragStartRef={clusterDragStartRef}
+              zoom={zoom}
+              pan={pan}
+              isPanning={isPanning}
+              isSpacePressed={isSpacePressed}
+              activeTool={activeTool}
+              drawPaths={drawPaths}
+              setDrawPaths={setDrawPaths}
+              textElements={textElements}
+              setTextElements={setTextElements}
+              onSelect={handleSelect}
+              onDragEnd={handleDragEnd}
+              onCanvasClick={handleCanvasClick}
+              onCardDoubleClick={handleCardDoubleClick}
+              onClusterRename={handleClusterRename}
+              onClusterDrag={handleClusterDrag}
+              onLassoSelect={handleLassoSelect}
+              onHistoryChange={handleHistoryChange}
+              getCanvasCursor={getCanvasCursor}
+            />
+          )}
 
       <div className="space-function">
         <div className="add-new-session">
@@ -978,282 +1042,25 @@ export const PersonalSpace = () => {
         isSearching={isSearching}
       />
 
-      <img
-        className="view-buttons"
-        alt="View buttons"
-        src={getImageUrl("viewbuttons-1.svg")}
+      <ViewButtons 
+        viewMode={viewMode} 
+        onViewModeChange={setViewMode} 
       />
 
       <Component className="side-panel" property1="one" />
-      {showAIClusteringPanel && (
-        <div 
-          className="aiclustering-panel"
-          onClick={(e) => {
-            // 点击面板本身时关闭
-            if (e.target.classList.contains('aiclustering-panel')) {
-              setShowAIClusteringPanel(false);
-            }
-          }}
-        >
-        {/* 标签列表 */}
-        {aiLabels.map((label, index) => (
-          <AILabelTag
-            key={index}
-            label={label}
-            index={index}
-            onRename={(idx, newLabel) => {
-              setAiLabels(prev => prev.map((l, i) => i === idx ? newLabel : l));
-            }}
-            onDelete={(idx) => {
-              if (window.confirm(`删除标签 "${aiLabels[idx]}"？`)) {
-                setAiLabels(prev => prev.filter((_, i) => i !== idx));
-              }
-            }}
-          />
-        ))}
+      
+      <AIClusteringPanel
+        show={showAIClusteringPanel}
+        aiLabels={aiLabels}
+        onClose={() => setShowAIClusteringPanel(false)}
+        onLabelRename={handleLabelRename}
+        onLabelDelete={handleLabelDelete}
+        onAddLabel={handleAddLabel}
+        onClassify={handleClassify}
+        onDiscover={handleDiscover}
+        isClustering={isClustering}
+      />
 
-        {/* 添加标签按钮 */}
-        {aiLabels.length < 3 && (
-          <div 
-            className="add-tag"
-            style={{ cursor: 'pointer' }}
-            onClick={(e) => {
-              e.stopPropagation();
-              const newLabel = prompt('请输入新标签名称（最多3个标签）：');
-              if (newLabel && newLabel.trim() && aiLabels.length < 3) {
-                setAiLabels(prev => [...prev, newLabel.trim()]);
-              }
-            }}
-          >
-            <div className="text-wrapper-22">+</div>
-          </div>
-        )}
-
-        {/* 上传按钮（触发按标签分类） */}
-        <div 
-          className="upload"
-          style={{ cursor: isClustering ? 'not-allowed' : 'pointer', opacity: isClustering ? 0.6 : 1 }}
-          onClick={async (e) => {
-            e.stopPropagation();
-            if (isClustering || aiLabels.length === 0) return;
-            
-            try {
-              setIsClustering(true);
-              // 优先使用 opengraphWithEmbeddings（包含 embedding），否则使用 opengraphData
-              let allItems = showOriginalImages ? images : opengraphData;
-              
-              // 如果 opengraphWithEmbeddings 有数据，优先使用（包含 embedding）
-              if (!showOriginalImages && opengraphWithEmbeddings.length > 0) {
-                // 合并 opengraphData 的位置信息和 opengraphWithEmbeddings 的 embedding
-                allItems = opengraphData.map(item => {
-                  const withEmbedding = opengraphWithEmbeddings.find(e => 
-                    e.url === item.url || e.tab_id === item.tab_id
-                  );
-                  if (withEmbedding) {
-                    return {
-                      ...item,
-                      text_embedding: withEmbedding.text_embedding,
-                      image_embedding: withEmbedding.image_embedding,
-                      embedding: withEmbedding.embedding,
-                    };
-                  }
-                  return item;
-                });
-              }
-              
-              // 获取已聚类的卡片 ID（排除用户自定义聚类）
-              const clusteredItemIds = clusters
-                .filter(c => c.type === 'manual')
-                .flatMap(c => (c.items || []).map(item => item.id))
-                .filter(Boolean);
-              
-              // 确保 items 包含 embedding
-              const itemsWithEmbedding = allItems.filter(item => 
-                item.text_embedding || item.image_embedding
-              );
-              
-              console.log('[Clustering] Total items:', allItems.length, 'Items with embedding:', itemsWithEmbedding.length);
-              
-              if (itemsWithEmbedding.length === 0) {
-                alert('请先为卡片生成 embedding（可以通过搜索功能自动生成）');
-                return;
-              }
-              
-              const result = await classifyByLabels(
-                aiLabels,
-                itemsWithEmbedding,
-                clusteredItemIds.length > 0 ? clusteredItemIds : null
-              );
-              
-              if (result && result.ok && result.clusters) {
-                // 添加聚类到列表
-                const updatedClusters = [...clusters, ...result.clusters];
-                
-                // 重新计算所有聚类的位置（避免重叠）
-                const repositionedClusters = calculateMultipleClustersLayout(updatedClusters, {
-                  canvasWidth: 1440,
-                  canvasHeight: 1024,
-                  clusterSpacing: 500, // 增加间距以避免重叠
-                  clusterCenterRadius: 250, // 增加半径以让聚类更分散
-                });
-                setClusters(repositionedClusters);
-                
-                // 重要：不移除已聚类的卡片，保留在 opengraphData/images 中
-                // Spring 系统需要这些卡片数据来计算和更新位置
-                
-                // 更新剩余未聚类卡片的位置（补位）
-                const classifiedItemIds = new Set(
-                  result.clusters.flatMap(c => (c.items || []).map(item => item.id))
-                );
-                
-                if (showOriginalImages) {
-                  setImages(prev => {
-                    // 更新剩余未聚类卡片的位置（补位）
-                    const remaining = prev.filter(img => !classifiedItemIds.has(img.id));
-                    return calculateRadialLayout(remaining);
-                  });
-                } else {
-                  setOpengraphData(prev => {
-                    // 更新剩余未聚类卡片的位置（补位）
-                    const remaining = prev.filter(og => !classifiedItemIds.has(og.id));
-                    return calculateRadialLayout(remaining);
-                  });
-                }
-                
-                // 注意：已聚类的卡片保留在 opengraphData/images 中
-                // Spring 系统会自动处理这些卡片的位置（基于聚类圆心位置）
-                
-                console.log('[Clustering] AI classify completed:', result.clusters);
-              }
-            } catch (error) {
-              console.error('[Clustering] Failed to classify by labels:', error);
-              alert('AI 分类失败：' + (error.message || '未知错误'));
-            } finally {
-              setIsClustering(false);
-            }
-          }}
-        >
-          <div className="upload-tag">
-            <div className="image-wrapper">
-              <img className="image-13" alt="Image" src={getImageUrl("1.svg")} />
-            </div>
-          </div>
-        </div>
-
-        <div className="rectangle" />
-
-        {/* 自动聚类按钮 */}
-        <div 
-          className="auto-cluster"
-          style={{ cursor: isClustering ? 'not-allowed' : 'pointer', opacity: isClustering ? 0.6 : 1 }}
-          onClick={async (e) => {
-            e.stopPropagation();
-            if (isClustering) return;
-            
-            try {
-              setIsClustering(true);
-              // 优先使用 opengraphWithEmbeddings（包含 embedding），否则使用 opengraphData
-              let allItems = showOriginalImages ? images : opengraphData;
-              
-              // 如果 opengraphWithEmbeddings 有数据，优先使用（包含 embedding）
-              if (!showOriginalImages && opengraphWithEmbeddings.length > 0) {
-                // 合并 opengraphData 的位置信息和 opengraphWithEmbeddings 的 embedding
-                allItems = opengraphData.map(item => {
-                  const withEmbedding = opengraphWithEmbeddings.find(e => 
-                    e.url === item.url || e.tab_id === item.tab_id
-                  );
-                  if (withEmbedding) {
-                    return {
-                      ...item,
-                      text_embedding: withEmbedding.text_embedding,
-                      image_embedding: withEmbedding.image_embedding,
-                      embedding: withEmbedding.embedding,
-                    };
-                  }
-                  return item;
-                });
-              }
-              
-              // 获取已聚类的卡片 ID（排除用户自定义聚类）
-              const clusteredItemIds = clusters
-                .filter(c => c.type === 'manual')
-                .flatMap(c => (c.items || []).map(item => item.id))
-                .filter(Boolean);
-              
-              // 确保 items 包含 embedding
-              const itemsWithEmbedding = allItems.filter(item => 
-                item.text_embedding || item.image_embedding
-              );
-              
-              console.log('[Clustering] Total items:', allItems.length, 'Items with embedding:', itemsWithEmbedding.length);
-              
-              if (itemsWithEmbedding.length < 3) {
-                alert('至少需要3个有 embedding 的卡片才能进行自动聚类');
-                return;
-              }
-              
-              const result = await discoverClusters(
-                itemsWithEmbedding,
-                clusteredItemIds.length > 0 ? clusteredItemIds : null,
-                null // 自动确定聚类数量
-              );
-              
-              if (result && result.ok && result.clusters) {
-                // 添加聚类到列表
-                const updatedClusters = [...clusters, ...result.clusters];
-                
-                // 重新计算所有聚类的位置（避免重叠）
-                const repositionedClusters = calculateMultipleClustersLayout(updatedClusters, {
-                  canvasWidth: 1440,
-                  canvasHeight: 1024,
-                  clusterSpacing: 500, // 增加间距以避免重叠
-                  clusterCenterRadius: 250, // 增加半径以让聚类更分散
-                });
-                setClusters(repositionedClusters);
-                
-                // 重要：不移除已聚类的卡片，保留在 opengraphData/images 中
-                // Spring 系统需要这些卡片数据来计算和更新位置
-                
-                // 更新剩余未聚类卡片的位置（补位）
-                const clusteredItemIds = new Set(
-                  result.clusters.flatMap(c => (c.items || []).map(item => item.id))
-                );
-                
-                if (showOriginalImages) {
-                  setImages(prev => {
-                    // 更新剩余未聚类卡片的位置（补位）
-                    const remaining = prev.filter(img => !clusteredItemIds.has(img.id));
-                    return calculateRadialLayout(remaining);
-                  });
-                } else {
-                  setOpengraphData(prev => {
-                    // 更新剩余未聚类卡片的位置（补位）
-                    const remaining = prev.filter(og => !clusteredItemIds.has(og.id));
-                    return calculateRadialLayout(remaining);
-                  });
-                }
-                
-                // 注意：已聚类的卡片保留在 opengraphData/images 中
-                // Spring 系统会自动处理这些卡片的位置（基于聚类圆心位置）
-                
-                console.log('[Clustering] AI discover completed:', result.clusters);
-              }
-            } catch (error) {
-              console.error('[Clustering] Failed to discover clusters:', error);
-              alert('自动聚类失败：' + (error.message || '未知错误'));
-            } finally {
-              setIsClustering(false);
-            }
-          }}
-        >
-          <div className="frame-wrapper">
-            <div className="frame-10">
-              <div className="text-wrapper-23">自动聚类</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
 
       <ToolSets
         activeTool={activeTool}

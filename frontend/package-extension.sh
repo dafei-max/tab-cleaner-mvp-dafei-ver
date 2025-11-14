@@ -24,10 +24,13 @@ cd dist
 echo "📦 正在创建 ZIP 文件..."
 zip -r ../../tab-cleaner-extension.zip . \
   -x "*.DS_Store" \
+  -x "*/.DS_Store" \
+  -x "**/.DS_Store" \
   -x "*node_modules/*" \
   -x "*.git/*" \
   -x "*.md" \
   -x "*.log" \
+  -x "*.map" \
   > /dev/null 2>&1
 
 # 检查文件大小
