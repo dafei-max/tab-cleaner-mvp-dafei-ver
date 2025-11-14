@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - Tab Cleaner MVP</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1a73e8;
+            border-bottom: 2px solid #1a73e8;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #333;
+            margin-top: 30px;
+        }
+        .last-updated {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 30px;
+        }
+        ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        li {
+            margin: 8px 0;
+        }
+        .highlight {
+            background-color: #fff3cd;
+            padding: 15px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+        }
+        .contact {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-left: 4px solid #1a73e8;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Privacy Policy for Tab Cleaner MVP</h1>
+        <p class="last-updated"><strong>Last Updated:</strong> November 14, 2025</p>
+
+        <h2>1. Introduction</h2>
+        <p>
+            Tab Cleaner MVP ("we", "our", or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and protect your information when you use our Chrome browser extension.
+        </p>
+
+        <h2>2. Information We Collect</h2>
+        <p>Tab Cleaner MVP collects the following information:</p>
+        <ul>
+            <li><strong>Tab Information:</strong> When you click the "Clean" button, we collect the URLs and titles of your open browser tabs.</li>
+            <li><strong>OpenGraph Metadata:</strong> We extract metadata (title, description, thumbnail images) from web pages to create visual cards for your tabs.</li>
+            <li><strong>Search Queries:</strong> If you use the AI search feature, we collect your search queries to generate semantic search results.</li>
+            <li><strong>User Preferences:</strong> We store your preferences (canvas zoom level, search history, clustering configuration) locally on your device.</li>
+        </ul>
+
+        <div class="highlight">
+            <strong>Important:</strong> We only collect information when you actively click the "Clean" button or use search features. We do not automatically collect or monitor your browsing behavior in the background.
+        </div>
+
+        <h2>3. How We Use Your Information</h2>
+        <p>We use the collected information for the following purposes:</p>
+        <ul>
+            <li><strong>Tab Management:</strong> To organize and display your tabs on the visual canvas.</li>
+            <li><strong>AI Processing:</strong> To provide semantic search and intelligent clustering features.</li>
+            <li><strong>OpenGraph Extraction:</strong> To extract metadata from web pages for visual card creation.</li>
+            <li><strong>User Experience:</strong> To remember your preferences and improve the extension's functionality.</li>
+        </ul>
+
+        <h2>4. Data Storage</h2>
+        <p>
+            <strong>Local Storage:</strong> All tab metadata and user preferences are stored locally on your device using Chrome's <code>chrome.storage.local</code> API. This data is never automatically uploaded to remote servers.
+        </p>
+        <p>
+            <strong>Backend Processing:</strong> When you use features that require AI processing (semantic search, clustering), your tab URLs and metadata are temporarily sent to our backend server for processing. This data is:
+        </p>
+        <ul>
+            <li>Transmitted securely via HTTPS encryption</li>
+            <li>Processed only for the specific feature you requested</li>
+            <li>Not permanently stored on our servers</li>
+            <li>Not shared with third parties</li>
+        </ul>
+
+        <h2>5. Data Sharing</h2>
+        <p>
+            <strong>We do not share your data with third parties.</strong> We do not sell, rent, or trade your information. The only exception is when data is sent to our backend server for AI processing, which is necessary for the extension's core functionality.
+        </p>
+        <p>
+            Our backend server uses third-party AI services (Alibaba Cloud DashScope API) for semantic search and clustering. These services process your data according to their own privacy policies, but we ensure that:
+        </p>
+        <ul>
+            <li>Only necessary data (URLs, titles, metadata) is sent</li>
+            <li>All communication is encrypted via HTTPS</li>
+            <li>No personal information is included</li>
+        </ul>
+
+        <h2>6. User Control</h2>
+        <p>You have full control over your data:</p>
+        <ul>
+            <li><strong>Data Collection:</strong> Data is only collected when you actively click the "Clean" button or use search features.</li>
+            <li><strong>Data Deletion:</strong> You can clear all stored data at any time by clearing Chrome's extension storage or uninstalling the extension.</li>
+            <li><strong>Opt-Out:</strong> You can stop using the extension at any time, which will prevent any further data collection.</li>
+        </ul>
+
+        <h2>7. Security</h2>
+        <p>We implement the following security measures:</p>
+        <ul>
+            <li>All network communication is encrypted via HTTPS</li>
+            <li>Data is stored locally on your device</li>
+            <li>Backend API uses secure authentication and encryption</li>
+            <li>No sensitive personal information is collected</li>
+        </ul>
+
+        <h2>8. Children's Privacy</h2>
+        <p>
+            Tab Cleaner MVP is not intended for children under the age of 13. We do not knowingly collect information from children under 13.
+        </p>
+
+        <h2>9. Changes to This Privacy Policy</h2>
+        <p>
+            We may update this Privacy Policy from time to time. We will notify you of any changes by updating the "Last Updated" date at the top of this page. We encourage you to review this Privacy Policy periodically.
+        </p>
+
+        <h2>10. Compliance</h2>
+        <p>
+            This Privacy Policy complies with:
+        </p>
+        <ul>
+            <li>Chrome Web Store Developer Program Policies</li>
+            <li>General Data Protection Regulation (GDPR)</li>
+            <li>California Consumer Privacy Act (CCPA)</li>
+        </ul>
+
+        <div class="contact">
+            <h2>11. Contact Us</h2>
+            <p>
+                If you have any questions about this Privacy Policy or our data practices, please contact us through:
+            </p>
+            <ul>
+                <li>GitHub Issues: [Your GitHub repository URL]</li>
+                <li>Email: [Your contact email]</li>
+            </ul>
+        </div>
+
+        <h2>12. Summary</h2>
+        <p><strong>Key Points:</strong></p>
+        <ul>
+            <li>✅ We only collect data when you actively use the extension</li>
+            <li>✅ All data is stored locally on your device</li>
+            <li>✅ Backend processing is temporary and secure</li>
+            <li>✅ We do not share data with third parties</li>
+            <li>✅ You have full control over your data</li>
+            <li>✅ No tracking or monitoring of browsing behavior</li>
+        </ul>
+    </div>
+</body>
+</html>
+
