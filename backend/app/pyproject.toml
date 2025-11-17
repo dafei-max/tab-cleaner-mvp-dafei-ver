@@ -41,4 +41,5 @@ dependencies = [
     "playwright>=1.40.0",
     "alibabacloud-gpdb20160503==3.5.0",
     "alibabacloud-tea-openapi==0.3.8",
+    "asyncpg>=0.30.0",
 ]
