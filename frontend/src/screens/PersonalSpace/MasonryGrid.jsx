@@ -1,39 +1,7 @@
 import React, { useRef } from "react";
-import { useMasonryLayout } from "../../hooks/useMasonryLayout";
+import { usePackeryLayout } from "../../hooks/usePackeryLayout";
+import { MASONRY_CONFIG } from "../../config/masonryConfig";
 import "./style.css";
-
-/**
- * Calculate card dimensions based on OpenGraph data
- */
-const calculateCardSize = (og) => {
-  const isDocCard = og.is_doc_card || false;
-  let cardWidth, cardHeight;
-
-  if (isDocCard) {
-    cardWidth = 200;
-    cardHeight = 150;
-  } else {
-    const BASE_HEIGHT = 120;
-    if (og.image_width && og.image_height) {
-      const aspectRatio = og.image_width / og.image_height;
-      cardHeight = BASE_HEIGHT;
-      cardWidth = BASE_HEIGHT * aspectRatio;
-    } else if (og.original_width && og.original_height) {
-      const aspectRatio = og.original_width / og.original_height;
-      cardHeight = BASE_HEIGHT;
-      cardWidth = BASE_HEIGHT * aspectRatio;
-    } else if (og.width && og.height) {
-      const aspectRatio = og.width / og.height;
-      cardHeight = BASE_HEIGHT;
-      cardWidth = BASE_HEIGHT * aspectRatio;
-    } else {
-      cardHeight = BASE_HEIGHT;
-      cardWidth = BASE_HEIGHT * (16/9);
-    }
-  }
-
-  return { cardWidth, cardHeight };
-};
 
 export const MasonryGrid = ({ 
   opengraphData, 
@@ -41,13 +9,10 @@ export const MasonryGrid = ({
   onCardClick,
   lastOGClickRef 
 }) => {
-  const { masonryRef } = useMasonryLayout('masonry', opengraphData);
+  const { masonryRef } = usePackeryLayout('masonry', opengraphData);
 
-  // 计算实际显示的卡片宽度（限制最大宽度以适配 5 列布局）
-  const containerWidth = 1440 - 40; // 减去左右 padding
-  const gutter = 16;
-  const maxColumns = 5;
-  const maxCardWidth = (containerWidth - (gutter * (maxColumns - 1))) / maxColumns;
+  // 使用配置计算卡片宽度（Pinterest 风格：固定宽度）
+  const cardWidth = MASONRY_CONFIG.columns.getColumnWidth();
 
   // 找到最接近的搜索结果
   const hasSearchResults = searchQuery.trim() && opengraphData.some(item => item.similarity !== undefined && item.similarity > 0);
@@ -61,9 +26,9 @@ export const MasonryGrid = ({
       className="masonry-container"
       style={{
         width: '100%',
-        maxWidth: '1440px',
+        maxWidth: `${MASONRY_CONFIG.container.maxWidth}px`,
         margin: '0 auto',
-        padding: '20px',
+        padding: `${MASONRY_CONFIG.container.padding}px`,
         overflowY: 'auto',
         height: '100vh',
       }}
@@ -73,6 +38,7 @@ export const MasonryGrid = ({
         className="masonry-grid"
         style={{
           margin: '0 auto',
+          display: 'block',
         }}
       >
         {opengraphData && Array.isArray(opengraphData) && opengraphData.length > 0 && opengraphData.map((og) => {
@@ -80,44 +46,48 @@ export const MasonryGrid = ({
             return null;
           }
           
-          const { cardWidth } = calculateCardSize(og);
           const isDocCard = og.is_doc_card || false;
           const isTopResult = topResultId === og.id;
-          const displayWidth = Math.min(cardWidth, maxCardWidth);
 
           return (
             <div
               key={og.id}
               className="masonry-item"
               style={{
-                width: `${displayWidth}px`,
-                marginBottom: '16px',
+                width: `${cardWidth}px`,  // Pinterest 风格：固定宽度
+                marginBottom: `${MASONRY_CONFIG.columns.gutter}px`,  // 使用 gutter 作为间距
                 breakInside: 'avoid',
               }}
             >
               <img
-                src={og.image || 'https://via.placeholder.com/120'}
+                src={og.image || MASONRY_CONFIG.imageLoading.placeholder}
                 alt={og.title || og.url}
                 className={`opengraph-image ${isDocCard ? 'doc-card' : ''} ${isTopResult ? 'top-result' : ''}`}
                 style={{
                   width: '100%',
-                  height: 'auto',
+                  height: 'auto',  // Pinterest 风格：高度自适应，保持原始宽高比
                   display: 'block',
-                  borderRadius: '8px',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                  cursor: 'pointer',
+                  borderRadius: `${MASONRY_CONFIG.card.borderRadius}px`,
+                  boxShadow: MASONRY_CONFIG.card.boxShadow,
+                  cursor: MASONRY_CONFIG.draggable.enabled ? 'move' : 'pointer',
+                  objectFit: 'cover',  // 确保图片填充整个宽度
                 }}
-                onClick={() => {
-                  if (onCardClick) {
-                    onCardClick(og);
-                  } else {
-                    // 默认双击逻辑
-                    const now = Date.now();
-                    if (lastOGClickRef && lastOGClickRef.current) {
-                      if (lastOGClickRef.current.id === og.id && now - lastOGClickRef.current.time < 300) {
-                        lastOGClickRef.current = { time: 0, id: null };
-                      } else {
-                        lastOGClickRef.current = { time: now, id: og.id };
+                loading="lazy"  // 懒加载
+                onClick={(e) => {
+                  // 如果启用了拖拽，点击事件可能会被拖拽拦截
+                  // 只有在没有拖拽的情况下才触发点击
+                  if (!MASONRY_CONFIG.draggable.enabled) {
+                    if (onCardClick) {
+                      onCardClick(og);
+                    } else {
+                      // 默认双击逻辑
+                      const now = Date.now();
+                      if (lastOGClickRef && lastOGClickRef.current) {
+                        if (lastOGClickRef.current.id === og.id && now - lastOGClickRef.current.time < 300) {
+                          lastOGClickRef.current = { time: 0, id: null };
+                        } else {
+                          lastOGClickRef.current = { time: now, id: og.id };
+                        }
                       }
                     }
                   }

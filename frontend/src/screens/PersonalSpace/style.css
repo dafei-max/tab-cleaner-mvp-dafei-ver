@@ -834,10 +834,42 @@
   margin-bottom: 16px;
 }
 
-.personal-space .masonry-item img {
+/* Packery 布局样式（Pinterest 风格：紧密排列，居中显示） */
+.personal-space .packery-grid {
+  position: relative;
+  margin: 0 auto; /* 确保居中 */
+  display: block; /* 确保是块级元素 */
+}
+
+/* 确保容器居中（但不影响 Packery 布局） */
+.personal-space .masonry-container {
+  /* 移除 flex，使用 margin: auto 居中 */
+  position: relative;
+}
+
+.personal-space .packery-item {
+  position: absolute;
+  will-change: transform;
+  /* Pinterest 风格：确保卡片紧密排列 */
+  transition: transform 0.3s ease-out;
+  margin-bottom: 0; /* Packery 使用 gutter 控制间距 */
+}
+
+.personal-space .masonry-item img,
+.personal-space .packery-item img {
   display: block;
   width: 100%;
   height: auto;
+  /* Pinterest 风格：图片填充整个卡片宽度，保持原始宽高比 */
+  object-fit: cover;
+}
+
+/* 拖拽样式 */
+.personal-space .packery-item.is-dragging,
+.personal-space .packery-item.is-positioning-post-drag {
+  z-index: 1000 !important;
+  opacity: 0.8;
+  cursor: move !important;
 }
 
 .personal-space .masonry-column-width {

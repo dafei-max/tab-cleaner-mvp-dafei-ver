@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { SessionCard } from './SessionCard';
 import { SessionHeader } from './SessionHeader';
-import { useMasonryLayout } from '../../hooks/useMasonryLayout';
+import { usePackeryLayout } from '../../hooks/usePackeryLayout';
+import { MASONRY_CONFIG } from '../../config/masonryConfig';
 import './style.css';
 
 /**
@@ -219,15 +220,17 @@ const SessionMasonryGridContent = ({
     });
   }, [session]);
 
-  // useMasonryLayout 返回 { masonryRef, masonryInstanceRef }
-  // 每个 session 需要独立的 masonry 实例
-  const { masonryRef } = useMasonryLayout('masonry', session.opengraphData || []);
+  // usePackeryLayout 返回 { masonryRef, masonryInstanceRef }
+  // 每个 session 需要独立的 masonry 实例（带拖拽功能）
+  const { masonryRef } = usePackeryLayout('masonry', session.opengraphData || []);
 
-  // 计算实际显示的卡片宽度（限制最大宽度以适配 5 列布局）
-  const containerWidth = 1440 - 40;
-  const gutter = 16;
-  const maxColumns = 5;
-  const maxCardWidth = (containerWidth - (gutter * (maxColumns - 1))) / maxColumns;
+  // 使用配置计算卡片宽度（Pinterest 风格：固定宽度，必须是固定像素值）
+  const cardWidth = MASONRY_CONFIG.columns.getColumnWidth();
+  
+  // 确保 cardWidth 是固定像素值（fitWidth 要求）
+  if (typeof cardWidth !== 'number' || cardWidth <= 0) {
+    console.error('[SessionMasonryGrid] Invalid cardWidth:', cardWidth);
+  }
 
   return (
     <div

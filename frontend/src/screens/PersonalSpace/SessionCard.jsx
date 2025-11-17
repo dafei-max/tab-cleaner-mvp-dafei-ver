@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { MASONRY_CONFIG } from '../../config/masonryConfig';
 
 /**
  * 获取占位符图片（仅在 opengraph 图片不存在时使用）
@@ -119,19 +120,17 @@ export const SessionCard = ({
     }
   }
 
-  // 限制最大宽度以适配 5 列布局
-  const containerWidth = 1440 - 40;
-  const gutter = 16;
-  const maxColumns = 5;
-  const maxCardWidth = (containerWidth - (gutter * (maxColumns - 1))) / maxColumns;
-  const displayWidth = Math.min(cardWidth, maxCardWidth);
+  // 使用配置中的固定宽度（Pinterest 风格：固定宽度，fitWidth 要求）
+  // 注意：不再使用动态计算的 displayWidth，而是使用配置中的固定 cardWidth
+  // 这样可以确保 fitWidth 正常工作
+  const fixedCardWidth = MASONRY_CONFIG.columns.getColumnWidth();
 
   return (
     <div
       className={`masonry-item ${isSelected ? 'selected' : ''}`}
       style={{
-        width: `${displayWidth}px`,
-        marginBottom: '16px',
+        width: `${fixedCardWidth}px`,  // 固定像素值，fitWidth 要求
+        marginBottom: `${MASONRY_CONFIG.columns.gutter}px`,  // 使用配置中的 gutter
         breakInside: 'avoid',
         position: 'relative',
       }}
