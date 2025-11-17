@@ -59,26 +59,65 @@ async def init_schema():
                 CREATE SCHEMA IF NOT EXISTS {NAMESPACE};
             """)
             
-            # 创建表（如果不存在）
-            await conn.execute(f"""
-                CREATE TABLE IF NOT EXISTS {NAMESPACE}.opengraph_items (
-                    id SERIAL PRIMARY KEY,
-                    url TEXT UNIQUE NOT NULL,
-                    title TEXT,
-                    description TEXT,
-                    image TEXT,
-                    site_name TEXT,
-                    tab_id INTEGER,
-                    tab_title TEXT,
-                    text_embedding vector(1024),
-                    image_embedding vector(1024),
-                    metadata JSONB,
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    updated_at TIMESTAMP DEFAULT NOW()
+            # 检查表是否存在
+            table_exists = await conn.fetchval(f"""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = '{NAMESPACE}' 
+                    AND table_name = 'opengraph_items'
                 );
             """)
             
-            # 创建索引
+            if not table_exists:
+                # 表不存在，创建新表
+                await conn.execute(f"""
+                    CREATE TABLE {NAMESPACE}.opengraph_items (
+                        id SERIAL PRIMARY KEY,
+                        url TEXT NOT NULL,
+                        title TEXT,
+                        description TEXT,
+                        image TEXT,
+                        site_name TEXT,
+                        tab_id INTEGER,
+                        tab_title TEXT,
+                        text_embedding vector(1024),
+                        image_embedding vector(1024),
+                        metadata JSONB,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        updated_at TIMESTAMP DEFAULT NOW(),
+                        CONSTRAINT opengraph_items_url_unique UNIQUE (url)
+                    );
+                """)
+                print(f"[VectorDB] Created new table: {NAMESPACE}.opengraph_items")
+            else:
+                # 表已存在，检查并添加缺失的约束
+                print(f"[VectorDB] Table {NAMESPACE}.opengraph_items already exists, checking constraints...")
+                
+                # 检查 UNIQUE 约束是否存在
+                unique_constraint_exists = await conn.fetchval(f"""
+                    SELECT EXISTS (
+                        SELECT 1 FROM pg_constraint 
+                        WHERE conrelid = '{NAMESPACE}.opengraph_items'::regclass 
+                        AND conname = 'opengraph_items_url_unique'
+                    );
+                """)
+                
+                if not unique_constraint_exists:
+                    try:
+                        # 添加 UNIQUE 约束（如果列中已有重复值会失败）
+                        await conn.execute(f"""
+                            ALTER TABLE {NAMESPACE}.opengraph_items 
+                            ADD CONSTRAINT opengraph_items_url_unique UNIQUE (url);
+                        """)
+                        print(f"[VectorDB] Added UNIQUE constraint on url column")
+                    except Exception as e:
+                        print(f"[VectorDB] Warning: Could not add UNIQUE constraint: {e}")
+                        print(f"[VectorDB] This may be due to duplicate URLs in existing data")
+                
+                # 检查并添加缺失的列（如果需要）
+                # 这里可以添加逻辑来检查列是否存在，如果不存在则添加
+            
+            # 创建索引（无论表是新创建还是已存在）
             await conn.execute(f"""
                 CREATE INDEX IF NOT EXISTS idx_opengraph_url 
                 ON {NAMESPACE}.opengraph_items(url);
@@ -106,7 +145,7 @@ async def init_schema():
             except Exception as e:
                 print(f"[VectorDB] Warning: Could not create image_embedding index: {e}")
             
-            print(f"[VectorDB] Schema initialized for namespace: {NAMESPACE}")
+            print(f"[VectorDB] ✓ Schema initialized for namespace: {NAMESPACE}")
     except Exception as e:
         print(f"[VectorDB] Error initializing schema: {e}")
         import traceback

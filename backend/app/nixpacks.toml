@@ -9,7 +9,7 @@ nixPkgs = ["python312", "uv"]
 # 使用 uv sync 安装依赖（会自动创建虚拟环境并安装所有依赖）
 # uv sync 会读取 pyproject.toml 和 uv.lock，自动创建虚拟环境
 cmds = [
-  "uv sync",
+  "uv sync --frozen",  # 使用 --frozen 确保使用 lockfile
   "playwright install chromium || echo 'Playwright installation skipped'"
 ]
 

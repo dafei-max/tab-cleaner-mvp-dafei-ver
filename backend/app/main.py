@@ -23,16 +23,25 @@ async def startup_event():
         # 检查是否配置了数据库连接
         db_host = os.getenv("ADBPG_HOST", "")
         if db_host:
-            from vector_db import init_schema
-            print("[Startup] Initializing vector database...")
-            await init_schema()
-            print("[Startup] Vector database initialized")
+            try:
+                from vector_db import init_schema
+                print("[Startup] Initializing vector database...")
+                await init_schema()
+                print("[Startup] ✓ Vector database initialized successfully")
+            except ImportError as import_error:
+                print(f"[Startup] ⚠ Vector DB module import failed: {import_error}")
+                print("[Startup] ⚠ This is expected if asyncpg is not installed. Vector DB features will be disabled.")
+                print("[Startup] ⚠ To enable vector DB, ensure asyncpg is installed: pip install asyncpg>=0.30.0")
+            except Exception as db_error:
+                print(f"[Startup] ⚠ Vector DB initialization failed: {db_error}")
+                print("[Startup] ⚠ Continuing without vector database...")
+                import traceback
+                traceback.print_exc()
         else:
             print("[Startup] ADBPG_HOST not configured, skipping vector database initialization")
     except Exception as e:
-        print(f"[Startup] Failed to initialize vector database: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"[Startup] ⚠ Startup event error (non-critical): {e}")
+        # 不阻止应用启动
 
 
 @app.on_event("shutdown")
