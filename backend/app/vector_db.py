@@ -12,7 +12,9 @@ from datetime import datetime
 # 数据库连接配置
 DB_HOST = os.getenv("ADBPG_HOST", "gp-uf6j424dtk2ww5291o-master.gpdb.rds.aliyuncs.com")
 DB_PORT = int(os.getenv("ADBPG_PORT", "5432"))
-DB_NAME = os.getenv("ADBPG_DBNAME", "postgres")
+# 注意：阿里云 ADB PostgreSQL 向量数据库使用 knowledgebase 库
+# 如果使用 Namespace，数据会存储在 knowledgebase 库中对应的 Schema
+DB_NAME = os.getenv("ADBPG_DBNAME", "knowledgebase")  # 改为 knowledgebase，而不是 postgres
 DB_USER = os.getenv("ADBPG_USER", "cleantab_db")
 DB_PASSWORD = os.getenv("ADBPG_PASSWORD", "CleanTabV5")
 NAMESPACE = os.getenv("ADBPG_NAMESPACE", "cleantab")
@@ -54,10 +56,27 @@ async def init_schema():
         pool = await get_pool()
         
         async with pool.acquire() as conn:
-            # 确保 namespace 存在
-            await conn.execute(f"""
-                CREATE SCHEMA IF NOT EXISTS {NAMESPACE};
+            # 注意：在阿里云 ADB PostgreSQL 中，Namespace 应该通过 API 创建
+            # 如果 Namespace 已通过 API 创建，对应的 Schema 会自动存在于 knowledgebase 库中
+            # 这里只检查 Schema 是否存在，如果不存在会报错（需要先通过 API 创建 Namespace）
+            schema_exists = await conn.fetchval(f"""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.schemata 
+                    WHERE schema_name = '{NAMESPACE}'
+                );
             """)
+            
+            if not schema_exists:
+                error_msg = (
+                    f"[VectorDB] ✗ Schema '{NAMESPACE}' does not exist!\n"
+                    f"[VectorDB] ✗ In Alibaba Cloud ADB PostgreSQL, Namespace must be created via API first.\n"
+                    f"[VectorDB] ✗ Please run: python init_vector.py to create the namespace\n"
+                    f"[VectorDB] ✗ Or use the Alibaba Cloud API: CreateNamespace"
+                )
+                print(error_msg)
+                raise ValueError(f"Schema '{NAMESPACE}' does not exist. Please create Namespace via API first.")
+            
+            print(f"[VectorDB] ✓ Schema '{NAMESPACE}' exists (Namespace created via API)")
             
             # 检查表是否存在
             table_exists = await conn.fetchval(f"""
