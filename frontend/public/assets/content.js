@@ -527,6 +527,57 @@
       console.log('[Tab Cleaner Content] fetch-opengraph requested');
       console.log('[Tab Cleaner Content] Checking if opengraph_local.js is loaded...');
       console.log('[Tab Cleaner Content] window.__TAB_CLEANER_GET_OPENGRAPH exists?', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
+      console.log('[Tab Cleaner Content] window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED?', window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED);
+      
+      // 如果脚本还没加载，先加载它
+      if (!window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED && !window.__TAB_CLEANER_GET_OPENGRAPH) {
+        console.log('[Tab Cleaner Content] Script not loaded, loading now...');
+        const script = document.createElement('script');
+        script.src = chrome.runtime.getURL('assets/opengraph_local.js');
+        script.onload = () => {
+          console.log('[Tab Cleaner Content] ✅ Script loaded, waiting for function...');
+          setTimeout(() => {
+            if (window.__TAB_CLEANER_GET_OPENGRAPH) {
+              console.log('[Tab Cleaner Content] ✅ Function ready, calling...');
+              try {
+                const result = window.__TAB_CLEANER_GET_OPENGRAPH(true);
+                if (result instanceof Promise) {
+                  result.then(data => {
+                    console.log('[Tab Cleaner Content] Promise resolved:', {
+                      success: data?.success,
+                      hasTitle: !!(data?.title),
+                      hasImage: !!(data?.image)
+                    });
+                    send(data);
+                  }).catch(error => {
+                    console.error('[Tab Cleaner Content] Promise rejected:', error);
+                    send({ success: false, error: error.message });
+                  });
+                } else {
+                  console.log('[Tab Cleaner Content] Sync result:', {
+                    success: result?.success,
+                    hasTitle: !!(result?.title),
+                    hasImage: !!(result?.image)
+                  });
+                  send(result);
+                }
+              } catch (e) {
+                console.error('[Tab Cleaner Content] Error calling function:', e);
+                send({ success: false, error: e.message });
+              }
+            } else {
+              console.error('[Tab Cleaner Content] Function still not found after load');
+              send({ success: false, error: 'OpenGraph function not found after script load' });
+            }
+          }, 200);
+        };
+        script.onerror = (e) => {
+          console.error('[Tab Cleaner Content] Failed to load script:', e);
+          send({ success: false, error: 'Failed to load opengraph_local.js' });
+        };
+        (document.head || document.documentElement).appendChild(script);
+        return true; // 保持消息通道开放，等待异步加载
+      }
       
       try {
         // 使用 opengraph_local.js 暴露的全局函数
@@ -561,7 +612,7 @@
             send(result);
           }
         } else {
-          console.warn('[Tab Cleaner Content] __TAB_CLEANER_GET_OPENGRAPH not found, waiting 1s...');
+          console.warn('[Tab Cleaner Content] __TAB_CLEANER_GET_OPENGRAPH not found, waiting 2s...');
           // 如果函数还没加载，等待一下（opengraph_local.js 需要时间加载）
           setTimeout(() => {
             if (window.__TAB_CLEANER_GET_OPENGRAPH) {
@@ -589,9 +640,10 @@
               }
             } else {
               console.error('[Tab Cleaner Content] Function still not found after wait');
+              console.error('[Tab Cleaner Content] Available globals:', Object.keys(window).filter(k => k.includes('TAB_CLEANER')));
               send({ success: false, error: 'OpenGraph function not loaded' });
             }
-          }, 1000);
+          }, 2000); // 增加到 2 秒
         }
       } catch (error) {
         console.error('[Tab Cleaner Content] Error in fetch-opengraph:', error);
