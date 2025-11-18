@@ -64,3 +64,8 @@ fly.toml
 nixpacks.toml
 Procfile
 
+# api 目录只需要 main.py 和 requirements.txt，其他文件在 backend/app
+api/*.py
+!api/main.py
+api/.gitkeep
+
