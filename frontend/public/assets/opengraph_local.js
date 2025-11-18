@@ -169,10 +169,15 @@
 
       // 9. 判断是否成功
       result.success = !!(result.title && result.title !== window.location.href);
+      
+      // 10. 确保不设置 is_doc_card（本地抓取不应该生成 doc 卡片）
+      // 如果没有图片，让前端使用占位符，而不是 doc 卡片
+      result.is_doc_card = false;
 
     } catch (error) {
       result.error = error.message || String(error);
       result.success = false;
+      result.is_doc_card = false; // 即使失败也不应该是 doc 卡片
     }
 
     return result;
