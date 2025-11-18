@@ -96,7 +96,7 @@ async def get_pinterest_from_oembed_html(client: httpx.AsyncClient, pin_url: str
 
 async def get_pinterest_from_jsonld(client: httpx.AsyncClient, pin_url: str) -> Dict:
     """
-    Pinterest 备胎：从 JSON-LD 或 OG 提取
+    Pinterest 备胎：从 JSON-LD、OG 或页面内容提取
     """
     response = await client.get(pin_url, timeout=15.0)
     response.raise_for_status()
@@ -149,10 +149,29 @@ async def get_pinterest_from_jsonld(client: httpx.AsyncClient, pin_url: str) -> 
     )
     img = normalize_img(img, final_base)
     
+    # 如果 OG 没有图片，尝试从页面中提取图片
+    if not img:
+        # 尝试找到 Pinterest 图片（通常在 data-src 或 src 属性中）
+        img_tags = soup.select('img[src*="pinimg.com"], img[data-src*="pinimg.com"]')
+        if img_tags:
+            for img_tag in img_tags:
+                img_src = img_tag.get('data-src') or img_tag.get('src')
+                if img_src and 'pinimg.com' in img_src:
+                    img = normalize_img(img_src, final_base)
+                    if img:
+                        break
+    
     site_name = best_text(
         pick_meta(soup, 'meta[property="og:site_name"]'),
         pick_meta(soup, 'meta[name="og:site_name"]')
     ) or "Pinterest"
+    
+    # 如果 OG 没有标题，尝试从页面中提取
+    if not title:
+        # 尝试从 h1 或其他标题标签提取
+        h1 = soup.select_one('h1')
+        if h1:
+            title = h1.get_text(strip=True)
     
     if title or img:
         return {
