@@ -9,28 +9,7 @@ import asyncio
 import json
 from urllib.parse import urljoin
 
-# 延迟导入 screenshot 模块，避免 Playwright 未安装时出错
-try:
-    from screenshot import is_doc_like_url
-    SCREENSHOT_AVAILABLE = True
-except ImportError:
-    SCREENSHOT_AVAILABLE = False
-    print("[OpenGraph] WARNING: Screenshot module not available.")
-    
-    # 提供占位函数
-    def is_doc_like_url(url: str) -> bool:
-        """占位函数：判断是否为文档类网页"""
-        url_lower = url.lower()
-        doc_keywords = [
-            "github.com",
-            "readthedocs.io",
-            "/docs/",
-            "developer.",
-            "dev.",
-            "documentation",
-            "wiki",
-        ]
-        return any(keyword in url_lower for keyword in doc_keywords)
+# Screenshot 功能已移除
 
 
 def normalize_img(src: Optional[str], base_url: str) -> Optional[str]:
@@ -57,7 +36,7 @@ def best_text(*candidates) -> Optional[str]:
             t = c.strip()
             if t:
                 return t
-    return None
+        return None
 
 
 async def get_generic_og(client: httpx.AsyncClient, url: str) -> Dict:
@@ -143,8 +122,8 @@ async def fetch_opengraph(url: str, timeout: float = 15.0) -> Dict:
             "site_name": str,
             "success": bool,
             "error": Optional[str],
-            "is_screenshot": bool,  # 始终为 False（已移除截图功能）
-            "needs_screenshot": bool,  # 是否需要前端截图（仅文档类且无图时）
+            "is_screenshot": bool,  # 始终为 False（截图功能已移除）
+            "needs_screenshot": bool,  # 始终为 False（截图功能已移除）
         }
     """
     result = {
@@ -178,20 +157,14 @@ async def fetch_opengraph(url: str, timeout: float = 15.0) -> Dict:
             # 统一使用通用 OG/Twitter Card 逻辑（所有站点，包括 Pinterest）
             result = await get_generic_og(client, url)
             
-            # 如果成功但没有图片，检查是否需要截图（仅文档类）
-            if result["success"] and not result["image"]:
-                is_doc_like = is_doc_like_url(url)
-                if is_doc_like:
-                    result["needs_screenshot"] = True
-                    print(f"[OpenGraph] No image found for doc-like URL, marking needs_screenshot=True: {url[:60]}...")
-                else:
-                    result["needs_screenshot"] = False
+            # Screenshot 功能已移除，needs_screenshot 始终为 False
+            result["needs_screenshot"] = False
             
-            # 如果 OpenGraph 抓取成功且有图片，立即预取 embedding
-            if result["success"] and result["image"]:
+            # 如果 OpenGraph 抓取成功，立即预取 embedding（无论是否有图片）
+            if result["success"]:
                 await _prefetch_embedding(result)
             
-            return result
+                return result
             
     except Exception as e:
         result["error"] = str(e)
@@ -222,7 +195,7 @@ async def fetch_multiple_opengraph(urls: List[str]) -> List[Dict]:
                 "is_screenshot": False,
                 "needs_screenshot": False,
             })
-        else:
+                else:
             processed_results.append(result)
     
     return processed_results
@@ -288,7 +261,7 @@ async def _prefetch_embedding(result: Dict) -> None:
                     img_base64 = process_image(img_data)
                     if img_base64:
                         image_emb = await embed_image(img_base64)
-                        if image_emb:
+                if image_emb:
                             print(f"[OpenGraph] ✓ Image embedding generated for: {url[:60]}...")
             except Exception as e:
                 print(f"[OpenGraph] Failed to generate image embedding: {e}")
@@ -297,13 +270,13 @@ async def _prefetch_embedding(result: Dict) -> None:
         if text_emb or image_emb:
             try:
                 await upsert_opengraph_item(
-                    url=url,
-                    title=title,
-                    description=description,
-                    image=image,
+                url=url,
+                title=title,
+                description=description,
+                image=image,
                     site_name=result.get("site_name", ""),
-                    text_embedding=text_emb,
-                    image_embedding=image_emb,
+                text_embedding=text_emb,
+                image_embedding=image_emb,
                 )
                 print(f"[OpenGraph] ✓ Embeddings stored to DB for: {url[:60]}...")
             except Exception as e:
@@ -312,7 +285,7 @@ async def _prefetch_embedding(result: Dict) -> None:
         # 更新 result
         result["text_embedding"] = text_emb
         result["image_embedding"] = image_emb
-        
+            
     except Exception as e:
         print(f"[OpenGraph] Error in _prefetch_embedding: {e}")
         import traceback

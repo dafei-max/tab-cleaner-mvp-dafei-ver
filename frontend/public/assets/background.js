@@ -21,248 +21,7 @@ function isDocLikeUrl(url) {
   return docKeywords.some(keyword => urlLower.includes(keyword));
 }
 
-/**
- * 捕获标签页截图（使用 Chrome Extension API）
- * @param {number} tabId - 标签页 ID
- * @param {number} windowId - 窗口 ID（可选，如果不提供则使用当前窗口）
- * @returns {Promise<string>} 截图的 data URL
- */
-async function captureTabScreenshot(tabId, windowId) {
-  try {
-    // 如果提供了 windowId，使用它；否则获取 tab 所在的窗口
-    let targetWindowId = windowId;
-    if (!targetWindowId) {
-      const tab = await chrome.tabs.get(tabId);
-      targetWindowId = tab.windowId;
-    }
-    
-    // 切换到该标签页（确保可见）
-    await chrome.tabs.update(tabId, { active: true });
-    // 等待标签页激活
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // 使用 chrome.tabs.captureVisibleTab 截图
-    return new Promise((resolve, reject) => {
-      chrome.tabs.captureVisibleTab(
-        targetWindowId,
-        { format: 'jpeg', quality: 85 },
-        (dataUrl) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else {
-            resolve(dataUrl);
-          }
-        }
-      );
-    });
-  } catch (error) {
-    console.error(`[Tab Screenshot] Failed to capture tab ${tabId}:`, error);
-    throw error;
-  }
-}
-
-/**
- * 压缩截图（在 service worker 中使用 OffscreenCanvas）
- * 注意：Service Worker 中没有 DOM API，但可以使用 OffscreenCanvas（Chrome 69+）
- * 如果 OffscreenCanvas 不可用，则返回原始 data URL
- * @param {string} dataUrl - 原始截图的 data URL
- * @param {number} maxWidth - 最大宽度（像素）
- * @param {number} quality - JPEG 质量（0-1）
- * @returns {Promise<string>} 压缩后的 data URL
- */
-async function compressScreenshot(dataUrl, maxWidth = 320, quality = 0.6) {
-  // Service Worker 中没有 DOM API，压缩功能暂时跳过
-  // 可以在前端页面中压缩，或者使用 OffscreenCanvas（需要 Chrome 69+）
-  // 为了简化，这里先返回原始 data URL
-  // TODO: 实现 OffscreenCanvas 压缩或在前端页面压缩
-  console.log(`[Tab Screenshot] Compression skipped in service worker, using original screenshot`);
-  return dataUrl;
-  
-  // 如果将来需要压缩，可以使用以下代码（需要确保浏览器支持 OffscreenCanvas）：
-  /*
-  try {
-    // 将 data URL 转换为 Blob
-    const response = await fetch(dataUrl);
-    const blob = await response.blob();
-    const bitmap = await createImageBitmap(blob);
-    
-    // 计算新尺寸
-    let width = bitmap.width;
-    let height = bitmap.height;
-    if (width > maxWidth) {
-      height = (height * maxWidth) / width;
-      width = maxWidth;
-    }
-    
-    // 使用 OffscreenCanvas 压缩
-    const canvas = new OffscreenCanvas(width, height);
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(bitmap, 0, 0, width, height);
-    
-    const compressedBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: quality });
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(compressedBlob);
-  } catch (error) {
-    console.warn('[Tab Screenshot] Compression failed, using original:', error);
-    resolve(dataUrl);
-  }
-  */
-}
-
-/**
- * 保存截图到后端
- * @param {string} url - 页面 URL
- * @param {string} screenshotDataUrl - 截图的 data URL
- * @param {string} apiBaseUrl - API 基础 URL
- */
-async function saveScreenshotToBackend(url, screenshotDataUrl, apiBaseUrl) {
-  try {
-    const screenshotUrl = `${apiBaseUrl}/api/v1/tabs/screenshot`;
-    const response = await fetch(screenshotUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: url,
-        screenshot: screenshotDataUrl,
-      }),
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-    }
-    
-    console.log(`[Tab Screenshot] ✓ Screenshot saved to backend for ${url.substring(0, 60)}...`);
-  } catch (error) {
-    console.error(`[Tab Screenshot] Failed to save screenshot to backend:`, error);
-    throw error;
-  }
-}
-
-/**
- * 截图队列管理器
- * 限速：每秒最多 1 次截图（1000ms 间隔）
- */
-class ScreenshotQueue {
-  constructor() {
-    this.queue = [];
-    this.isProcessing = false;
-    this.rateLimitMs = 1000; // 每秒1次 = 1000ms 间隔
-    this.lastScreenshotTime = 0;
-  }
-
-  /**
-   * 添加截图任务到队列
-   * @param {Object} task - 截图任务
-   * @param {Object} task.item - OpenGraph item
-   * @param {Object} task.tab - 对应的 tab 对象
-   * @param {string} task.apiUrl - API URL
-   */
-  enqueue(task) {
-    this.queue.push(task);
-    console.log(`[Screenshot Queue] Task enqueued: ${task.item.url.substring(0, 60)}... (Queue size: ${this.queue.length})`);
-    
-    // 如果队列未在处理，开始处理
-    if (!this.isProcessing) {
-      this.process();
-    }
-  }
-
-  /**
-   * 处理队列中的截图任务
-   */
-  async process() {
-    if (this.isProcessing) {
-      return;
-    }
-
-    this.isProcessing = true;
-    console.log(`[Screenshot Queue] Starting queue processing (${this.queue.length} tasks)`);
-
-    while (this.queue.length > 0) {
-      const task = this.queue.shift();
-      
-      try {
-        // 限速：确保距离上次截图至少间隔 rateLimitMs
-        const timeSinceLastScreenshot = Date.now() - this.lastScreenshotTime;
-        if (timeSinceLastScreenshot < this.rateLimitMs) {
-          const waitTime = this.rateLimitMs - timeSinceLastScreenshot;
-          console.log(`[Screenshot Queue] Rate limiting: waiting ${waitTime}ms before next screenshot`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-        }
-
-        // 检查 tab 是否仍然存在
-        let tab;
-        try {
-          tab = await chrome.tabs.get(task.tab.id);
-        } catch (tabError) {
-          console.warn(`[Screenshot Queue] Tab ${task.tab.id} no longer exists, skipping screenshot`);
-          task.item.needs_screenshot = false;
-          continue;
-        }
-
-        // 执行截图
-        console.log(`[Screenshot Queue] Processing screenshot for ${task.item.url.substring(0, 60)}...`);
-        this.lastScreenshotTime = Date.now();
-
-        // 截图（设置超时，避免长时间阻塞）
-        const screenshotPromise = captureTabScreenshot(tab.id, tab.windowId);
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Screenshot timeout')), 5000)
-        );
-        
-        const screenshotDataUrl = await Promise.race([screenshotPromise, timeoutPromise]);
-        
-        if (screenshotDataUrl) {
-          // 压缩截图（320px 宽度，质量 60）
-          const compressedScreenshot = await compressScreenshot(screenshotDataUrl, 320, 0.6);
-          
-          // 更新 item 的 screenshot_image 字段
-          task.item.screenshot_image = compressedScreenshot;
-          task.item.needs_screenshot = false;
-          
-          console.log(`[Screenshot Queue] ✓ Screenshot captured for ${task.item.url.substring(0, 60)}...`);
-          
-          // 发送截图到后端存储（可选，也可以只存在前端）
-          try {
-            await saveScreenshotToBackend(task.item.url, compressedScreenshot, task.apiUrl);
-          } catch (saveError) {
-            console.warn(`[Screenshot Queue] Failed to save screenshot to backend: ${saveError.message}`);
-            // 即使保存失败，也继续使用前端的 screenshot_image
-          }
-        }
-      } catch (screenshotError) {
-        console.error(`[Screenshot Queue] Failed to capture screenshot for ${task.item.url}:`, screenshotError);
-        // 截图失败，保持 needs_screenshot=false，前端会使用 doc card fallback
-        task.item.needs_screenshot = false;
-      }
-    }
-
-    this.isProcessing = false;
-    console.log(`[Screenshot Queue] Queue processing completed`);
-  }
-
-  /**
-   * 获取队列长度
-   */
-  getLength() {
-    return this.queue.length;
-  }
-
-  /**
-   * 清空队列
-   */
-  clear() {
-    this.queue = [];
-    this.isProcessing = false;
-  }
-}
-
-// 创建全局截图队列实例
-const screenshotQueue = new ScreenshotQueue();
+// Screenshot 功能已移除
 
 /**
  * 为文档类标签页截图（在关闭之前）
@@ -675,7 +434,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           total: mergedData.length,
           withImage: 0,
           withoutImage: 0,
-          needsScreenshot: 0,
+          success: 0,
+          failed: 0,
         };
         
         mergedData.forEach(item => {
@@ -684,69 +444,23 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           } else {
             stats.withoutImage++;
           }
-          if (item.needs_screenshot === true) {
-            stats.needsScreenshot++;
+          if (item.success) {
+            stats.success++;
+          } else {
+            stats.failed++;
           }
         });
         
+        console.log(`[Tab Cleaner Background]   - 成功: ${stats.success}`);
+        console.log(`[Tab Cleaner Background]   - 失败: ${stats.failed}`);
         console.log(`[Tab Cleaner Background]   - 有图片: ${stats.withImage}`);
         console.log(`[Tab Cleaner Background]   - 无图片: ${stats.withoutImage}`);
-        console.log(`[Tab Cleaner Background]   - 需要截图: ${stats.needsScreenshot}`);
         console.log(`[Tab Cleaner Background] ==========================================`);
         
         // ============================================
-        // 步骤 2：检查哪些 item 需要截图
-        // 逻辑：只有 OpenGraph 拿不到图的才截图
+        // 步骤 2：OpenGraph 数据获取完成，继续后续流程
+        // Screenshot 功能已移除
         // ============================================
-        console.log(`[Tab Cleaner Background] STEP 2: 检查需要截图的 items`);
-        const itemsNeedingScreenshot = mergedData.filter(item => {
-          // 需要截图的条件：needs_screenshot=true 且 image 为空或无效
-          const needsScreenshot = item.needs_screenshot === true;
-          const hasNoImage = !item.image || item.image.trim() === '';
-          const shouldScreenshot = needsScreenshot && hasNoImage;
-          
-          // 详细日志：记录每个 item 的状态
-          if (needsScreenshot) {
-            console.log(`[Tab Cleaner Background]   [需要截图] ${item.url.substring(0, 60)}... (hasImage: ${!hasNoImage}, image: ${item.image ? item.image.substring(0, 50) : 'null'}...)`);
-          } else if (hasNoImage) {
-            console.log(`[Tab Cleaner Background]   [有图片但为空] ${item.url.substring(0, 60)}... (needs_screenshot: ${needsScreenshot})`);
-          }
-          
-          return shouldScreenshot;
-        });
-        
-        console.log(`[Tab Cleaner Background] ✓ 需要截图的 items: ${itemsNeedingScreenshot.length}`);
-        
-        // ============================================
-        // 步骤 3：将需要截图的 item 加入截图队列
-        // 限速 1/s，不阻塞主流程
-        // ============================================
-        if (itemsNeedingScreenshot.length > 0) {
-          console.log(`[Tab Cleaner Background] STEP 3: 将 ${itemsNeedingScreenshot.length} 个 items 加入截图队列 (限速: 1/s)`);
-          
-          // 将截图任务加入队列（异步处理，不阻塞主流程）
-          let enqueuedCount = 0;
-          itemsNeedingScreenshot.forEach(item => {
-            const tab = uniqueTabs.find(t => t.url === item.url);
-            if (tab) {
-              screenshotQueue.enqueue({
-                item: item,
-                tab: tab,
-                apiUrl: apiUrl,
-              });
-              enqueuedCount++;
-            } else {
-              console.warn(`[Tab Cleaner Background]   ⚠ Tab not found for URL: ${item.url}, skipping screenshot`);
-              item.needs_screenshot = false;
-            }
-          });
-          
-          console.log(`[Tab Cleaner Background] ✓ ${enqueuedCount} 个截图任务已加入队列`);
-          console.log(`[Tab Cleaner Background]   截图将在后台异步处理，不阻塞主流程`);
-        } else {
-          console.log(`[Tab Cleaner Background] STEP 3: 无需截图，所有 items 都有图片`);
-        }
-        
         console.log(`[Tab Cleaner Background] ==========================================`);
         console.log(`[Tab Cleaner Background] OpenGraph 阶段完成，继续后续流程...`);
         console.log(`[Tab Cleaner Background] ==========================================`);
@@ -897,16 +611,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           hasScreenshot: !!itemsWithIds[0].screenshot_image,
         } : 'No items');
 
-        // 等待截图队列处理一段时间（最多等待 5 秒，确保关键截图完成）
-        // 注意：截图队列是异步的，不会阻塞主流程，但给一些时间让截图开始
-        if (itemsNeedingScreenshot.length > 0) {
-          const maxWaitTime = Math.min(itemsNeedingScreenshot.length * 1000, 5000); // 最多等待 5 秒
-          console.log(`[Tab Cleaner Background] Waiting up to ${maxWaitTime}ms for screenshot queue to start processing...`);
-          await new Promise(resolve => setTimeout(resolve, Math.min(2000, maxWaitTime))); // 至少等待 2 秒让截图开始
-          console.log(`[Tab Cleaner Background] Screenshot queue processing started, continuing with tab closure...`);
-        }
-
-        // 关闭所有标签页（OpenGraph 已获取完成，截图队列已开始处理）
+        // 关闭所有标签页（OpenGraph 已获取完成）
         // 重要：重新获取当前所有标签页，因为截图过程中可能有些标签页已经被关闭
         // 只关闭那些在原始 uniqueTabs 列表中的标签页
         // 重新获取当前所有标签页
