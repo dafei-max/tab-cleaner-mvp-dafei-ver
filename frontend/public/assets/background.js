@@ -771,47 +771,63 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           return;
         }
 
-        // 调用后端 API 获取 OpenGraph 数据
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-        // 获取 API 地址
-        const apiUrl = API_CONFIG.getBaseUrlSync();
-        const opengraphUrl = `${apiUrl}/api/v1/tabs/opengraph`;
-
-        let response;
+        // ✅ 优先使用本地 OpenGraph 抓取（使用用户的浏览器会话）
+        let item = null;
         try {
-          response = await fetch(opengraphUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              tabs: [{ url, title, id: tab.id }]
-            }),
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-        } catch (fetchError) {
-          clearTimeout(timeoutId);
-          console.error('[Tab Cleaner Background] Failed to fetch OpenGraph:', fetchError);
-          sendResponse({ ok: false, error: fetchError.message });
-          return;
+          // 尝试从 content script 获取本地 OpenGraph 数据
+          const localOG = await chrome.tabs.sendMessage(tab.id, { action: 'fetch-opengraph' });
+          if (localOG && localOG.success) {
+            console.log('[Tab Cleaner Background] ✅ Got local OpenGraph data:', localOG);
+            item = localOG;
+          }
+        } catch (localError) {
+          console.log('[Tab Cleaner Background] Local OpenGraph fetch failed, will try backend:', localError.message);
         }
 
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => '未知错误');
-          sendResponse({ ok: false, error: `HTTP ${response.status}: ${errorText}` });
-          return;
-        }
+        // 如果本地抓取失败，使用后端 API
+        if (!item || !item.success) {
+          console.log('[Tab Cleaner Background] Using backend API for OpenGraph...');
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-        const opengraphData = await response.json();
-        const items = opengraphData.data || (Array.isArray(opengraphData) ? opengraphData : []);
-        
-        if (items.length === 0) {
-          sendResponse({ ok: false, error: "No OpenGraph data received" });
-          return;
-        }
+          // 获取 API 地址
+          const apiUrl = API_CONFIG.getBaseUrlSync();
+          const opengraphUrl = `${apiUrl}/api/v1/tabs/opengraph`;
 
-        const item = items[0];
+          let response;
+          try {
+            response = await fetch(opengraphUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                tabs: [{ url, title, id: tab.id }]
+              }),
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+          } catch (fetchError) {
+            clearTimeout(timeoutId);
+            console.error('[Tab Cleaner Background] Failed to fetch OpenGraph:', fetchError);
+            sendResponse({ ok: false, error: fetchError.message });
+            return;
+          }
+
+          if (!response.ok) {
+            const errorText = await response.text().catch(() => '未知错误');
+            sendResponse({ ok: false, error: `HTTP ${response.status}: ${errorText}` });
+            return;
+          }
+
+          const opengraphData = await response.json();
+          const items = opengraphData.data || (Array.isArray(opengraphData) ? opengraphData : []);
+          
+          if (items.length === 0) {
+            sendResponse({ ok: false, error: "No OpenGraph data received" });
+            return;
+          }
+
+          item = items[0];
+        }
 
         // 获取现有 sessions
         const storageResult = await chrome.storage.local.get(['sessions']);
@@ -907,41 +923,85 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
 
         console.log(`[Tab Cleaner Background] Found ${validTabs.length} valid tabs, ${uniqueTabs.length} unique tabs after deduplication`);
 
-        // 调用后端 API 抓取 OpenGraph
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000);
-        
-        // 获取 API 地址
-        const apiUrl = API_CONFIG.getBaseUrlSync();
-        const opengraphUrl = `${apiUrl}/api/v1/tabs/opengraph`;
-        
-        let response;
-        try {
-          response = await fetch(opengraphUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              tabs: uniqueTabs.map(tab => ({
-                url: tab.url,
-                title: tab.title,
-                id: tab.id,
-              }))
-            }),
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-        } catch (fetchError) {
-          clearTimeout(timeoutId);
-          throw fetchError;
-        }
+        // ✅ 优先使用本地 OpenGraph 抓取（批量处理）
+        const opengraphItems = [];
+        const localOGResults = await Promise.allSettled(
+          uniqueTabs.map(async (tab) => {
+            try {
+              // 尝试从 content script 获取本地 OpenGraph 数据
+              const localOG = await chrome.tabs.sendMessage(tab.id, { action: 'fetch-opengraph' });
+              if (localOG && localOG.success) {
+                return { ...localOG, tab_id: tab.id, tab_title: tab.title };
+              }
+            } catch (error) {
+              // Content script 可能未加载或页面不支持，忽略错误
+              console.log(`[Tab Cleaner Background] Local OG failed for ${tab.url}:`, error.message);
+            }
+            return null;
+          })
+        );
 
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => '未知错误');
-          throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
+        // 收集本地抓取成功的结果
+        const localOGSuccess = localOGResults
+          .map((result, index) => {
+            if (result.status === 'fulfilled' && result.value) {
+              return result.value;
+            }
+            return null;
+          })
+          .filter(item => item !== null);
 
-        const opengraphData = await response.json();
-        const opengraphItems = opengraphData.data || (Array.isArray(opengraphData) ? opengraphData : []);
+        console.log(`[Tab Cleaner Background] ✅ Got ${localOGSuccess.length} local OpenGraph results`);
+
+        // 对于本地抓取失败的 tabs，使用后端 API
+        const failedTabs = uniqueTabs.filter((tab, index) => {
+          const result = localOGResults[index];
+          return !result || result.status !== 'fulfilled' || !result.value;
+        });
+
+        if (failedTabs.length > 0) {
+          console.log(`[Tab Cleaner Background] Using backend API for ${failedTabs.length} tabs...`);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
+          
+          // 获取 API 地址
+          const apiUrl = API_CONFIG.getBaseUrlSync();
+          const opengraphUrl = `${apiUrl}/api/v1/tabs/opengraph`;
+          
+          let response;
+          try {
+            response = await fetch(opengraphUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                tabs: failedTabs.map(tab => ({
+                  url: tab.url,
+                  title: tab.title,
+                  id: tab.id,
+                }))
+              }),
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+          } catch (fetchError) {
+            clearTimeout(timeoutId);
+            throw fetchError;
+          }
+
+          if (!response.ok) {
+            const errorText = await response.text().catch(() => '未知错误');
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+          }
+
+          const opengraphData = await response.json();
+          const backendItems = opengraphData.data || (Array.isArray(opengraphData) ? opengraphData : []);
+          
+          // 合并本地和后端结果
+          opengraphItems.push(...localOGSuccess, ...backendItems);
+        } else {
+          // 全部本地抓取成功
+          opengraphItems.push(...localOGSuccess);
+        }
 
         // 补充 embedding（如果需要）
         const itemsWithEmbeddings = await Promise.all(opengraphItems.map(async (item, index) => {

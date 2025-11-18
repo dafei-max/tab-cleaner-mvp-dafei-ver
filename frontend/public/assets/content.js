@@ -491,19 +491,20 @@
     if (req.action === "fetch-opengraph") {
       // 处理本地 OpenGraph 抓取请求
       try {
-        if (window.__TAB_CLEANER_FETCH_OPENGRAPH) {
-          const result = window.__TAB_CLEANER_FETCH_OPENGRAPH();
+        // 使用 opengraph_local.js 暴露的全局函数
+        if (window.__TAB_CLEANER_GET_OPENGRAPH) {
+          const result = window.__TAB_CLEANER_GET_OPENGRAPH();
           send(result);
         } else {
-          // 如果函数还没加载，等待一下
+          // 如果函数还没加载，等待一下（opengraph_local.js 需要时间加载）
           setTimeout(() => {
-            if (window.__TAB_CLEANER_FETCH_OPENGRAPH) {
-              const result = window.__TAB_CLEANER_FETCH_OPENGRAPH();
+            if (window.__TAB_CLEANER_GET_OPENGRAPH) {
+              const result = window.__TAB_CLEANER_GET_OPENGRAPH();
               send(result);
             } else {
               send({ success: false, error: 'OpenGraph function not loaded' });
             }
-          }, 500);
+          }, 1000);
         }
       } catch (error) {
         send({ success: false, error: error.message });
