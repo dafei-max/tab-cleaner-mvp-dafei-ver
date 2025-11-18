@@ -582,34 +582,64 @@
       try {
         // 使用 opengraph_local.js 暴露的全局函数
         if (window.__TAB_CLEANER_GET_OPENGRAPH) {
-          console.log('[Tab Cleaner Content] Calling __TAB_CLEANER_GET_OPENGRAPH(true)...');
+          console.log('[Tab Cleaner Content] ✅ Function exists, calling __TAB_CLEANER_GET_OPENGRAPH(true)...');
+          console.log('[Tab Cleaner Content] Document readyState:', document.readyState);
+          
           const result = window.__TAB_CLEANER_GET_OPENGRAPH(true); // 等待页面加载完成
           
           // 如果返回 Promise，等待它完成
           if (result instanceof Promise) {
-            console.log('[Tab Cleaner Content] Result is Promise, waiting...');
+            console.log('[Tab Cleaner Content] ⏳ Result is Promise, waiting for resolution...');
             result.then(data => {
-              console.log('[Tab Cleaner Content] Promise resolved:', {
+              console.log('[Tab Cleaner Content] ✅ Promise resolved! Data:', {
                 success: data?.success,
                 hasTitle: !!(data?.title),
                 hasImage: !!(data?.image),
                 title: data?.title?.substring(0, 50),
-                error: data?.error
+                image: data?.image ? data.image.substring(0, 50) + '...' : null,
+                error: data?.error,
+                fullData: data
               });
-              send(data);
+              
+              // 确保 send 函数可用
+              if (typeof send === 'function') {
+                try {
+                  send(data);
+                  console.log('[Tab Cleaner Content] ✅ Data sent successfully');
+                } catch (sendError) {
+                  console.error('[Tab Cleaner Content] ❌ Error sending data:', sendError);
+                }
+              } else {
+                console.error('[Tab Cleaner Content] ❌ send function not available');
+              }
             }).catch(error => {
-              console.error('[Tab Cleaner Content] Promise rejected:', error);
-              send({ success: false, error: error.message });
+              console.error('[Tab Cleaner Content] ❌ Promise rejected:', error);
+              if (typeof send === 'function') {
+                try {
+                  send({ success: false, error: error.message });
+                } catch (sendError) {
+                  console.error('[Tab Cleaner Content] ❌ Error sending error response:', sendError);
+                }
+              }
             });
           } else {
-            console.log('[Tab Cleaner Content] Result is sync:', {
+            console.log('[Tab Cleaner Content] ✅ Result is sync:', {
               success: result?.success,
               hasTitle: !!(result?.title),
               hasImage: !!(result?.image),
               title: result?.title?.substring(0, 50),
+              image: result?.image ? result.image.substring(0, 50) + '...' : null,
               error: result?.error
             });
-            send(result);
+            
+            if (typeof send === 'function') {
+              try {
+                send(result);
+                console.log('[Tab Cleaner Content] ✅ Sync data sent successfully');
+              } catch (sendError) {
+                console.error('[Tab Cleaner Content] ❌ Error sending sync data:', sendError);
+              }
+            }
           }
         } else {
           console.warn('[Tab Cleaner Content] __TAB_CLEANER_GET_OPENGRAPH not found, waiting 2s...');

@@ -242,22 +242,30 @@
    * 可以等待页面加载完成后再提取（对于动态内容）
    */
   window.__TAB_CLEANER_GET_OPENGRAPH = function(waitForLoad = false) {
-    if (waitForLoad && document.readyState !== 'complete') {
-      // 如果页面还在加载，等待一下
+    // 如果不需要等待，直接返回结果
+    if (!waitForLoad) {
+      return extractOpenGraphLocal();
+    }
+    
+    // 如果页面已经加载完成，直接返回结果（但延迟一下确保动态内容加载）
+    if (document.readyState === 'complete') {
       return new Promise((resolve) => {
-        if (document.readyState === 'complete') {
+        // 即使页面已加载，也等待一下确保动态内容（如 Pinterest）加载完成
+        setTimeout(() => {
           resolve(extractOpenGraphLocal());
-        } else {
-          window.addEventListener('load', () => {
-            // 等待动态内容加载（特别是 Pinterest 等动态页面）
-            setTimeout(() => {
-              resolve(extractOpenGraphLocal());
-            }, 2000);
-          }, { once: true });
-        }
+        }, 2000);
       });
     }
-    return extractOpenGraphLocal();
+    
+    // 如果页面还在加载，等待 load 事件
+    return new Promise((resolve) => {
+      window.addEventListener('load', () => {
+        // 等待动态内容加载（特别是 Pinterest 等动态页面）
+        setTimeout(() => {
+          resolve(extractOpenGraphLocal());
+        }, 2000);
+      }, { once: true });
+    });
   };
 
   // 页面加载完成后自动提取（可选，不影响主要功能）
