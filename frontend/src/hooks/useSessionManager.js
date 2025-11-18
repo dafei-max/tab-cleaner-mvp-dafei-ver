@@ -43,7 +43,7 @@ export const useSessionManager = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   // 从 storage 加载 sessions
-  useEffect(() => {
+  const loadSessions = useCallback(() => {
     if (typeof chrome !== 'undefined' && chrome.storage) {
       chrome.storage.local.get([STORAGE_KEY], (result) => {
         try {
@@ -68,6 +68,29 @@ export const useSessionManager = () => {
       setIsLoading(false);
     }
   }, []);
+
+  // 初始加载
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
+
+  // 监听 storage 变化，自动更新 sessions
+  useEffect(() => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+      const listener = (changes, areaName) => {
+        if (areaName === 'local' && changes[STORAGE_KEY]) {
+          console.log('[SessionManager] Storage changed, reloading sessions...');
+          loadSessions();
+        }
+      };
+      
+      chrome.storage.onChanged.addListener(listener);
+      
+      return () => {
+        chrome.storage.onChanged.removeListener(listener);
+      };
+    }
+  }, [loadSessions]);
 
   // 保存 sessions 到 storage
   const saveSessions = useCallback((newSessions) => {

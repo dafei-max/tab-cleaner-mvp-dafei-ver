@@ -686,12 +686,20 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           sessionName = `洗衣筐${counter}`;
         }
         
+        // 确保每个 item 都有 id（如果没有）
+        const itemsWithIds = itemsWithEmbeddings.map((item, index) => {
+          if (!item.id) {
+            item.id = item.url || `og-${sessionId}-${index}`;
+          }
+          return item;
+        });
+        
         const newSession = {
           id: sessionId,
           name: sessionName,
           createdAt: Date.now(),
-          opengraphData: itemsWithEmbeddings,
-          tabCount: itemsWithEmbeddings.length,
+          opengraphData: itemsWithIds,
+          tabCount: itemsWithIds.length,
         };
         
         // 新 session 添加到顶部（最新的在前）
@@ -703,21 +711,38 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           sessions: updatedSessions,
           opengraphData: {
             ok: opengraphData.ok || true,
-            data: itemsWithEmbeddings
+            data: itemsWithIds
           },
           lastCleanTime: Date.now(),
           currentSessionId: sessionId, // 设置当前 session
         });
 
-        console.log(`[Tab Cleaner Background] ✓ All OpenGraph data fetched and saved (${itemsWithEmbeddings.length} items)`);
+        console.log(`[Tab Cleaner Background] ✓ All OpenGraph data fetched and saved:`);
+        console.log(`  - Session ID: ${sessionId}`);
+        console.log(`  - Session Name: ${sessionName}`);
+        console.log(`  - Items count: ${itemsWithIds.length}`);
+        console.log(`  - Sessions total: ${updatedSessions.length}`);
+        console.log(`  - Sample item:`, itemsWithIds[0] ? {
+          id: itemsWithIds[0].id,
+          url: itemsWithIds[0].url?.substring(0, 50),
+          title: itemsWithIds[0].title?.substring(0, 30),
+          hasImage: !!itemsWithIds[0].image,
+          hasScreenshot: !!itemsWithIds[0].screenshot_image,
+        } : 'No items');
 
         // 关闭所有标签页（OpenGraph 已获取完成，可以关闭了）
-        // 对于文档类且 OpenGraph 失败的，后端会使用截图/文档卡片，不需要保持标签页打开
-        const allTabIds = uniqueTabs
-          .map(tab => tab.id)
-          .filter(id => id !== undefined);
+        // 重要：重新获取当前所有标签页，因为截图过程中可能有些标签页已经被关闭
+        // 只关闭那些在原始 uniqueTabs 列表中的标签页
+        const originalTabIds = new Set(uniqueTabs.map(tab => tab.id).filter(id => id !== undefined));
         
-        console.log(`[Tab Cleaner Background] Preparing to close ${allTabIds.length} tabs...`);
+        // 重新获取当前所有标签页
+        const currentTabs = await chrome.tabs.query({});
+        
+        // 找出需要关闭的标签页（在原始列表中且仍然存在的）
+        const tabsToClose = currentTabs.filter(tab => originalTabIds.has(tab.id));
+        const allTabIds = tabsToClose.map(tab => tab.id);
+        
+        console.log(`[Tab Cleaner Background] Preparing to close ${allTabIds.length} tabs (from ${originalTabIds.size} original tabs)...`);
         if (allTabIds.length > 0) {
           console.log(`[Tab Cleaner Background] Closing ${allTabIds.length} tabs...`);
           // 逐个关闭，避免一个失败导致全部失败
@@ -733,7 +758,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           }
           console.log(`[Tab Cleaner Background] ✓ Closed ${closedCount}/${allTabIds.length} tabs`);
         } else {
-          console.warn(`[Tab Cleaner Background] No tabs to close (allTabIds.length = 0)`);
+          console.warn(`[Tab Cleaner Background] No tabs to close (allTabIds.length = 0, originalTabIds.size = ${originalTabIds.size})`);
         }
 
         // 最后打开个人空间展示结果

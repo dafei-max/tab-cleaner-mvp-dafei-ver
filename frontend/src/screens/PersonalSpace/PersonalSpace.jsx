@@ -1193,6 +1193,21 @@ export const PersonalSpace = () => {
         });
       }, [sessions]);
 
+      // 调试日志
+      useEffect(() => {
+        console.log('[PersonalSpace] Sessions state:', {
+          sessionsCount: sessions.length,
+          isLoading: isSessionsLoading,
+          currentSessionId,
+          sessions: sessions.map(s => ({
+            id: s.id,
+            name: s.name,
+            itemCount: s.opengraphData?.length || 0,
+            hasOpengraphData: !!s.opengraphData,
+          })),
+        });
+      }, [sessions, isSessionsLoading, currentSessionId]);
+
       return (
         <div className="personal-space" ref={containerRef}>
           {viewMode === 'masonry' ? (
