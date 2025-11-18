@@ -209,18 +209,31 @@
 
   /**
    * 发送 OpenGraph 数据到 background script
+   * 注意：这个函数在页面加载时自动调用，但可能在某些情况下失败
+   * 所以使用 try-catch 包裹，避免影响主要功能
    */
   function sendOpenGraphToBackground() {
-    const ogData = extractOpenGraphLocal();
-    
-    // 发送消息到 background script
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({
-        action: 'opengraph-local',
-        data: ogData
-      }).catch(err => {
-        console.warn('[OpenGraph Local] Failed to send to background:', err);
-      });
+    try {
+      const ogData = extractOpenGraphLocal();
+      
+      // 发送消息到 background script（可选，不影响主要功能）
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        try {
+          chrome.runtime.sendMessage({
+            action: 'opengraph-local',
+            data: ogData
+          }).catch(err => {
+            // 静默失败，不影响主要功能
+            console.debug('[OpenGraph Local] Failed to send to background (non-critical):', err);
+          });
+        } catch (e) {
+          // 在某些页面（如 chrome://）可能无法使用 chrome.runtime
+          console.debug('[OpenGraph Local] Cannot send message (non-critical):', e.message);
+        }
+      }
+    } catch (error) {
+      // 静默失败，不影响主要功能
+      console.debug('[OpenGraph Local] sendOpenGraphToBackground failed (non-critical):', error);
     }
   }
 
@@ -247,13 +260,20 @@
     return extractOpenGraphLocal();
   };
 
-  // 页面加载完成后自动提取（可选）
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', sendOpenGraphToBackground);
-  } else {
-    // 页面已加载，延迟一下确保动态内容加载
-    setTimeout(sendOpenGraphToBackground, 1000);
+  // 页面加载完成后自动提取（可选，不影响主要功能）
+  // 注意：这个自动发送功能是可选的，主要功能是通过 window.__TAB_CLEANER_GET_OPENGRAPH() 调用
+  try {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', sendOpenGraphToBackground);
+    } else {
+      // 页面已加载，延迟一下确保动态内容加载
+      setTimeout(sendOpenGraphToBackground, 1000);
+    }
+  } catch (e) {
+    // 静默失败，不影响主要功能
+    console.debug('[OpenGraph Local] Auto-send setup failed (non-critical):', e);
   }
 
-  console.log('[OpenGraph Local] Loaded and ready');
+  console.log('[OpenGraph Local] ✅ Loaded and ready');
+  console.log('[OpenGraph Local] Function available:', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
 })();
