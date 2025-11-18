@@ -1,0 +1,66 @@
+# 排除不必要的文件和目录，减小部署体积
+
+# 前端文件（后端不需要）
+frontend/
+*.jsx
+*.js
+*.ts
+*.tsx
+*.css
+*.html
+*.json
+!backend/app/**/*.json
+!backend/app/pyproject.toml
+!backend/app/requirements.txt
+!package.json
+!package-lock.json
+
+# 测试文件
+**/test_*.py
+**/*_test.py
+**/tests/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# 文档文件
+*.md
+!backend/app/README.md
+
+# 开发工具
+.git/
+.gitignore
+.vscode/
+.idea/
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+
+# 截图和测试结果
+**/screenshot*.png
+**/screenshot*.jpg
+**/*_test_results*.json
+**/search_results_*.json
+**/clusters_*.json
+
+# 大型依赖（已移除 Playwright）
+**/playwright/
+**/.playwright/
+
+# 其他
+node_modules/
+dist/
+build/
+.env.local
+.env.development
+.env.test
+
+# Railway/Fly.io 配置文件（Vercel 不需要）
+railway.json
+fly.toml
+nixpacks.toml
+Procfile
+

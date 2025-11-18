@@ -202,42 +202,6 @@ class AIInsightRequest(BaseModel):
     opengraph_items: List[Dict[str, Any]]
 
 
-class ScreenshotRequest(BaseModel):
-    url: str
-    screenshot: str  # Base64 data URL
-
-
-@app.post("/api/v1/tabs/screenshot")
-async def save_screenshot(request: ScreenshotRequest):
-    """
-    保存前端截图的截图数据
-    """
-    try:
-        # 更新数据库中的 opengraph_item，添加 screenshot_image 字段
-        db_host = os.getenv("ADBPG_HOST", "")
-        if db_host:
-            try:
-                from vector_db import update_opengraph_item_screenshot
-                success = await update_opengraph_item_screenshot(request.url, request.screenshot)
-                if success:
-                    print(f"[API] ✓ Screenshot saved for {request.url[:60]}...")
-                    return {"ok": True, "message": "Screenshot saved"}
-                else:
-                    print(f"[API] ⚠ Failed to save screenshot for {request.url[:60]}...")
-                    return {"ok": False, "message": "Failed to save screenshot"}
-            except Exception as e:
-                print(f"[API] ✗ Error saving screenshot: {e}")
-                import traceback
-                traceback.print_exc()
-                return {"ok": False, "message": str(e)}
-        else:
-            # 数据库未配置，只返回成功（截图可以只存在前端）
-            print(f"[API] Database not configured, screenshot stored in frontend only")
-            return {"ok": True, "message": "Screenshot stored in frontend (DB not configured)"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/api/v1/ai/insight")
 async def get_ai_insight(request: AIInsightRequest):
     """

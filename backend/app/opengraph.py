@@ -10,60 +10,22 @@ import asyncio
 import json
 from pathlib import Path
 
-# 延迟导入 screenshot 模块，避免 Playwright 未安装时出错
-try:
-    from screenshot import get_screenshot_as_base64, is_doc_like_url
-    SCREENSHOT_AVAILABLE = True
-except ImportError:
-    SCREENSHOT_AVAILABLE = False
-    print("[OpenGraph] WARNING: Screenshot module not available. Screenshot fallback disabled.")
-    
-    # 提供占位函数
-    def is_doc_like_url(url: str) -> bool:
-        """占位函数：判断是否为文档类网页"""
-        url_lower = url.lower()
-        doc_keywords = [
-            "github.com",
-            "readthedocs.io",
-            "/docs/",
-            "developer.",
-            "dev.",
-            "documentation",
-            "wiki",
-        ]
-        return any(keyword in url_lower for keyword in doc_keywords)
-    
-    async def get_screenshot_as_base64(url: str) -> Optional[str]:
-        """占位函数：获取截图"""
-        return None
+# Screenshot 功能已移除（Playwright 体积过大，不适合 Serverless）
+# 截图功能由前端 Chrome Extension 的 chrome.tabs.captureVisibleTab 处理
 
-
-async def _try_backend_screenshot(url: str, result: Dict, wait_for_completion: bool = False) -> None:
-    """
-    异步尝试后端截图
-    如果截图成功，会更新 result 字典（替换文档卡片）
-    
-    Args:
-        url: 要截图的 URL
-        result: 结果字典（会被更新）
-        wait_for_completion: 如果为 True，等待截图完成（用于前端截图失败的情况）
-    """
-    try:
-        from screenshot import get_screenshot_as_base64
-        screenshot_b64 = await get_screenshot_as_base64(url)
-        if screenshot_b64:
-            # 更新结果（替换文档卡片）
-            result["image"] = screenshot_b64
-            result["is_screenshot"] = True
-            result["is_doc_card"] = False  # 不再是文档卡片
-            result["pending_screenshot"] = False  # 截图完成
-            print(f"[OpenGraph] Backend screenshot completed for: {url[:60]}...")
-        else:
-            result["pending_screenshot"] = False  # 截图失败，保持文档卡片
-            print(f"[OpenGraph] Backend screenshot failed (no image) for: {url[:60]}...")
-    except Exception as e:
-        result["pending_screenshot"] = False  # 截图失败，保持文档卡片
-        print(f"[OpenGraph] Backend screenshot failed (error) for: {url[:60]}... Error: {str(e)}")
+def _is_doc_like_url(url: str) -> bool:
+    """判断是否为文档类网页"""
+    url_lower = url.lower()
+    doc_keywords = [
+        "github.com",
+        "readthedocs.io",
+        "/docs/",
+        "developer.",
+        "dev.",
+        "documentation",
+        "wiki",
+    ]
+    return any(keyword in url_lower for keyword in doc_keywords)
 
 
 def get_best_image_candidate(soup, response_url: str) -> Tuple[Optional[str], Optional[str]]:
@@ -220,16 +182,15 @@ def get_best_image_candidate(soup, response_url: str) -> Tuple[Optional[str], Op
     return None, None
 
 
-async def fetch_opengraph(url: str, timeout: float = 10.0, use_screenshot_fallback: bool = True) -> Dict:
+async def fetch_opengraph(url: str, timeout: float = 10.0) -> Dict:
     """
     抓取单个 URL 的 OpenGraph 数据
     
-    如果 OpenGraph 抓取失败或识别为文档类网页，将使用截图作为后备方案
+    如果 OpenGraph 抓取失败或识别为文档类网页，将使用文档卡片作为后备方案
     
     Args:
         url: 要抓取的网页 URL
         timeout: 请求超时时间（秒）
-        use_screenshot_fallback: 是否在失败时使用截图后备方案
     
     Returns:
         {
@@ -240,7 +201,6 @@ async def fetch_opengraph(url: str, timeout: float = 10.0, use_screenshot_fallba
             "site_name": str,
             "success": bool,
             "error": Optional[str],
-            "is_screenshot": bool,  # 是否为截图
         }
     """
     result = {
@@ -251,7 +211,6 @@ async def fetch_opengraph(url: str, timeout: float = 10.0, use_screenshot_fallba
         "site_name": "",
         "success": False,
         "error": None,
-        "is_screenshot": False,
         "needs_screenshot": False,  # 标记是否需要前端截图
     }
 
@@ -467,118 +426,45 @@ async def fetch_opengraph(url: str, timeout: float = 10.0, use_screenshot_fallba
                 return result
             
             # 如果 OpenGraph 抓取成功但无图片，检查是否为文档类
-            # 只有文档类才使用截图/文档卡片，普通网页即使没有图片也返回成功
-            is_doc_like = is_doc_like_url(url)
-            if is_doc_like and use_screenshot_fallback and SCREENSHOT_AVAILABLE:
-                print(f"[OpenGraph] No og:image found for doc-like URL, using screenshot fallback: {url[:60]}...")
+            # 只有文档类才使用文档卡片，普通网页即使没有图片也返回成功
+            is_doc_like = _is_doc_like_url(url)
+            if is_doc_like:
+                print(f"[OpenGraph] No og:image found for doc-like URL, generating doc card: {url[:60]}...")
                 try:
-                    screenshot_b64 = await get_screenshot_as_base64(url)
-                    if screenshot_b64:
-                        result["image"] = screenshot_b64
-                        result["is_screenshot"] = True
-                        result["success"] = True
-                        result["description"] = "网页截图（OpenGraph 无图片）"
-                        # 尝试从 URL 提取站点名称
-                        from urllib.parse import urlparse
-                        parsed = urlparse(url)
-                        if not result["site_name"]:
-                            result["site_name"] = parsed.netloc or ""
-                        # 从 Base64 截图获取图片尺寸
-                        try:
-                            import base64
-                            from PIL import Image
-                            from io import BytesIO
-                            # 提取 Base64 数据（去掉 data URI 前缀）
-                            if screenshot_b64.startswith('data:image'):
-                                base64_data = screenshot_b64.split(',', 1)[1]
-                            else:
-                                base64_data = screenshot_b64
-                            img_data = BytesIO(base64.b64decode(base64_data))
-                            img = Image.open(img_data)
-                            w, h = img.size
-                            result["image_width"] = w
-                            result["image_height"] = h
-                            print(f"[OpenGraph] Screenshot dimensions: {w}x{h} for {url[:60]}...")
-                        except Exception as e:
-                            print(f"[OpenGraph] Failed to get screenshot dimensions for {url[:60]}...: {str(e)}")
-                            result["image_width"] = None
-                            result["image_height"] = None
-                        # 立即预取 embedding（等待完成，确保返回时已有 embedding）
-                        await _prefetch_embedding(result)
-                    else:
-                        # 截图失败，使用文档卡片生成器
-                        print(f"[OpenGraph] Screenshot failed for doc-like URL, generating doc card: {url[:60]}...")
-                        from doc_card_generator import generate_doc_card_data_uri, detect_doc_type
-                        from urllib.parse import urlparse
-                        
-                        parsed = urlparse(url)
-                        site_name = result.get("site_name") or parsed.netloc or ""
-                        if site_name.startswith("www."):
-                            site_name = site_name[4:]
-                        
-                        if not result.get("title") or result["title"] == url:
-                            path_parts = [p for p in parsed.path.split("/") if p]
-                            result["title"] = path_parts[-1] if path_parts else site_name or url
-                        
-                        if not result.get("site_name"):
-                            result["site_name"] = site_name
-                        
-                        doc_card_data_uri = generate_doc_card_data_uri(
-                            title=result["title"],
-                            url=url,
-                            site_name=result["site_name"],
-                            description=result.get("description", ""),
-                        )
-                        
-                        result["image"] = doc_card_data_uri
-                        result["is_screenshot"] = False
-                        result["is_doc_card"] = True
-                        result["success"] = True
-                        result["doc_type"] = detect_doc_type(url, result["site_name"]).get("type", "网页")
-                        # 文档卡片使用固定尺寸（200x150）
-                        result["image_width"] = 200
-                        result["image_height"] = 150
-                        # 立即预取 embedding（等待完成，确保返回时已有 embedding）
-                        await _prefetch_embedding(result)
-                except Exception as screenshot_error:
-                    # 如果截图也失败，使用文档卡片生成器
-                    print(f"[OpenGraph] Screenshot error for doc-like URL, generating doc card: {url[:60]}...")
-                    try:
-                        from doc_card_generator import generate_doc_card_data_uri, detect_doc_type
-                        from urllib.parse import urlparse
-                        
-                        parsed = urlparse(url)
-                        site_name = result.get("site_name") or parsed.netloc or ""
-                        if site_name.startswith("www."):
-                            site_name = site_name[4:]
-                        
-                        if not result.get("title") or result["title"] == url:
-                            path_parts = [p for p in parsed.path.split("/") if p]
-                            result["title"] = path_parts[-1] if path_parts else site_name or url
-                        
-                        if not result.get("site_name"):
-                            result["site_name"] = site_name
-                        
-                        doc_card_data_uri = generate_doc_card_data_uri(
-                            title=result["title"],
-                            url=url,
-                            site_name=result["site_name"],
-                            description=result.get("description", ""),
-                        )
-                        
-                        result["image"] = doc_card_data_uri
-                        result["is_screenshot"] = False
-                        result["is_doc_card"] = True
-                        result["success"] = True
-                        result["doc_type"] = detect_doc_type(url, result["site_name"]).get("type", "网页")
-                        # 文档卡片使用固定尺寸（200x150）
-                        result["image_width"] = 200
-                        result["image_height"] = 150
-                        # 立即预取 embedding（等待完成，确保返回时已有 embedding）
-                        await _prefetch_embedding(result)
-                    except Exception as card_error:
-                        result["error"] = f"OpenGraph 无图片，截图失败: {str(screenshot_error)}，卡片生成失败: {str(card_error)}"
-                        result["success"] = False
+                    from doc_card_generator import generate_doc_card_data_uri, detect_doc_type
+                    from urllib.parse import urlparse
+                    
+                    parsed = urlparse(url)
+                    site_name = result.get("site_name") or parsed.netloc or ""
+                    if site_name.startswith("www."):
+                        site_name = site_name[4:]
+                    
+                    if not result.get("title") or result["title"] == url:
+                        path_parts = [p for p in parsed.path.split("/") if p]
+                        result["title"] = path_parts[-1] if path_parts else site_name or url
+                    
+                    if not result.get("site_name"):
+                        result["site_name"] = site_name
+                    
+                    doc_card_data_uri = generate_doc_card_data_uri(
+                        title=result["title"],
+                        url=url,
+                        site_name=result["site_name"],
+                        description=result.get("description", ""),
+                    )
+                    
+                    result["image"] = doc_card_data_uri
+                    result["is_doc_card"] = True
+                    result["success"] = True
+                    result["doc_type"] = detect_doc_type(url, result["site_name"]).get("type", "网页")
+                    # 文档卡片使用固定尺寸（200x150）
+                    result["image_width"] = 200
+                    result["image_height"] = 150
+                    # 立即预取 embedding（等待完成，确保返回时已有 embedding）
+                    await _prefetch_embedding(result)
+                except Exception as card_error:
+                    result["error"] = f"OpenGraph 无图片，卡片生成失败: {str(card_error)}"
+                    result["success"] = False
             else:
                 # 普通网页即使没有图片，也算成功（返回 OpenGraph 数据，前端可以显示标题等）
                 result["success"] = True
@@ -591,96 +477,42 @@ async def fetch_opengraph(url: str, timeout: float = 10.0, use_screenshot_fallba
         result["success"] = False
         
         # 如果 OpenGraph 抓取失败，检查是否为文档类
-        # 只有文档类才使用截图/文档卡片，普通网页返回失败
-        is_doc_like = is_doc_like_url(url)
-        if is_doc_like and use_screenshot_fallback and SCREENSHOT_AVAILABLE:
-            print(f"[OpenGraph] OpenGraph fetch failed for doc-like URL, using screenshot fallback: {url[:60]}...")
+        # 只有文档类才使用文档卡片，普通网页返回失败
+        is_doc_like = _is_doc_like_url(url)
+        if is_doc_like:
+            print(f"[OpenGraph] OpenGraph fetch failed for doc-like URL, generating doc card: {url[:60]}...")
             try:
-                screenshot_b64 = await get_screenshot_as_base64(url)
-                if screenshot_b64:
-                    result["image"] = screenshot_b64
-                    result["is_screenshot"] = True
-                    result["success"] = True
-                    result["title"] = url  # 使用 URL 作为标题
-                    result["description"] = "网页截图（OpenGraph 抓取失败）"
-                    # 尝试从 URL 提取站点名称
-                    from urllib.parse import urlparse
-                    parsed = urlparse(url)
-                    result["site_name"] = parsed.netloc or ""
-                    result["error"] = None  # 清除错误，因为截图成功
-                    # 立即预取 embedding（等待完成，确保返回时已有 embedding）
-                    await _prefetch_embedding(result)
-                else:
-                    # 截图失败，使用文档卡片生成器
-                    print(f"[OpenGraph] Screenshot failed for doc-like URL, generating doc card: {url[:60]}...")
-                    from doc_card_generator import generate_doc_card_data_uri, detect_doc_type
-                    from urllib.parse import urlparse
-                    
-                    parsed = urlparse(url)
-                    site_name = parsed.netloc or ""
-                    if site_name.startswith("www."):
-                        site_name = site_name[4:]
-                    
-                    path_parts = [p for p in parsed.path.split("/") if p]
-                    title = path_parts[-1] if path_parts else site_name or url
-                    
-                    doc_card_data_uri = generate_doc_card_data_uri(
-                        title=title,
-                        url=url,
-                        site_name=site_name,
-                        description="网页卡片（OpenGraph 抓取失败）",
-                    )
-                    
-                    result["image"] = doc_card_data_uri
-                    result["is_screenshot"] = False
-                    result["is_doc_card"] = True
-                    result["success"] = True
-                    result["title"] = title
-                    result["description"] = "网页卡片（OpenGraph 抓取失败）"
-                    result["site_name"] = site_name
-                    result["doc_type"] = detect_doc_type(url, site_name).get("type", "网页")
-                    result["error"] = None  # 清除错误，因为卡片生成成功
-                    # 文档卡片使用固定尺寸（200x150）
-                    result["image_width"] = 200
-                    result["image_height"] = 150
-            except Exception as screenshot_error:
-                # 如果截图也失败，使用文档卡片生成器
-                if is_doc_like_url(url):
-                    try:
-                        from doc_card_generator import generate_doc_card_data_uri, detect_doc_type
-                        from urllib.parse import urlparse
-                        
-                        parsed = urlparse(url)
-                        site_name = parsed.netloc or ""
-                        if site_name.startswith("www."):
-                            site_name = site_name[4:]
-                        
-                        path_parts = [p for p in parsed.path.split("/") if p]
-                        title = path_parts[-1] if path_parts else site_name or url
-                        
-                        doc_card_data_uri = generate_doc_card_data_uri(
-                            title=title,
-                            url=url,
-                            site_name=site_name,
-                            description="网页卡片（OpenGraph 和截图均失败）",
-                        )
-                        
-                        result["image"] = doc_card_data_uri
-                        result["is_screenshot"] = False
-                        result["is_doc_card"] = True
-                        result["success"] = True
-                        result["title"] = title
-                        result["description"] = "网页卡片（OpenGraph 和截图均失败）"
-                        result["site_name"] = site_name
-                        result["doc_type"] = detect_doc_type(url, site_name).get("type", "网页")
-                        result["error"] = None
-                        # 文档卡片使用固定尺寸（200x150）
-                        result["image_width"] = 200
-                        result["image_height"] = 150
-                    except Exception as card_error:
-                        result["error"] = f"OpenGraph 抓取失败: {str(e)}，截图生成异常: {str(screenshot_error)}，卡片生成异常: {str(card_error)}"
-                else:
-                    result["error"] = f"OpenGraph 抓取失败: {str(e)}，截图生成异常: {str(screenshot_error)}"
+                from doc_card_generator import generate_doc_card_data_uri, detect_doc_type
+                from urllib.parse import urlparse
+                
+                parsed = urlparse(url)
+                site_name = parsed.netloc or ""
+                if site_name.startswith("www."):
+                    site_name = site_name[4:]
+                
+                path_parts = [p for p in parsed.path.split("/") if p]
+                title = path_parts[-1] if path_parts else site_name or url
+                
+                doc_card_data_uri = generate_doc_card_data_uri(
+                    title=title,
+                    url=url,
+                    site_name=site_name,
+                    description="网页卡片（OpenGraph 抓取失败）",
+                )
+                
+                result["image"] = doc_card_data_uri
+                result["is_doc_card"] = True
+                result["success"] = True
+                result["title"] = title
+                result["description"] = "网页卡片（OpenGraph 抓取失败）"
+                result["site_name"] = site_name
+                result["doc_type"] = detect_doc_type(url, site_name).get("type", "网页")
+                result["error"] = None  # 清除错误，因为卡片生成成功
+                # 文档卡片使用固定尺寸（200x150）
+                result["image_width"] = 200
+                result["image_height"] = 150
+            except Exception as card_error:
+                result["error"] = f"OpenGraph 抓取失败: {str(e)}，卡片生成失败: {str(card_error)}"
     
     # 注意：所有成功分支都已经调用了 _prefetch_embedding，这里不需要再次调用
     return result
@@ -743,7 +575,7 @@ async def _prefetch_embedding(result: Dict) -> None:
         if image:
             try:
                 # 处理图像：如果是 URL 需要下载，如果是 Base64 直接使用
-                if is_screenshot or (isinstance(image, str) and image.startswith("data:image")):
+                if isinstance(image, str) and image.startswith("data:image"):
                     # 已经是 Base64 格式
                     image_emb = await embed_image(image)
                 else:
@@ -773,7 +605,6 @@ async def _prefetch_embedding(result: Dict) -> None:
                 text_embedding=text_emb,
                 image_embedding=image_emb,
                 metadata={
-                    "is_screenshot": is_screenshot,
                     "is_doc_card": result.get("is_doc_card", False),
                     "success": result.get("success", False),
                 }

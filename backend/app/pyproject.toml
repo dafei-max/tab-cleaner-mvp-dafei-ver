@@ -37,8 +37,8 @@ dependencies = [
     # Python-dotenv: 从 .env 文件加载环境变量
     "python-dotenv>=1.0.0",
     # ===== 浏览器自动化 =====
-    # Playwright: 用于网页截图（无头浏览器）
-    "playwright>=1.40.0",
+    # Playwright 已移除：体积过大（>200MB），不适合 Serverless 环境
+    # 截图功能由前端 Chrome Extension 的 chrome.tabs.captureVisibleTab 处理
     "alibabacloud-gpdb20160503==3.5.0",
     "alibabacloud-tea-openapi==0.3.8",
     "asyncpg>=0.30.0",
