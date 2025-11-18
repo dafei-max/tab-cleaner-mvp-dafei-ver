@@ -1133,6 +1133,20 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           .filter(item => item !== null);
 
         console.log(`[Tab Cleaner Background] ✅ Got ${opengraphItems.length} OpenGraph results (${opengraphItems.filter(i => i.success).length} successful)`);
+        
+        // 详细日志：检查数据完整性
+        if (opengraphItems.length > 0) {
+          console.log(`[Tab Cleaner Background] 📊 First item sample:`, {
+            id: opengraphItems[0].id,
+            url: opengraphItems[0].url?.substring(0, 50),
+            title: opengraphItems[0].title?.substring(0, 50),
+            hasImage: !!(opengraphItems[0].image),
+            image: opengraphItems[0].image?.substring(0, 50),
+            success: opengraphItems[0].success,
+            is_local_fetch: opengraphItems[0].is_local_fetch,
+            keys: Object.keys(opengraphItems[0])
+          });
+        }
 
         // ✅ 步骤 2: 立即保存到 Chrome Storage（不等待 embedding）
         const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -1157,6 +1171,14 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         
         const updatedSessions = [newSession, ...existingSessions];
         
+        console.log(`[Tab Cleaner Background] 💾 Saving session:`, {
+          sessionId,
+          sessionName,
+          itemCount: opengraphItems.length,
+          totalSessions: updatedSessions.length,
+          firstItemKeys: opengraphItems[0] ? Object.keys(opengraphItems[0]) : []
+        });
+        
         await chrome.storage.local.set({ 
           sessions: updatedSessions,
           lastCleanTime: Date.now(),
@@ -1164,6 +1186,16 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         });
 
         console.log(`[Tab Cleaner Background] ✓ Session saved immediately (${opengraphItems.length} items)`);
+        
+        // 验证保存是否成功
+        const verifyResult = await chrome.storage.local.get(['sessions', 'currentSessionId']);
+        console.log(`[Tab Cleaner Background] ✅ Verification:`, {
+          sessionsCount: verifyResult.sessions?.length || 0,
+          currentSessionId: verifyResult.currentSessionId,
+          savedSessionId: sessionId,
+          match: verifyResult.currentSessionId === sessionId,
+          firstSessionItemCount: verifyResult.sessions?.[0]?.opengraphData?.length || 0
+        });
 
         // ✅ 步骤 3: 关闭所有标签页（OpenGraph 已获取完成）
         const allTabIds = uniqueTabs.map(tab => tab.id).filter(id => id !== undefined);
