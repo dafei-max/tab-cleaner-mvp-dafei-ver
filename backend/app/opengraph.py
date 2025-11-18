@@ -276,7 +276,81 @@ async def fetch_opengraph(url: str, timeout: float = 10.0, use_screenshot_fallba
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             
+            # 🔍 诊断日志：记录关键信息（用于定位环境/风控问题）
+            print(f"[OpenGraph] ====== 诊断信息开始 ======")
+            print(f"[OpenGraph] Request URL: {url}")
+            print(f"[OpenGraph] Final URL: {response.url}")
+            print(f"[OpenGraph] Status Code: {response.status_code}")
+            print(f"[OpenGraph] Response Length: {len(response.text)} bytes")
+            
+            # 记录请求 headers（用于对比本地和云端）
+            print(f"[OpenGraph] Request Headers:")
+            for k, v in headers.items():
+                print(f"[OpenGraph]   {k}: {v}")
+            
+            # 记录响应 headers（检查是否有重定向、限制等）
+            print(f"[OpenGraph] Response Headers (关键):")
+            important_headers = ['content-type', 'content-length', 'location', 'x-ratelimit', 'cf-ray', 'server']
+            for k, v in response.headers.items():
+                if any(h in k.lower() for h in important_headers):
+                    print(f"[OpenGraph]   {k}: {v}")
+            
+            # 检查响应内容（判断是否被拦截）
+            response_preview = response.text[:1000]
+            print(f"[OpenGraph] Response Preview (first 1000 chars):")
+            print(f"[OpenGraph] {response_preview}")
+            
+            # 检查是否被重定向到错误页面或拦截页面
+            if any(keyword in response_preview.lower() for keyword in ['access denied', 'blocked', 'captcha', '403', 'forbidden']):
+                print(f"[OpenGraph] ⚠️  警告：响应可能被拦截或限制")
+            
             soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # 检查是否有 OG 标签
+            og_title_tag = soup.find('meta', property='og:title')
+            og_image_tag = soup.find('meta', property='og:image')
+            og_description_tag = soup.find('meta', property='og:description')
+            
+            print(f"[OpenGraph] OG Tags Detection:")
+            print(f"[OpenGraph]   OG Title: {'✅ Found' if og_title_tag else '❌ Not Found'}")
+            if og_title_tag:
+                title_content = og_title_tag.get('content', '')[:100]
+                print(f"[OpenGraph]     Content: {title_content}")
+            print(f"[OpenGraph]   OG Image: {'✅ Found' if og_image_tag else '❌ Not Found'}")
+            if og_image_tag:
+                image_content = og_image_tag.get('content', '')[:100]
+                print(f"[OpenGraph]     Content: {image_content}")
+            print(f"[OpenGraph]   OG Description: {'✅ Found' if og_description_tag else '❌ Not Found'}")
+            
+            # 检查是否有 JSON-LD
+            jsonld_tags = soup.select('script[type="application/ld+json"]')
+            print(f"[OpenGraph] JSON-LD scripts: {len(jsonld_tags)} found")
+            if jsonld_tags:
+                for i, tag in enumerate(jsonld_tags[:2]):  # 只打印前2个
+                    try:
+                        jsonld_data = json.loads(tag.string or "{}")
+                        keys = list(jsonld_data.keys())[:10]
+                        print(f"[OpenGraph]   JSON-LD #{i+1} keys: {keys}")
+                        # 检查是否有图片或标题
+                        if 'image' in jsonld_data or 'name' in jsonld_data:
+                            print(f"[OpenGraph]     Contains image/name data: ✅")
+                    except Exception as e:
+                        print(f"[OpenGraph]     JSON-LD #{i+1} parse error: {e}")
+            
+            # Pinterest 特定检查
+            if "pinterest.com" in url.lower():
+                print(f"[OpenGraph] Pinterest-specific checks:")
+                pinimg_images = soup.select('img[src*="pinimg.com"], img[data-src*="pinimg.com"]')
+                print(f"[OpenGraph]   pinimg.com images: {len(pinimg_images)} found")
+                if pinimg_images:
+                    first_img = pinimg_images[0].get('src') or pinimg_images[0].get('data-src')
+                    print(f"[OpenGraph]     First image: {first_img[:80] if first_img else 'None'}")
+                
+                # 检查是否有 Pinterest 的 JavaScript 数据
+                scripts_with_pinterest = [s for s in soup.select('script') if s.string and ('pinimg' in s.string.lower() or 'pinterest' in s.string.lower())]
+                print(f"[OpenGraph]   Scripts with Pinterest data: {len(scripts_with_pinterest)}")
+            
+            print(f"[OpenGraph] ====== 诊断信息结束 ======")
             
             # 提取 OpenGraph 标签
             og_title = soup.find('meta', property='og:title')
