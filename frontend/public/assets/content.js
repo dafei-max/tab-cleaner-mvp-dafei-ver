@@ -493,14 +493,32 @@
       try {
         // 使用 opengraph_local.js 暴露的全局函数
         if (window.__TAB_CLEANER_GET_OPENGRAPH) {
-          const result = window.__TAB_CLEANER_GET_OPENGRAPH();
-          send(result);
+          const result = window.__TAB_CLEANER_GET_OPENGRAPH(true); // 等待页面加载完成
+          
+          // 如果返回 Promise，等待它完成
+          if (result instanceof Promise) {
+            result.then(data => {
+              send(data);
+            }).catch(error => {
+              send({ success: false, error: error.message });
+            });
+          } else {
+            send(result);
+          }
         } else {
           // 如果函数还没加载，等待一下（opengraph_local.js 需要时间加载）
           setTimeout(() => {
             if (window.__TAB_CLEANER_GET_OPENGRAPH) {
-              const result = window.__TAB_CLEANER_GET_OPENGRAPH();
-              send(result);
+              const result = window.__TAB_CLEANER_GET_OPENGRAPH(true);
+              if (result instanceof Promise) {
+                result.then(data => {
+                  send(data);
+                }).catch(error => {
+                  send({ success: false, error: error.message });
+                });
+              } else {
+                send(result);
+              }
             } else {
               send({ success: false, error: 'OpenGraph function not loaded' });
             }

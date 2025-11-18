@@ -82,23 +82,73 @@
           result.image = imageUrl;
         }
       } else {
-        // 如果没有 OG 图片，尝试找第一个大图
-        const images = Array.from(document.querySelectorAll('img[src]'));
-        const largeImage = images.find(img => {
-          const src = img.src;
-          // 排除小图标、logo、avatar 等
-          const excludeKeywords = ['icon', 'logo', 'avatar', 'favicon', 'sprite', 'button', 'arrow', 'badge'];
-          if (excludeKeywords.some(keyword => src.toLowerCase().includes(keyword))) {
-            return false;
+        // Pinterest 特殊处理：查找 pinimg.com 图片
+        const isPinterest = window.location.hostname.includes('pinterest.com');
+        if (isPinterest) {
+          // 查找 pinimg.com 图片（Pinterest 的 CDN）
+          const pinimgImages = Array.from(document.querySelectorAll('img')).filter(img => {
+            const src = img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
+            return src.includes('pinimg.com');
+          });
+          
+          if (pinimgImages.length > 0) {
+            // 选择最大的图片（通常是主图）
+            let largestImage = null;
+            let largestSize = 0;
+            
+            pinimgImages.forEach(img => {
+              const src = img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
+              const width = img.naturalWidth || img.width || 0;
+              const height = img.naturalHeight || img.height || 0;
+              const size = width * height;
+              
+              if (size > largestSize && width >= 200 && height >= 200) {
+                largestSize = size;
+                largestImage = src;
+              }
+            });
+            
+            if (largestImage) {
+              result.image = largestImage;
+            }
           }
-          // 检查图片尺寸
-          const width = img.naturalWidth || img.width || 0;
-          const height = img.naturalHeight || img.height || 0;
-          return width >= 200 && height >= 200;
-        });
+        }
         
-        if (largeImage) {
-          result.image = largeImage.src;
+        // 如果没有找到图片，尝试找第一个大图
+        if (!result.image) {
+          const images = Array.from(document.querySelectorAll('img'));
+          const largeImage = images.find(img => {
+            // 检查多个可能的 src 属性
+            const src = img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
+            if (!src) return false;
+            
+            // 排除小图标、logo、avatar 等
+            const excludeKeywords = ['icon', 'logo', 'avatar', 'favicon', 'sprite', 'button', 'arrow', 'badge'];
+            if (excludeKeywords.some(keyword => src.toLowerCase().includes(keyword))) {
+              return false;
+            }
+            
+            // 检查图片尺寸
+            const width = img.naturalWidth || img.width || 0;
+            const height = img.naturalHeight || img.height || 0;
+            return width >= 200 && height >= 200;
+          });
+          
+          if (largeImage) {
+            result.image = largeImage.src || largeImage.getAttribute('data-src') || largeImage.getAttribute('data-lazy-src') || '';
+          }
+        }
+        
+        // 处理相对 URL
+        if (result.image && !result.image.startsWith('http://') && !result.image.startsWith('https://')) {
+          try {
+            result.image = new URL(result.image, window.location.href).href;
+          } catch (e) {
+            // 如果 URL 解析失败，尝试添加协议
+            if (result.image.startsWith('//')) {
+              result.image = 'https:' + result.image;
+            }
+          }
         }
       }
 
@@ -147,8 +197,24 @@
 
   /**
    * 暴露全局函数供外部调用
+   * 可以等待页面加载完成后再提取（对于动态内容）
    */
-  window.__TAB_CLEANER_GET_OPENGRAPH = function() {
+  window.__TAB_CLEANER_GET_OPENGRAPH = function(waitForLoad = false) {
+    if (waitForLoad && document.readyState !== 'complete') {
+      // 如果页面还在加载，等待一下
+      return new Promise((resolve) => {
+        if (document.readyState === 'complete') {
+          resolve(extractOpenGraphLocal());
+        } else {
+          window.addEventListener('load', () => {
+            // 等待动态内容加载（特别是 Pinterest 等动态页面）
+            setTimeout(() => {
+              resolve(extractOpenGraphLocal());
+            }, 2000);
+          }, { once: true });
+        }
+      });
+    }
     return extractOpenGraphLocal();
   };
 
