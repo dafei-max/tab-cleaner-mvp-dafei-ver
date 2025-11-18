@@ -40,3 +40,5 @@ Write-Host "   3. 上传到 Chrome Web Store"
 # 返回原目录
 Set-Location ..
 
+
+

@@ -91,9 +91,10 @@ python init_vector.py
 ## 数据库 Schema
 
 ```sql
+-- 注意：阿里云 ADB PostgreSQL 要求多个 PRIMARY KEY/UNIQUE 约束必须有共同列
+-- 因此使用 url 作为 PRIMARY KEY，不需要额外的 id 列
 CREATE TABLE cleantab.opengraph_items (
-    id SERIAL PRIMARY KEY,
-    url TEXT UNIQUE NOT NULL,
+    url TEXT PRIMARY KEY,              -- 使用 url 作为主键
     title TEXT,
     description TEXT,
     image TEXT,
@@ -107,8 +108,7 @@ CREATE TABLE cleantab.opengraph_items (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- 索引
-CREATE INDEX idx_opengraph_url ON cleantab.opengraph_items(url);
+-- 索引（url 已经是 PRIMARY KEY，自动有索引）
 CREATE INDEX idx_text_embedding ON cleantab.opengraph_items USING ivfflat (text_embedding vector_cosine_ops);
 CREATE INDEX idx_image_embedding ON cleantab.opengraph_items USING ivfflat (image_embedding vector_cosine_ops);
 ```

@@ -114,3 +114,5 @@ uv run python test_screenshot.py --quick
 3. **OCR 支持**：对截图进行 OCR，提取文本内容用于搜索
 4. **预览图生成**：为长文档生成多个预览图（首屏、中间、结尾）
 
+
+

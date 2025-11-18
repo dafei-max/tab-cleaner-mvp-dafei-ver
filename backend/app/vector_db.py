@@ -50,6 +50,88 @@ async def close_pool():
         _pool = None
 
 
+async def drop_table_if_exists():
+    """
+    手动删除表（用于修复约束冲突问题）
+    注意：这会删除表中的所有数据！
+    """
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(f"DROP TABLE IF EXISTS {NAMESPACE}.opengraph_items CASCADE;")
+            print(f"[VectorDB] ✓ Dropped table {NAMESPACE}.opengraph_items")
+            return True
+    except Exception as e:
+        print(f"[VectorDB] Error dropping table: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def check_table_constraints(conn) -> Tuple[bool, Optional[str]]:
+    """
+    检查表约束是否符合 Greenplum/ADBPG 要求
+    返回: (is_valid, error_message)
+    """
+    try:
+        # 检查 PRIMARY KEY 约束数量
+        pk_count = await conn.fetchval(f"""
+            SELECT COUNT(*)
+            FROM information_schema.table_constraints
+            WHERE table_schema = '{NAMESPACE}'
+              AND table_name = 'opengraph_items'
+              AND constraint_type = 'PRIMARY KEY';
+        """)
+        
+        # 检查 UNIQUE 约束数量（不包括 PRIMARY KEY）
+        unique_count = await conn.fetchval(f"""
+            SELECT COUNT(*)
+            FROM information_schema.table_constraints
+            WHERE table_schema = '{NAMESPACE}'
+              AND table_name = 'opengraph_items'
+              AND constraint_type = 'UNIQUE';
+        """)
+        
+        total_constraints = pk_count + unique_count
+        
+        if total_constraints > 1:
+            # 获取所有约束的列信息
+            constraints_info = await conn.fetch(f"""
+                SELECT 
+                    tc.constraint_name,
+                    tc.constraint_type,
+                    string_agg(kcu.column_name, ', ' ORDER BY kcu.ordinal_position) as columns
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                    ON tc.constraint_name = kcu.constraint_name
+                    AND tc.table_schema = kcu.table_schema
+                WHERE tc.table_schema = '{NAMESPACE}'
+                  AND tc.table_name = 'opengraph_items'
+                  AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
+                GROUP BY tc.constraint_name, tc.constraint_type
+                ORDER BY tc.constraint_type, tc.constraint_name;
+            """)
+            
+            constraint_details = "\n".join([
+                f"  - {row['constraint_type']}: {row['constraint_name']} on ({row['columns']})"
+                for row in constraints_info
+            ])
+            
+            error_msg = (
+                f"[VectorDB] ✗ Table has {total_constraints} PRIMARY KEY/UNIQUE constraints!\n"
+                f"[VectorDB] ✗ Greenplum/ADBPG requires all constraints to share at least one column.\n"
+                f"[VectorDB] ✗ Found constraints:\n{constraint_details}\n"
+                f"[VectorDB] ✗ Solution: Drop the table and recreate it with only one PRIMARY KEY on 'url'.\n"
+                f"[VectorDB] ✗ Run: DROP TABLE IF EXISTS {NAMESPACE}.opengraph_items;"
+            )
+            return False, error_msg
+        
+        return True, None
+    except Exception as e:
+        # 如果查询失败，假设表结构可能有问题
+        return False, f"Failed to check constraints: {e}"
+
+
 async def init_schema():
     """初始化数据库表结构"""
     try:
@@ -89,10 +171,11 @@ async def init_schema():
             
             if not table_exists:
                 # 表不存在，创建新表
+                # 注意：阿里云 ADB PostgreSQL 要求多个 PRIMARY KEY/UNIQUE 约束必须有共同列
+                # 因此使用 url 作为 PRIMARY KEY，不再需要额外的 UNIQUE 约束
                 await conn.execute(f"""
                     CREATE TABLE {NAMESPACE}.opengraph_items (
-                        id SERIAL PRIMARY KEY,
-                        url TEXT NOT NULL,
+                        url TEXT PRIMARY KEY,
                         title TEXT,
                         description TEXT,
                         image TEXT,
@@ -103,76 +186,52 @@ async def init_schema():
                         image_embedding vector(1024),
                         metadata JSONB,
                         created_at TIMESTAMP DEFAULT NOW(),
-                        updated_at TIMESTAMP DEFAULT NOW(),
-                        CONSTRAINT opengraph_items_url_unique UNIQUE (url)
+                        updated_at TIMESTAMP DEFAULT NOW()
                     );
                 """)
-                print(f"[VectorDB] Created new table: {NAMESPACE}.opengraph_items")
+                print(f"[VectorDB] ✓ Created new table: {NAMESPACE}.opengraph_items")
             else:
-                # 表已存在，检查并修复约束
-                print(f"[VectorDB] Table {NAMESPACE}.opengraph_items already exists, checking constraints...")
+                # 表已存在，检查约束是否符合要求
+                print(f"[VectorDB] ✓ Table {NAMESPACE}.opengraph_items already exists")
+                is_valid, error_msg = await check_table_constraints(conn)
                 
-                # 获取所有约束信息
-                constraints = await conn.fetch(f"""
-                    SELECT conname, contype, pg_get_constraintdef(oid) as definition
-                    FROM pg_constraint
-                    WHERE conrelid = '{NAMESPACE}.opengraph_items'::regclass
-                    AND contype IN ('p', 'u');
-                """)
-                
-                print(f"[VectorDB] Found {len(constraints)} constraints: {[c['conname'] for c in constraints]}")
-                
-                # 检查是否有冲突的 UNIQUE 约束（非我们想要的命名约束）
-                conflicting_constraints = [
-                    c for c in constraints 
-                    if c['contype'] == 'u' and c['conname'] != 'opengraph_items_url_unique'
-                ]
-                
-                # 检查我们想要的约束是否存在
-                target_constraint_exists = any(
-                    c['conname'] == 'opengraph_items_url_unique' 
-                    for c in constraints
-                )
-                
-                # 如果有冲突的约束，先删除它们
-                for constraint in conflicting_constraints:
-                    try:
-                        print(f"[VectorDB] Dropping conflicting constraint: {constraint['conname']}")
-                        await conn.execute(f"""
-                            ALTER TABLE {NAMESPACE}.opengraph_items 
-                            DROP CONSTRAINT IF EXISTS {constraint['conname']};
-                        """)
-                    except Exception as e:
-                        print(f"[VectorDB] Warning: Could not drop constraint {constraint['conname']}: {e}")
-                
-                # 如果目标约束不存在，尝试添加
-                if not target_constraint_exists:
-                    try:
-                        # 先检查是否有重复的 URL
-                        duplicate_count = await conn.fetchval(f"""
-                            SELECT COUNT(*) FROM (
-                                SELECT url, COUNT(*) as cnt
-                                FROM {NAMESPACE}.opengraph_items
-                                GROUP BY url
-                                HAVING COUNT(*) > 1
-                            ) duplicates;
-                        """)
+                if not is_valid:
+                    # 检查是否设置了强制重建标志
+                    force_recreate = os.getenv("VECTOR_DB_FORCE_RECREATE", "false").lower() == "true"
+                    
+                    if force_recreate:
+                        print(f"[VectorDB] ⚠ Force recreate enabled, dropping existing table...")
+                        await conn.execute(f"DROP TABLE IF EXISTS {NAMESPACE}.opengraph_items CASCADE;")
+                        print(f"[VectorDB] ✓ Dropped existing table")
                         
-                        if duplicate_count and duplicate_count > 0:
-                            print(f"[VectorDB] Warning: Found {duplicate_count} duplicate URLs, cannot add UNIQUE constraint")
-                            print(f"[VectorDB] Consider cleaning up duplicate data first")
-                        else:
-                            # 添加 UNIQUE 约束
-                            await conn.execute(f"""
-                                ALTER TABLE {NAMESPACE}.opengraph_items 
-                                ADD CONSTRAINT opengraph_items_url_unique UNIQUE (url);
-                            """)
-                            print(f"[VectorDB] ✓ Added UNIQUE constraint on url column")
-                    except Exception as e:
-                        print(f"[VectorDB] Warning: Could not add UNIQUE constraint: {e}")
-                        print(f"[VectorDB] This may be due to duplicate URLs in existing data")
+                        # 重新创建表
+                        await conn.execute(f"""
+                            CREATE TABLE {NAMESPACE}.opengraph_items (
+                                url TEXT PRIMARY KEY,
+                                title TEXT,
+                                description TEXT,
+                                image TEXT,
+                                site_name TEXT,
+                                tab_id INTEGER,
+                                tab_title TEXT,
+                                text_embedding vector(1024),
+                                image_embedding vector(1024),
+                                metadata JSONB,
+                                created_at TIMESTAMP DEFAULT NOW(),
+                                updated_at TIMESTAMP DEFAULT NOW()
+                            );
+                        """)
+                        print(f"[VectorDB] ✓ Recreated table: {NAMESPACE}.opengraph_items")
+                    else:
+                        # 打印错误信息并抛出异常
+                        print(error_msg)
+                        raise ValueError(
+                            f"Table {NAMESPACE}.opengraph_items has incompatible constraints. "
+                            f"Set VECTOR_DB_FORCE_RECREATE=true to automatically drop and recreate, "
+                            f"or manually run: DROP TABLE IF EXISTS {NAMESPACE}.opengraph_items;"
+                        )
                 else:
-                    print(f"[VectorDB] ✓ UNIQUE constraint already exists")
+                    print(f"[VectorDB] ✓ Table constraints are valid (single PRIMARY KEY on 'url')")
             
             # 创建索引（无论表是新创建还是已存在）
             await conn.execute(f"""

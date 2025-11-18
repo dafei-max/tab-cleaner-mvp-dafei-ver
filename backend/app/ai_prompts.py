@@ -29,7 +29,7 @@ def get_system_prompt() -> str:
     return """你是一个专业的内容分析师。请分析用户提供的网页信息，生成简洁准确的总结。
 要求：
 1. 总结字数不超过150字
-2. 如果网页是图片为主的平台（如Pinterest、小红书、Arena等），重点分析图片内容，生成图片描述和对设计师有帮助的内容信息
+2. 如果网页是图片为主的平台（如Pinterest、小红书、Arena、Behance、Dribble等），重点分析图片内容，生成图片描述和对设计师有帮助的内容信息
 3. 其他网页重点关注title和description来确定网页内容
 4. 使用中文回答
 5. 如果信息不清晰，可以说明需要更多信息"""
@@ -98,5 +98,7 @@ def build_messages(opengraph_items: List[Dict]) -> List[Dict]:
         {"role": "system", "content": get_system_prompt()},
         {"role": "user", "content": build_user_content_from_opengraph(opengraph_items)}
     ]
+
+
 
 

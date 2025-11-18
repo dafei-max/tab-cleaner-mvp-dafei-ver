@@ -122,3 +122,5 @@ tab-cleaner-extension.zip
 - [Chrome Web Store 发布指南](https://developer.chrome.com/docs/webstore/publish?hl=zh-tw)
 - [Chrome 扩展程序清单文件](https://developer.chrome.com/docs/extensions/mv3/manifest/)
 
+
+

@@ -158,3 +158,5 @@ uv run python -c "from doc_card_generator import generate_doc_card_data_uri; pri
 - `backend/app/screenshot.py` - 截图功能
 - `frontend/src/screens/PersonalSpace/DraggableImage.jsx` - 前端显示组件
 
+
+
