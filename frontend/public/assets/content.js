@@ -524,41 +524,77 @@
     if (req.action === "hide") { hideCard(); send?.({ ok: true }); return true; }
     if (req.action === "fetch-opengraph") {
       // 处理本地 OpenGraph 抓取请求
+      console.log('[Tab Cleaner Content] fetch-opengraph requested');
+      console.log('[Tab Cleaner Content] Checking if opengraph_local.js is loaded...');
+      console.log('[Tab Cleaner Content] window.__TAB_CLEANER_GET_OPENGRAPH exists?', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
+      
       try {
         // 使用 opengraph_local.js 暴露的全局函数
         if (window.__TAB_CLEANER_GET_OPENGRAPH) {
+          console.log('[Tab Cleaner Content] Calling __TAB_CLEANER_GET_OPENGRAPH(true)...');
           const result = window.__TAB_CLEANER_GET_OPENGRAPH(true); // 等待页面加载完成
           
           // 如果返回 Promise，等待它完成
           if (result instanceof Promise) {
+            console.log('[Tab Cleaner Content] Result is Promise, waiting...');
             result.then(data => {
+              console.log('[Tab Cleaner Content] Promise resolved:', {
+                success: data?.success,
+                hasTitle: !!(data?.title),
+                hasImage: !!(data?.image),
+                title: data?.title?.substring(0, 50),
+                error: data?.error
+              });
               send(data);
             }).catch(error => {
+              console.error('[Tab Cleaner Content] Promise rejected:', error);
               send({ success: false, error: error.message });
             });
           } else {
+            console.log('[Tab Cleaner Content] Result is sync:', {
+              success: result?.success,
+              hasTitle: !!(result?.title),
+              hasImage: !!(result?.image),
+              title: result?.title?.substring(0, 50),
+              error: result?.error
+            });
             send(result);
           }
         } else {
+          console.warn('[Tab Cleaner Content] __TAB_CLEANER_GET_OPENGRAPH not found, waiting 1s...');
           // 如果函数还没加载，等待一下（opengraph_local.js 需要时间加载）
           setTimeout(() => {
             if (window.__TAB_CLEANER_GET_OPENGRAPH) {
+              console.log('[Tab Cleaner Content] Function found after wait, calling...');
               const result = window.__TAB_CLEANER_GET_OPENGRAPH(true);
               if (result instanceof Promise) {
                 result.then(data => {
+                  console.log('[Tab Cleaner Content] Promise resolved after wait:', {
+                    success: data?.success,
+                    hasTitle: !!(data?.title),
+                    hasImage: !!(data?.image)
+                  });
                   send(data);
                 }).catch(error => {
+                  console.error('[Tab Cleaner Content] Promise rejected after wait:', error);
                   send({ success: false, error: error.message });
                 });
               } else {
+                console.log('[Tab Cleaner Content] Sync result after wait:', {
+                  success: result?.success,
+                  hasTitle: !!(result?.title),
+                  hasImage: !!(result?.image)
+                });
                 send(result);
               }
             } else {
+              console.error('[Tab Cleaner Content] Function still not found after wait');
               send({ success: false, error: 'OpenGraph function not loaded' });
             }
           }, 1000);
         }
       } catch (error) {
+        console.error('[Tab Cleaner Content] Error in fetch-opengraph:', error);
         send({ success: false, error: error.message });
       }
       return true; // 保持消息通道开放

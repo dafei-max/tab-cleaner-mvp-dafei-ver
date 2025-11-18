@@ -373,14 +373,40 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
               // 从 content script 获取本地 OpenGraph 数据
               const localOG = await chrome.tabs.sendMessage(tab.id, { action: 'fetch-opengraph' });
               
-              // 添加调试日志
+              // 添加调试日志（详细）
               console.log(`[Tab Cleaner Background] Local OG result for ${tab.url.substring(0, 50)}...:`, {
                 success: localOG?.success,
                 hasTitle: !!(localOG?.title),
                 hasImage: !!(localOG?.image),
-                title: localOG?.title?.substring(0, 30),
-                error: localOG?.error
+                hasDescription: !!(localOG?.description),
+                title: localOG?.title?.substring(0, 50),
+                image: localOG?.image ? localOG.image.substring(0, 50) + '...' : null,
+                description: localOG?.description?.substring(0, 50),
+                error: localOG?.error,
+                is_local_fetch: localOG?.is_local_fetch,
+                // 完整数据（用于调试）
+                fullData: localOG
               });
+              
+              // 保存到本地文件（用于调试）
+              try {
+                const debugData = {
+                  url: tab.url,
+                  timestamp: new Date().toISOString(),
+                  result: localOG
+                };
+                // 使用 download API 保存 JSON 文件
+                const blob = new Blob([JSON.stringify(debugData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `opengraph_debug_${Date.now()}.json`;
+                // 注意：在 service worker 中不能直接创建 DOM 元素，改用 console.log
+                console.log(`[Tab Cleaner Background] 📥 Debug data for ${tab.url}:`, JSON.stringify(debugData, null, 2));
+              } catch (e) {
+                // Service worker 中不能使用 DOM API，只记录日志
+                console.log(`[Tab Cleaner Background] 📥 Full debug data for ${tab.url}:`, JSON.stringify(localOG, null, 2));
+              }
               
               if (localOG) {
                 // 即使 success 为 false，也返回抓取到的数据（可能有一些数据）
@@ -1022,14 +1048,40 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
               // 从 content script 获取本地 OpenGraph 数据
               const localOG = await chrome.tabs.sendMessage(tab.id, { action: 'fetch-opengraph' });
               
-              // 添加调试日志
+              // 添加调试日志（详细）
               console.log(`[Tab Cleaner Background] Local OG result for ${tab.url.substring(0, 50)}...:`, {
                 success: localOG?.success,
                 hasTitle: !!(localOG?.title),
                 hasImage: !!(localOG?.image),
-                title: localOG?.title?.substring(0, 30),
-                error: localOG?.error
+                hasDescription: !!(localOG?.description),
+                title: localOG?.title?.substring(0, 50),
+                image: localOG?.image ? localOG.image.substring(0, 50) + '...' : null,
+                description: localOG?.description?.substring(0, 50),
+                error: localOG?.error,
+                is_local_fetch: localOG?.is_local_fetch,
+                // 完整数据（用于调试）
+                fullData: localOG
               });
+              
+              // 保存到本地文件（用于调试）
+              try {
+                const debugData = {
+                  url: tab.url,
+                  timestamp: new Date().toISOString(),
+                  result: localOG
+                };
+                // 使用 download API 保存 JSON 文件
+                const blob = new Blob([JSON.stringify(debugData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `opengraph_debug_${Date.now()}.json`;
+                // 注意：在 service worker 中不能直接创建 DOM 元素，改用 console.log
+                console.log(`[Tab Cleaner Background] 📥 Debug data for ${tab.url}:`, JSON.stringify(debugData, null, 2));
+              } catch (e) {
+                // Service worker 中不能使用 DOM API，只记录日志
+                console.log(`[Tab Cleaner Background] 📥 Full debug data for ${tab.url}:`, JSON.stringify(localOG, null, 2));
+              }
               
               if (localOG) {
                 // 即使 success 为 false，也返回抓取到的数据（可能有一些数据）
