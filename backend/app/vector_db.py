@@ -13,10 +13,10 @@ from datetime import datetime
 DB_HOST = os.getenv("ADBPG_HOST", "gp-uf6j424dtk2ww5291o-master.gpdb.rds.aliyuncs.com")
 DB_PORT = int(os.getenv("ADBPG_PORT", "5432"))
 # 注意：数据库名称由环境变量 ADBPG_DBNAME 决定
-# 默认值是 knowledgebase，但实际运行时可能是 postgres（取决于环境变量配置）
+
 # 如果使用 Namespace，数据会存储在对应数据库的 Schema 中
 # 实际表路径 = {ADBPG_DBNAME}.{ADBPG_NAMESPACE}.opengraph_items
-DB_NAME = os.getenv("ADBPG_DBNAME", "knowledgebase")
+DB_NAME = os.getenv("ADBPG_DBNAME", "postgres")
 DB_USER = os.getenv("ADBPG_USER", "cleantab_db")
 DB_PASSWORD = os.getenv("ADBPG_PASSWORD", "CleanTabV5")
 NAMESPACE = os.getenv("ADBPG_NAMESPACE", "cleantab")
