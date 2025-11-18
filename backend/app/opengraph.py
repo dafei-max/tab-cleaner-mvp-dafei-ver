@@ -89,8 +89,11 @@ def get_best_image_candidate(soup, response_url: str) -> Tuple[Optional[str], Op
     """
     from urllib.parse import urljoin
     
+    # 确保 response_url 是字符串（httpx.Response.url 可能是 URL 对象）
+    response_url_str = str(response_url) if not isinstance(response_url, str) else response_url
+    
     # Pinterest 特殊处理：优先使用 OG 图片而不是首图（因为首图可能是缩略图）
-    response_url_lower = response_url.lower()
+    response_url_lower = response_url_str.lower()
     is_pinterest_page = "pinterest.com" in response_url_lower
     
     # ① 首图（正文第一张大图）- 最高优先级
@@ -160,7 +163,7 @@ def get_best_image_candidate(soup, response_url: str) -> Tuple[Optional[str], Op
             if best_image.startswith('//'):
                 best_image = 'https:' + best_image
             elif not best_image.startswith(('http://', 'https://')):
-                best_image = urljoin(str(response_url), best_image)
+                best_image = urljoin(response_url_str, best_image)
             return best_image, 'first-img'
     
     # ② OG/Twitter Card 图像 - 平台提供的预览图
@@ -173,7 +176,7 @@ def get_best_image_candidate(soup, response_url: str) -> Tuple[Optional[str], Op
             if url.startswith('//'):
                 url = 'https:' + url
             elif not url.startswith(('http://', 'https://')):
-                url = urljoin(str(response_url), url)
+                url = urljoin(response_url_str, url)
             return url, 'og:image'
     
     # 2.2 Twitter Card 图片
@@ -184,7 +187,7 @@ def get_best_image_candidate(soup, response_url: str) -> Tuple[Optional[str], Op
             if url.startswith('//'):
                 url = 'https:' + url
             elif not url.startswith(('http://', 'https://')):
-                url = urljoin(str(response_url), url)
+                url = urljoin(response_url_str, url)
             return url, 'twitter:image'
     
     # 2.3 Schema.org itemprop="image"
@@ -195,7 +198,7 @@ def get_best_image_candidate(soup, response_url: str) -> Tuple[Optional[str], Op
             if url.startswith('//'):
                 url = 'https:' + url
             elif not url.startswith(('http://', 'https://')):
-                url = urljoin(str(response_url), url)
+                url = urljoin(response_url_str, url)
             return url, 'itemprop:image'
     
     # 2.4 <link rel="image_src">
@@ -206,7 +209,7 @@ def get_best_image_candidate(soup, response_url: str) -> Tuple[Optional[str], Op
             if url.startswith('//'):
                 url = 'https:' + url
             elif not url.startswith(('http://', 'https://')):
-                url = urljoin(str(response_url), url)
+                url = urljoin(response_url_str, url)
             return url, 'link:image_src'
     
     # ③ 截图 fallback - 由前端处理（chrome.tabs.captureVisibleTab）
