@@ -4,11 +4,18 @@
 
   // 加载本地 OpenGraph 抓取工具
   (function loadOpenGraphLocal() {
-    if (window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED) {
-      console.log('[Tab Cleaner] OpenGraph local already loaded');
+    // 如果函数已经存在，说明脚本已经加载成功
+    if (typeof window.__TAB_CLEANER_GET_OPENGRAPH === 'function') {
+      console.log('[Tab Cleaner] OpenGraph local already loaded and ready');
+      window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = true;
       return;
     }
-    window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = true;
+    
+    // 如果标志已设置但函数不存在，重置标志（可能是之前的加载失败了）
+    if (window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED) {
+      console.warn('[Tab Cleaner] OpenGraph flag set but function missing, reloading...');
+      window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = false;
+    }
     
     const script = document.createElement('script');
     script.src = chrome.runtime.getURL('assets/opengraph_local.js');
@@ -18,26 +25,13 @@
       setTimeout(() => {
         if (typeof window.__TAB_CLEANER_GET_OPENGRAPH === 'function') {
           console.log('[Tab Cleaner] ✅ OpenGraph function ready');
-          
-          // 可选：自动显示预览卡片
-          // const ogData = window.__TAB_CLEANER_GET_OPENGRAPH();
-          // if (ogData && ogData.success) {
-          //   // 加载预览卡片组件
-          //   const previewScript = document.createElement('script');
-          //   previewScript.src = chrome.runtime.getURL('assets/opengraph_preview.js');
-          //   previewScript.onload = () => {
-          //     setTimeout(() => {
-          //       if (window.__TAB_CLEANER_SHOW_PREVIEW) {
-          //         window.__TAB_CLEANER_SHOW_PREVIEW(ogData);
-          //       }
-          //     }, 500);
-          //   };
-          //   (document.head || document.documentElement).appendChild(previewScript);
-          // }
+          // 只有在函数确实可用时才设置标志
+          window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = true;
         } else {
           console.warn('[Tab Cleaner] ⚠️ OpenGraph function not found after load');
+          window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = false; // 允许重试
         }
-      }, 100);
+      }, 300); // 增加等待时间
       // 不立即移除，保留脚本以便函数可用
     };
     script.onerror = (e) => {
@@ -529,8 +523,8 @@
       console.log('[Tab Cleaner Content] window.__TAB_CLEANER_GET_OPENGRAPH exists?', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
       console.log('[Tab Cleaner Content] window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED?', window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED);
       
-      // 如果脚本还没加载，先加载它
-      if (!window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED && !window.__TAB_CLEANER_GET_OPENGRAPH) {
+      // 如果函数不存在，尝试加载脚本（无论标志如何）
+      if (typeof window.__TAB_CLEANER_GET_OPENGRAPH !== 'function') {
         console.log('[Tab Cleaner Content] Script not loaded, loading now...');
         const script = document.createElement('script');
         script.src = chrome.runtime.getURL('assets/opengraph_local.js');
