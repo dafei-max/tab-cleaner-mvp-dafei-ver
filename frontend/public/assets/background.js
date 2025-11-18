@@ -1115,6 +1115,85 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     return true; // 异步响应
   }
   
+  // 处理预览卡片保存请求
+  if (req.action === "save-opengraph-preview") {
+    console.log("[Tab Cleaner Background] Saving OpenGraph preview data...");
+    
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      try {
+        const tab = tabs[0];
+        if (!tab) {
+          sendResponse({ ok: false, error: "No active tab" });
+          return;
+        }
+
+        const ogData = req.data || {};
+        
+        // 补充 tab 信息
+        ogData.tab_id = tab.id;
+        ogData.tab_title = tab.title;
+        
+        // 获取现有 sessions
+        const storageResult = await chrome.storage.local.get(['sessions']);
+        const existingSessions = storageResult.sessions || [];
+        
+        if (existingSessions.length === 0) {
+          // 创建新 session
+          const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          const newSession = {
+            id: sessionId,
+            name: '洗衣筐1',
+            createdAt: Date.now(),
+            opengraphData: [ogData],
+            tabCount: 1,
+          };
+          await chrome.storage.local.set({ 
+            sessions: [newSession],
+            currentSessionId: sessionId,
+          });
+        } else {
+          // 添加到最新 session
+          const latestSession = existingSessions[0];
+          const updatedData = [...(latestSession.opengraphData || []), ogData];
+          const updatedSession = {
+            ...latestSession,
+            opengraphData: updatedData,
+            tabCount: updatedData.length,
+          };
+          
+          const updatedSessions = [updatedSession, ...existingSessions.slice(1)];
+          await chrome.storage.local.set({ sessions: updatedSessions });
+        }
+
+        // 可选：发送到后端生成 embedding（异步，不阻塞）
+        const apiUrl = API_CONFIG.getBaseUrlSync();
+        if (apiUrl && ogData.success) {
+          try {
+            const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
+            fetch(embeddingUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                opengraph_items: [ogData]
+              }),
+            }).catch(err => {
+              console.warn('[Tab Cleaner Background] Failed to generate embedding:', err);
+            });
+          } catch (err) {
+            console.warn('[Tab Cleaner Background] Embedding request error:', err);
+          }
+        }
+
+        sendResponse({ ok: true, message: "OpenGraph data saved" });
+      } catch (error) {
+        console.error('[Tab Cleaner Background] Failed to save preview:', error);
+        sendResponse({ ok: false, error: error.message });
+      }
+    });
+    
+    return true; // 异步响应
+  }
+  
   // 处理其他消息类型
   return false;
 });
