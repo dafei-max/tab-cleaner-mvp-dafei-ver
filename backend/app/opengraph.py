@@ -89,10 +89,15 @@ def get_best_image_candidate(soup, response_url: str) -> Tuple[Optional[str], Op
     """
     from urllib.parse import urljoin
     
+    # Pinterest 特殊处理：优先使用 OG 图片而不是首图（因为首图可能是缩略图）
+    response_url_lower = response_url.lower()
+    is_pinterest_page = "pinterest.com" in response_url_lower
+    
     # ① 首图（正文第一张大图）- 最高优先级
     # 这是最完美的 preview，因为它是用户实际看到的内容
+    # 注意：Pinterest 等平台跳过首图选择，直接使用 OG 图片
     img_tags = soup.find_all('img', src=True)
-    if img_tags:
+    if img_tags and not is_pinterest_page:
         exclude_keywords = [
             'icon', 'logo', 'avatar', 'favicon', 'sprite',
             'button', 'arrow', 'badge', 'spinner', 'loader',
@@ -326,29 +331,39 @@ async def fetch_opengraph(url: str, timeout: float = 10.0, use_screenshot_fallba
                 result["image_height"] = None
             
             # 如果 OpenGraph 没有提供尺寸，尝试从图片 URL 获取实际尺寸
-            # 注意：对于小红书等需要登录的网站，跳过验证，保留 URL 让前端浏览器加载
+            # 注意：对于小红书、Pinterest 等需要特殊 headers 的网站，跳过验证，保留 URL 让前端浏览器加载
             if result["image"] and result["image"].startswith(('http://', 'https://')) and (not result["image_width"] or not result["image_height"]):
-                # 检查是否为小红书（小红书 CDN 可能对后端 IP 403，但浏览器可以正常加载）
+                # 检查是否为需要跳过验证的网站（这些网站的 CDN 可能对后端 IP 403，但浏览器可以正常加载）
                 image_url_lower = result["image"].lower()
+                url_lower = url.lower()
+                
                 is_xhs = ("xiaohongshu.com" in image_url_lower or 
                          "picasso-static.xiaohongshu.com" in image_url_lower or
                          "xhscdn.com" in image_url_lower or
                          "sns-webpic-qc.xhscdn.com" in image_url_lower)
                 
-                # 对于小红书，跳过图片尺寸验证，保留 URL 让前端浏览器加载
+                is_pinterest = ("pinterest.com" in url_lower or 
+                               "pinimg.com" in image_url_lower or
+                               "pinterest" in image_url_lower)
+                
+                # 对于需要特殊处理的网站，跳过图片尺寸验证，保留 URL 让前端浏览器加载
                 if is_xhs:
                     print(f"[OpenGraph] Skipping image size validation for XHS (preserving URL for frontend): {result['image'][:80]}...")
+                elif is_pinterest:
+                    print(f"[OpenGraph] Skipping image size validation for Pinterest (preserving URL for frontend): {result['image'][:80]}...")
                 else:
-                    # 非小红书网站，尝试获取图片尺寸
+                    # 其他网站，尝试获取图片尺寸
                     try:
                         from PIL import Image
                         from io import BytesIO
                         
-                        # 构建 headers
+                        # 构建 headers（为 Pinterest 添加 Referer）
                         headers = {
                             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                             "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
                             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                            "Referer": url,  # 添加 Referer，帮助某些网站（如 Pinterest）正确加载图片
+                            "Origin": url.split('/')[0] + '//' + url.split('/')[2] if '/' in url else url,
                         }
                         
                         async with httpx.AsyncClient(timeout=5.0) as img_client:
