@@ -147,7 +147,83 @@ async def fetch_opengraph(url: str, timeout: float = 10.0, use_screenshot_fallba
                 ''
             )
             
+            # 优先使用 og:image
             result["image"] = og_image.get('content', '') if og_image else ''
+            
+            # 如果没有 og:image，尝试其他来源
+            if not result["image"]:
+                # 1. 尝试 Twitter Card 图片
+                twitter_image = soup.find('meta', attrs={'name': 'twitter:image'}) or soup.find('meta', attrs={'property': 'twitter:image'})
+                if twitter_image:
+                    result["image"] = twitter_image.get('content', '').strip()
+                
+                # 2. 如果还是没有，从网页中提取图片
+                if not result["image"]:
+                    # 查找所有 img 标签
+                    img_tags = soup.find_all('img', src=True)
+                    if img_tags:
+                        # 过滤掉小图标、logo等，选择最有代表性的图片
+                        best_image = None
+                        best_score = 0
+                        
+                        # 需要过滤的关键词（小图标、logo等）
+                        exclude_keywords = [
+                            'icon', 'logo', 'avatar', 'favicon', 'sprite',
+                            'button', 'arrow', 'badge', 'spinner', 'loader',
+                            'placeholder', 'blank', 'pixel', 'tracker', 'beacon'
+                        ]
+                        
+                        for img in img_tags:
+                            src = img.get('src', '').strip()
+                            if not src:
+                                continue
+                            
+                            # 跳过 data URI 和 SVG（通常是小图标）
+                            if src.startswith('data:') or src.endswith('.svg'):
+                                continue
+                            
+                            # 跳过包含排除关键词的图片
+                            src_lower = src.lower()
+                            if any(keyword in src_lower for keyword in exclude_keywords):
+                                continue
+                            
+                            # 计算图片的"代表性"分数
+                            score = 0
+                            
+                            # 优先选择有 alt 文本的图片（通常是内容图片）
+                            if img.get('alt'):
+                                score += 10
+                            
+                            # 优先选择较大的图片（通过 class、id 等判断）
+                            img_class = img.get('class', [])
+                            img_id = img.get('id', '')
+                            class_id_str = ' '.join(img_class) + ' ' + img_id
+                            class_id_lower = class_id_str.lower()
+                            
+                            # 内容相关的关键词加分
+                            content_keywords = ['content', 'main', 'article', 'post', 'image', 'photo', 'picture', 'cover', 'hero', 'banner']
+                            if any(keyword in class_id_lower for keyword in content_keywords):
+                                score += 5
+                            
+                            # 优先选择绝对 URL
+                            if src.startswith(('http://', 'https://')):
+                                score += 3
+                            
+                            # 优先选择常见的图片格式
+                            if any(ext in src_lower for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                                score += 2
+                            
+                            # 跳过明显的小图片（通过 URL 中的尺寸参数判断）
+                            if any(size in src_lower for size in ['16x16', '32x32', '48x48', '64x64', 'w=16', 'w=32', 'h=16', 'h=32']):
+                                score -= 10
+                            
+                            if score > best_score:
+                                best_score = score
+                                best_image = src
+                        
+                        if best_image:
+                            result["image"] = best_image
+                            print(f"[OpenGraph] Extracted image from HTML (score={best_score}): {best_image[:80]}...")
             
             # 处理图片 URL（参考测试脚本的 normalize_img 逻辑）
             if result["image"]:

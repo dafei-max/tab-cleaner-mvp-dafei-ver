@@ -53,11 +53,71 @@ function fetchLocalOpenGraph() {
                         (twitterImage ? twitterImage.getAttribute('content') : null) ||
                         (twitterImageSrc ? twitterImageSrc.getAttribute('content') : null);
     
-    // 如果没有找到，尝试查找页面中的第一张图片
+    // 如果没有找到，从网页中智能提取图片
     if (!imageCandidate) {
-      const firstImage = document.querySelector('img[src]');
-      if (firstImage) {
-        imageCandidate = firstImage.getAttribute('src') || null;
+      const images = Array.from(document.querySelectorAll('img[src]'));
+      if (images.length > 0) {
+        // 过滤掉小图标、logo等，选择最有代表性的图片
+        const excludeKeywords = [
+          'icon', 'logo', 'avatar', 'favicon', 'sprite',
+          'button', 'arrow', 'badge', 'spinner', 'loader',
+          'placeholder', 'blank', 'pixel', 'tracker', 'beacon'
+        ];
+        
+        let bestImage = null;
+        let bestScore = 0;
+        
+        for (const img of images) {
+          const src = img.getAttribute('src') || '';
+          if (!src) continue;
+          
+          // 跳过 data URI 和 SVG（通常是小图标）
+          if (src.startsWith('data:') || src.endsWith('.svg')) continue;
+          
+          // 跳过包含排除关键词的图片
+          const srcLower = src.toLowerCase();
+          if (excludeKeywords.some(keyword => srcLower.includes(keyword))) continue;
+          
+          // 计算图片的"代表性"分数
+          let score = 0;
+          
+          // 优先选择有 alt 文本的图片（通常是内容图片）
+          if (img.getAttribute('alt')) score += 10;
+          
+          // 优先选择较大的图片（通过 class、id 等判断）
+          const imgClass = img.className || '';
+          const imgId = img.id || '';
+          const classIdStr = (imgClass + ' ' + imgId).toLowerCase();
+          
+          // 内容相关的关键词加分
+          const contentKeywords = ['content', 'main', 'article', 'post', 'image', 'photo', 'picture', 'cover', 'hero', 'banner'];
+          if (contentKeywords.some(keyword => classIdStr.includes(keyword))) score += 5;
+          
+          // 优先选择绝对 URL
+          if (src.startsWith('http://') || src.startsWith('https://')) score += 3;
+          
+          // 优先选择常见的图片格式
+          if (/\.(jpg|jpeg|png|webp)/i.test(src)) score += 2;
+          
+          // 跳过明显的小图片（通过 URL 中的尺寸参数判断）
+          if (/[^a-z](16|32|48|64)x(16|32|48|64)|[?&]w=(16|32|48|64)|[?&]h=(16|32|48|64)/i.test(src)) {
+            score -= 10;
+          }
+          
+          // 优先选择可见的图片（在视口中或已加载）
+          const rect = img.getBoundingClientRect();
+          if (rect.width > 100 && rect.height > 100) score += 5;
+          
+          if (score > bestScore) {
+            bestScore = score;
+            bestImage = src;
+          }
+        }
+        
+        if (bestImage) {
+          imageCandidate = bestImage;
+          console.log(`[Local OpenGraph] Extracted image from HTML (score=${bestScore}):`, bestImage.substring(0, 80));
+        }
       }
     }
     

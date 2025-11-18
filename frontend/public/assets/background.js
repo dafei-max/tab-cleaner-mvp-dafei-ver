@@ -356,66 +356,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
 
         console.log(`[Tab Cleaner Background] Found ${validTabs.length} valid tabs, ${uniqueTabs.length} unique tabs after deduplication`);
 
-        // 🔄 新流程：对于需要登录的网站，先本地抓取 OpenGraph，然后发送给后端处理
-        const needsLoginSites = ['xiaohongshu.com', 'weibo.com', 'zhihu.com', 'douban.com'];
-        const needsLocalFetch = (url) => {
-          const urlLower = (url || '').toLowerCase();
-          return needsLoginSites.some(site => urlLower.includes(site));
-        };
-
-        // 分离需要本地抓取和不需要的 tabs
-        const tabsNeedingLocalFetch = uniqueTabs.filter(tab => needsLocalFetch(tab.url));
-        const tabsForBackendFetch = uniqueTabs.filter(tab => !needsLocalFetch(tab.url));
-
-        console.log(`[Tab Cleaner Background] ${tabsNeedingLocalFetch.length} tabs need local fetch, ${tabsForBackendFetch.length} tabs for backend fetch`);
-
-        // 1. 先本地抓取需要登录的网站
-        const localOpengraphData = [];
-        if (tabsNeedingLocalFetch.length > 0) {
-          console.log(`[Tab Cleaner Background] Starting local OpenGraph fetch for ${tabsNeedingLocalFetch.length} tabs...`);
-          
-          const localFetchPromises = tabsNeedingLocalFetch.map(async (tab) => {
-            try {
-              // 确保 content script 已注入
-              try {
-                await chrome.scripting.executeScript({
-                  target: { tabId: tab.id },
-                  files: ['assets/content.js']
-                });
-                // 等待 content script 加载完成
-                await new Promise(resolve => setTimeout(resolve, 500));
-              } catch (e) {
-                console.warn(`[Tab Cleaner Background] Failed to inject content script for tab ${tab.id}:`, e);
-              }
-              
-              // 发送消息请求本地抓取 OpenGraph
-              const localResult = await chrome.tabs.sendMessage(tab.id, { action: 'fetch-opengraph' });
-              
-              if (localResult && localResult.success) {
-                console.log(`[Tab Cleaner Background] ✓ Local OpenGraph fetch succeeded for ${tab.url.substring(0, 60)}...`);
-                return {
-                  ...localResult,
-                  url: tab.url,
-                  tab_id: tab.id,
-                  tab_title: tab.title,
-                };
-              } else {
-                console.warn(`[Tab Cleaner Background] Local OpenGraph fetch failed for ${tab.url.substring(0, 60)}...`);
-                return null;
-              }
-            } catch (error) {
-              console.warn(`[Tab Cleaner Background] Local OpenGraph fetch error for ${tab.url.substring(0, 60)}...:`, error.message);
-              return null;
-            }
-          });
-          
-          const localResults = await Promise.all(localFetchPromises);
-          localOpengraphData.push(...localResults.filter(item => item !== null));
-          
-          console.log(`[Tab Cleaner Background] ✓ Local OpenGraph fetch completed: ${localOpengraphData.length}/${tabsNeedingLocalFetch.length} succeeded`);
-        }
-
-        // 2. 调用后端 API，传递本地抓取的数据和需要后端抓取的 tabs
+        // 调用后端 API 抓取所有 tabs 的 OpenGraph 数据
         const apiUrl = API_CONFIG.getBaseUrlSync();
         const opengraphUrl = `${apiUrl}/api/v1/tabs/opengraph`;
         
@@ -438,7 +379,6 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                 title: tab.title,
                 id: tab.id,
               })),
-              local_opengraph_data: localOpengraphData.length > 0 ? localOpengraphData : undefined,
             }),
             signal: controller.signal
           });
