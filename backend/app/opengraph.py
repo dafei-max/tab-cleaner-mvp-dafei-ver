@@ -195,7 +195,7 @@ async def fetch_multiple_opengraph(urls: List[str]) -> List[Dict]:
                 "is_screenshot": False,
                 "needs_screenshot": False,
             })
-                else:
+        else:
             processed_results.append(result)
     
     return processed_results
@@ -285,7 +285,7 @@ async def _prefetch_embedding(result: Dict) -> None:
         # 更新 result
         result["text_embedding"] = text_emb
         result["image_embedding"] = image_emb
-            
+        
     except Exception as e:
         print(f"[OpenGraph] Error in _prefetch_embedding: {e}")
         import traceback
