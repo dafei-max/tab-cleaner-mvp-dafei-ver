@@ -663,31 +663,69 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         const mergedData = opengraphItems;
         console.log(`[Tab Cleaner Background] Processed ${mergedData.length} OpenGraph items`);
 
-        // 步骤 1：确保 OpenGraph 数据已完全获取
-        console.log(`[Tab Cleaner Background] ✓ OpenGraph data fetched: ${mergedData.length} items`);
+        // ============================================
+        // 步骤 1：确保所有 OpenGraph 数据已完全获取
+        // ============================================
+        console.log(`[Tab Cleaner Background] ==========================================`);
+        console.log(`[Tab Cleaner Background] STEP 1: OpenGraph 数据获取完成`);
+        console.log(`[Tab Cleaner Background] ✓ Total items: ${mergedData.length}`);
         
-        // 步骤 2：检查哪些 item 需要截图（needs_screenshot=true 且没有图片）
+        // 统计 OpenGraph 获取结果
+        const stats = {
+          total: mergedData.length,
+          withImage: 0,
+          withoutImage: 0,
+          needsScreenshot: 0,
+        };
+        
+        mergedData.forEach(item => {
+          if (item.image && item.image.trim()) {
+            stats.withImage++;
+          } else {
+            stats.withoutImage++;
+          }
+          if (item.needs_screenshot === true) {
+            stats.needsScreenshot++;
+          }
+        });
+        
+        console.log(`[Tab Cleaner Background]   - 有图片: ${stats.withImage}`);
+        console.log(`[Tab Cleaner Background]   - 无图片: ${stats.withoutImage}`);
+        console.log(`[Tab Cleaner Background]   - 需要截图: ${stats.needsScreenshot}`);
+        console.log(`[Tab Cleaner Background] ==========================================`);
+        
+        // ============================================
+        // 步骤 2：检查哪些 item 需要截图
         // 逻辑：只有 OpenGraph 拿不到图的才截图
-        // 注意：截图是可选功能，即使失败也不应该阻塞主流程
+        // ============================================
+        console.log(`[Tab Cleaner Background] STEP 2: 检查需要截图的 items`);
         const itemsNeedingScreenshot = mergedData.filter(item => {
           // 需要截图的条件：needs_screenshot=true 且 image 为空或无效
           const needsScreenshot = item.needs_screenshot === true;
           const hasNoImage = !item.image || item.image.trim() === '';
           const shouldScreenshot = needsScreenshot && hasNoImage;
           
-          // 调试日志
+          // 详细日志：记录每个 item 的状态
           if (needsScreenshot) {
-            console.log(`[Tab Cleaner Background] Item needs screenshot: ${item.url.substring(0, 60)}... (hasImage: ${!hasNoImage}, image: ${item.image ? item.image.substring(0, 50) : 'null'}...)`);
+            console.log(`[Tab Cleaner Background]   [需要截图] ${item.url.substring(0, 60)}... (hasImage: ${!hasNoImage}, image: ${item.image ? item.image.substring(0, 50) : 'null'}...)`);
+          } else if (hasNoImage) {
+            console.log(`[Tab Cleaner Background]   [有图片但为空] ${item.url.substring(0, 60)}... (needs_screenshot: ${needsScreenshot})`);
           }
           
           return shouldScreenshot;
         });
         
-        // 步骤 3：将需要截图的 item 加入截图队列（限速 1/s，不阻塞主流程）
+        console.log(`[Tab Cleaner Background] ✓ 需要截图的 items: ${itemsNeedingScreenshot.length}`);
+        
+        // ============================================
+        // 步骤 3：将需要截图的 item 加入截图队列
+        // 限速 1/s，不阻塞主流程
+        // ============================================
         if (itemsNeedingScreenshot.length > 0) {
-          console.log(`[Tab Cleaner Background] Found ${itemsNeedingScreenshot.length} items needing screenshot, adding to queue (rate limit: 1/s)`);
+          console.log(`[Tab Cleaner Background] STEP 3: 将 ${itemsNeedingScreenshot.length} 个 items 加入截图队列 (限速: 1/s)`);
           
           // 将截图任务加入队列（异步处理，不阻塞主流程）
+          let enqueuedCount = 0;
           itemsNeedingScreenshot.forEach(item => {
             const tab = uniqueTabs.find(t => t.url === item.url);
             if (tab) {
@@ -696,18 +734,22 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                 tab: tab,
                 apiUrl: apiUrl,
               });
+              enqueuedCount++;
             } else {
-              console.warn(`[Tab Cleaner Background] Tab not found for URL: ${item.url}, skipping screenshot`);
+              console.warn(`[Tab Cleaner Background]   ⚠ Tab not found for URL: ${item.url}, skipping screenshot`);
               item.needs_screenshot = false;
             }
           });
           
-          // 不等待截图完成，继续执行主流程（保存数据、关闭标签页、打开个人空间）
-          // 截图会在后台队列中异步处理
-          console.log(`[Tab Cleaner Background] Screenshot tasks queued, continuing with main flow...`);
+          console.log(`[Tab Cleaner Background] ✓ ${enqueuedCount} 个截图任务已加入队列`);
+          console.log(`[Tab Cleaner Background]   截图将在后台异步处理，不阻塞主流程`);
         } else {
-          console.log(`[Tab Cleaner Background] No items need screenshot`);
+          console.log(`[Tab Cleaner Background] STEP 3: 无需截图，所有 items 都有图片`);
         }
+        
+        console.log(`[Tab Cleaner Background] ==========================================`);
+        console.log(`[Tab Cleaner Background] OpenGraph 阶段完成，继续后续流程...`);
+        console.log(`[Tab Cleaner Background] ==========================================`);
 
         // 后端已经在 OpenGraph 解析时预取了 embedding，但可能还在异步处理中
         // 检查哪些 item 还没有 embedding，补充请求（作为兜底）
