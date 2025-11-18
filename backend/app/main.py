@@ -131,10 +131,16 @@ async def fetch_tabs_opengraph(request: OpenGraphRequest):
                 local_item = local_data_map.get(tab.url)
                 
                 if local_item:
+                    # 确保字段映射正确（本地抓取返回的字段名可能与后端一致）
                     opengraph_data.append({
-                        **local_item,
+                        "url": local_item.get("url") or tab.url,
+                        "title": local_item.get("title") or local_item.get("og:title") or tab.title or "",
+                        "description": local_item.get("description") or local_item.get("og:description") or "",
+                        "image": local_item.get("image") or local_item.get("og:image") or local_item.get("thumbnail_url") or "",
+                        "site_name": local_item.get("site_name") or local_item.get("og:site_name") or "",
                         "tab_id": tab.id,
                         "tab_title": tab.title,
+                        "success": local_item.get("success", True),
                         "is_local_fetch": True,  # 标记为本地抓取
                     })
                 else:

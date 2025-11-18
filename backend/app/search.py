@@ -56,8 +56,11 @@ async def download_image(image_url: str, timeout: float = 10.0) -> Optional[byte
             "Cache-Control": "no-cache",
         }
         
-        # 小红书图片需要 Referer
-        if "xiaohongshu.com" in image_url.lower() or "picasso-static.xiaohongshu.com" in image_url.lower():
+        # 小红书图片需要 Referer（包括所有 xhscdn.com 域名）
+        if ("xiaohongshu.com" in image_url.lower() or 
+            "picasso-static.xiaohongshu.com" in image_url.lower() or
+            "xhscdn.com" in image_url.lower() or
+            "sns-webpic-qc.xhscdn.com" in image_url.lower()):
             headers["Referer"] = "https://www.xiaohongshu.com/"
             headers["Origin"] = "https://www.xiaohongshu.com"
         

@@ -19,62 +19,83 @@ function fetchLocalOpenGraph() {
   };
 
   try {
-    // 1. 获取 og:title 或 document.title
+    // 1. 获取 og:title 或 document.title（参考测试脚本的 best_text 逻辑）
     const ogTitle = document.querySelector('meta[property="og:title"]');
-    result.title = ogTitle ? ogTitle.getAttribute('content') : document.title || '';
+    const metaTitle = document.querySelector('meta[name="og:title"]');
+    const docTitle = document.title;
+    
+    // 优先级：og:title > meta[name="og:title"] > document.title
+    result.title = (ogTitle ? ogTitle.getAttribute('content') : null) ||
+                   (metaTitle ? metaTitle.getAttribute('content') : null) ||
+                   (docTitle ? docTitle.trim() : null) ||
+                   '';
 
-    // 2. 获取 og:description
+    // 2. 获取 og:description（参考测试脚本的 best_text 逻辑）
     const ogDescription = document.querySelector('meta[property="og:description"]');
-    if (ogDescription) {
-      result.description = ogDescription.getAttribute('content') || '';
-    } else {
-      // 如果没有 og:description，尝试使用 meta description
-      const metaDesc = document.querySelector('meta[name="description"]');
-      result.description = metaDesc ? metaDesc.getAttribute('content') || '' : '';
-    }
+    const metaOgDesc = document.querySelector('meta[name="og:description"]');
+    const metaDesc = document.querySelector('meta[name="description"]');
+    
+    // 优先级：og:description > meta[name="og:description"] > meta[name="description"]
+    result.description = (ogDescription ? ogDescription.getAttribute('content') : null) ||
+                        (metaOgDesc ? metaOgDesc.getAttribute('content') : null) ||
+                        (metaDesc ? metaDesc.getAttribute('content') : null) ||
+                        '';
 
-    // 3. 获取 og:image（优先）
+    // 3. 获取 og:image（参考测试脚本的 normalize_img 逻辑）
     const ogImage = document.querySelector('meta[property="og:image"]');
-    if (ogImage) {
-      let imageUrl = ogImage.getAttribute('content') || '';
-      // 处理相对 URL
-      if (imageUrl && !imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
-        if (imageUrl.startsWith('//')) {
-          imageUrl = window.location.protocol + imageUrl;
-        } else if (imageUrl.startsWith('/')) {
-          imageUrl = window.location.origin + imageUrl;
-        } else {
-          imageUrl = new URL(imageUrl, window.location.href).href;
-        }
-      }
-      result.image = imageUrl;
-    } else {
-      // 如果没有 og:image，尝试查找页面中的第一张图片
+    const metaOgImage = document.querySelector('meta[name="og:image"]');
+    const twitterImage = document.querySelector('meta[name="twitter:image"]');
+    const twitterImageSrc = document.querySelector('meta[name="twitter:image:src"]');
+    
+    // 优先级：og:image > meta[name="og:image"] > twitter:image > twitter:image:src > 页面第一张图片
+    let imageCandidate = (ogImage ? ogImage.getAttribute('content') : null) ||
+                        (metaOgImage ? metaOgImage.getAttribute('content') : null) ||
+                        (twitterImage ? twitterImage.getAttribute('content') : null) ||
+                        (twitterImageSrc ? twitterImageSrc.getAttribute('content') : null);
+    
+    // 如果没有找到，尝试查找页面中的第一张图片
+    if (!imageCandidate) {
       const firstImage = document.querySelector('img[src]');
       if (firstImage) {
-        let imageUrl = firstImage.getAttribute('src') || '';
-        // 处理相对 URL
-        if (imageUrl && !imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
-          if (imageUrl.startsWith('//')) {
-            imageUrl = window.location.protocol + imageUrl;
-          } else if (imageUrl.startsWith('/')) {
-            imageUrl = window.location.origin + imageUrl;
+        imageCandidate = firstImage.getAttribute('src') || null;
+      }
+    }
+    
+    // 处理图片 URL（参考测试脚本的 normalize_img 逻辑）
+    if (imageCandidate) {
+      let imageUrl = imageCandidate.trim();
+      // 处理 // 开头的协议相对 URL
+      if (imageUrl.startsWith('//')) {
+        result.image = window.location.protocol + imageUrl;
+      }
+      // 处理绝对 URL（http:// 或 https://）
+      else if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        result.image = imageUrl;
+      }
+      // 处理相对路径
+      else {
+        try {
+          result.image = new URL(imageUrl, window.location.href).href;
+        } catch (e) {
+          // URL 解析失败，尝试简单的拼接
+          if (imageUrl.startsWith('/')) {
+            result.image = window.location.origin + imageUrl;
           } else {
-            imageUrl = new URL(imageUrl, window.location.href).href;
+            result.image = window.location.origin + '/' + imageUrl;
           }
         }
-        result.image = imageUrl;
       }
     }
 
-    // 4. 获取 og:site_name
+    // 4. 获取 og:site_name（参考测试脚本的 best_text 逻辑）
     const ogSiteName = document.querySelector('meta[property="og:site_name"]');
-    if (ogSiteName) {
-      result.site_name = ogSiteName.getAttribute('content') || '';
-    } else {
-      // 如果没有 og:site_name，使用域名
-      result.site_name = window.location.hostname.replace('www.', '');
-    }
+    const metaOgSiteName = document.querySelector('meta[name="og:site_name"]');
+    
+    // 优先级：og:site_name > meta[name="og:site_name"] > 域名
+    result.site_name = (ogSiteName ? ogSiteName.getAttribute('content') : null) ||
+                      (metaOgSiteName ? metaOgSiteName.getAttribute('content') : null) ||
+                      window.location.hostname.replace('www.', '') ||
+                      '';
 
     // 5. 判断是否成功（至少要有 title 或 image）
     result.success = !!(result.title || result.image);

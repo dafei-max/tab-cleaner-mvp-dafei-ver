@@ -103,10 +103,22 @@ async def fetch_opengraph(url: str, timeout: float = 10.0, use_screenshot_fallba
     # 优先尝试抓取 OpenGraph（所有网页都先尝试 OpenGraph）
     # 只有 OpenGraph 失败且是文档类时，才使用截图/文档卡片
     try:
+        # 构建更完整的 headers（参考测试脚本）
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.8,zh-CN;q=0.6",
+            "Accept-Encoding": "gzip, deflate, br",
+        }
+        
+        # 小红书等需要 Referer
+        url_lower = url.lower()
+        if "xiaohongshu.com" in url_lower:
+            headers["Referer"] = "https://www.xiaohongshu.com/"
+            headers["Origin"] = "https://www.xiaohongshu.com"
+        
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            })
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -137,10 +149,20 @@ async def fetch_opengraph(url: str, timeout: float = 10.0, use_screenshot_fallba
             
             result["image"] = og_image.get('content', '') if og_image else ''
             
-            # 处理相对路径的图片 URL
-            if result["image"] and not result["image"].startswith(('http://', 'https://')):
-                from urllib.parse import urljoin
-                result["image"] = urljoin(url, result["image"])
+            # 处理图片 URL（参考测试脚本的 normalize_img 逻辑）
+            if result["image"]:
+                image_url = result["image"].strip()
+                # 处理 // 开头的协议相对 URL（如 //example.com/image.jpg）
+                if image_url.startswith('//'):
+                    result["image"] = 'https:' + image_url
+                # 处理相对路径
+                elif not image_url.startswith(('http://', 'https://')):
+                    from urllib.parse import urljoin
+                    # 使用 response.url 作为 base（处理重定向后的最终 URL）
+                    result["image"] = urljoin(str(response.url), image_url)
+                else:
+                    # 已经是绝对 URL，直接使用（包括 http:// 和 https://）
+                    result["image"] = image_url
             
             # 提取图片尺寸（如果 OpenGraph 提供了）
             if og_image_width and og_image_width.get('content'):
@@ -172,8 +194,12 @@ async def fetch_opengraph(url: str, timeout: float = 10.0, use_screenshot_fallba
                         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
                     }
                     
-                    # 小红书图片需要 Referer
-                    if "xiaohongshu.com" in result["image"].lower() or "picasso-static.xiaohongshu.com" in result["image"].lower():
+                    # 小红书图片需要 Referer（包括所有 xhscdn.com 域名）
+                    image_url_lower = result["image"].lower()
+                    if ("xiaohongshu.com" in image_url_lower or 
+                        "picasso-static.xiaohongshu.com" in image_url_lower or
+                        "xhscdn.com" in image_url_lower or
+                        "sns-webpic-qc.xhscdn.com" in image_url_lower):
                         headers["Referer"] = "https://www.xiaohongshu.com/"
                         headers["Origin"] = "https://www.xiaohongshu.com"
                     
