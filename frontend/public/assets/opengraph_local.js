@@ -167,12 +167,36 @@
         result.image_height = parseInt(ogImageHeight.getAttribute('content'), 10) || null;
       }
 
-      // 9. 判断是否成功
-      result.success = !!(result.title && result.title !== window.location.href);
+      // 9. 判断是否成功（放宽条件：只要有 title 或 image 就算成功）
+      // 即使 title 等于 URL，只要有数据也算成功
+      const hasTitle = result.title && result.title.trim() && result.title !== window.location.href;
+      const hasImage = result.image && result.image.trim();
+      const hasDescription = result.description && result.description.trim();
+      
+      // 只要有 title、image 或 description 中的任何一个，就算成功
+      result.success = !!(hasTitle || hasImage || hasDescription);
+      
+      // 如果 title 为空或等于 URL，尝试使用 document.title
+      if (!hasTitle) {
+        result.title = document.title || window.location.href;
+        // 如果现在有 title 了，重新判断 success
+        if (result.title && result.title !== window.location.href) {
+          result.success = true;
+        }
+      }
       
       // 10. 确保不设置 is_doc_card（本地抓取不应该生成 doc 卡片）
       // 如果没有图片，让前端使用占位符，而不是 doc 卡片
       result.is_doc_card = false;
+      
+      // 11. 添加调试日志
+      console.log('[OpenGraph Local] Extracted data:', {
+        url: result.url,
+        title: result.title,
+        hasImage: !!result.image,
+        image: result.image ? result.image.substring(0, 50) + '...' : null,
+        success: result.success
+      });
 
     } catch (error) {
       result.error = error.message || String(error);
