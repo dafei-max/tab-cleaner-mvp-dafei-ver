@@ -143,6 +143,128 @@ async function saveScreenshotToBackend(url, screenshotDataUrl, apiBaseUrl) {
 }
 
 /**
+ * 截图队列管理器
+ * 限速：每秒最多 1 次截图（1000ms 间隔）
+ */
+class ScreenshotQueue {
+  constructor() {
+    this.queue = [];
+    this.isProcessing = false;
+    this.rateLimitMs = 1000; // 每秒1次 = 1000ms 间隔
+    this.lastScreenshotTime = 0;
+  }
+
+  /**
+   * 添加截图任务到队列
+   * @param {Object} task - 截图任务
+   * @param {Object} task.item - OpenGraph item
+   * @param {Object} task.tab - 对应的 tab 对象
+   * @param {string} task.apiUrl - API URL
+   */
+  enqueue(task) {
+    this.queue.push(task);
+    console.log(`[Screenshot Queue] Task enqueued: ${task.item.url.substring(0, 60)}... (Queue size: ${this.queue.length})`);
+    
+    // 如果队列未在处理，开始处理
+    if (!this.isProcessing) {
+      this.process();
+    }
+  }
+
+  /**
+   * 处理队列中的截图任务
+   */
+  async process() {
+    if (this.isProcessing) {
+      return;
+    }
+
+    this.isProcessing = true;
+    console.log(`[Screenshot Queue] Starting queue processing (${this.queue.length} tasks)`);
+
+    while (this.queue.length > 0) {
+      const task = this.queue.shift();
+      
+      try {
+        // 限速：确保距离上次截图至少间隔 rateLimitMs
+        const timeSinceLastScreenshot = Date.now() - this.lastScreenshotTime;
+        if (timeSinceLastScreenshot < this.rateLimitMs) {
+          const waitTime = this.rateLimitMs - timeSinceLastScreenshot;
+          console.log(`[Screenshot Queue] Rate limiting: waiting ${waitTime}ms before next screenshot`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+
+        // 检查 tab 是否仍然存在
+        let tab;
+        try {
+          tab = await chrome.tabs.get(task.tab.id);
+        } catch (tabError) {
+          console.warn(`[Screenshot Queue] Tab ${task.tab.id} no longer exists, skipping screenshot`);
+          task.item.needs_screenshot = false;
+          continue;
+        }
+
+        // 执行截图
+        console.log(`[Screenshot Queue] Processing screenshot for ${task.item.url.substring(0, 60)}...`);
+        this.lastScreenshotTime = Date.now();
+
+        // 截图（设置超时，避免长时间阻塞）
+        const screenshotPromise = captureTabScreenshot(tab.id, tab.windowId);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Screenshot timeout')), 5000)
+        );
+        
+        const screenshotDataUrl = await Promise.race([screenshotPromise, timeoutPromise]);
+        
+        if (screenshotDataUrl) {
+          // 压缩截图（320px 宽度，质量 60）
+          const compressedScreenshot = await compressScreenshot(screenshotDataUrl, 320, 0.6);
+          
+          // 更新 item 的 screenshot_image 字段
+          task.item.screenshot_image = compressedScreenshot;
+          task.item.needs_screenshot = false;
+          
+          console.log(`[Screenshot Queue] ✓ Screenshot captured for ${task.item.url.substring(0, 60)}...`);
+          
+          // 发送截图到后端存储（可选，也可以只存在前端）
+          try {
+            await saveScreenshotToBackend(task.item.url, compressedScreenshot, task.apiUrl);
+          } catch (saveError) {
+            console.warn(`[Screenshot Queue] Failed to save screenshot to backend: ${saveError.message}`);
+            // 即使保存失败，也继续使用前端的 screenshot_image
+          }
+        }
+      } catch (screenshotError) {
+        console.error(`[Screenshot Queue] Failed to capture screenshot for ${task.item.url}:`, screenshotError);
+        // 截图失败，保持 needs_screenshot=false，前端会使用 doc card fallback
+        task.item.needs_screenshot = false;
+      }
+    }
+
+    this.isProcessing = false;
+    console.log(`[Screenshot Queue] Queue processing completed`);
+  }
+
+  /**
+   * 获取队列长度
+   */
+  getLength() {
+    return this.queue.length;
+  }
+
+  /**
+   * 清空队列
+   */
+  clear() {
+    this.queue = [];
+    this.isProcessing = false;
+  }
+}
+
+// 创建全局截图队列实例
+const screenshotQueue = new ScreenshotQueue();
+
+/**
  * 为文档类标签页截图（在关闭之前）
  */
 async function captureDocTabScreenshots(tabs) {
@@ -439,6 +561,10 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     
     // 获取所有打开的 tabs
     chrome.tabs.query({}, async (tabs) => {
+      // 将 uniqueTabs 定义在外部，以便在 catch 块中也能访问
+      let uniqueTabs = [];
+      let originalTabIds = new Set();
+      
       try {
         // 过滤掉 chrome://, chrome-extension://, about: 等特殊页面
         // 同时过滤掉 Chrome Web Store 等不需要收录的页面
@@ -466,7 +592,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
 
         // 去重：相同 URL 只保留一个（保留第一个）
         const seenUrls = new Set();
-        const uniqueTabs = validTabs.filter(tab => {
+        uniqueTabs = validTabs.filter(tab => {
           const url = tab.url || '';
           if (seenUrls.has(url)) {
             return false;
@@ -474,6 +600,9 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           seenUrls.add(url);
           return true;
         });
+        
+        // 保存原始 tab IDs，用于后续关闭
+        originalTabIds = new Set(uniqueTabs.map(tab => tab.id).filter(id => id !== undefined));
 
         console.log(`[Tab Cleaner Background] Found ${validTabs.length} valid tabs, ${uniqueTabs.length} unique tabs after deduplication`);
 
@@ -534,7 +663,10 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         const mergedData = opengraphItems;
         console.log(`[Tab Cleaner Background] Processed ${mergedData.length} OpenGraph items`);
 
-        // 检查哪些 item 需要截图（needs_screenshot=true 且没有图片）
+        // 步骤 1：确保 OpenGraph 数据已完全获取
+        console.log(`[Tab Cleaner Background] ✓ OpenGraph data fetched: ${mergedData.length} items`);
+        
+        // 步骤 2：检查哪些 item 需要截图（needs_screenshot=true 且没有图片）
         // 逻辑：只有 OpenGraph 拿不到图的才截图
         // 注意：截图是可选功能，即使失败也不应该阻塞主流程
         const itemsNeedingScreenshot = mergedData.filter(item => {
@@ -550,65 +682,31 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           
           return shouldScreenshot;
         });
+        
+        // 步骤 3：将需要截图的 item 加入截图队列（限速 1/s，不阻塞主流程）
         if (itemsNeedingScreenshot.length > 0) {
-          console.log(`[Tab Cleaner Background] Found ${itemsNeedingScreenshot.length} items needing screenshot (OpenGraph found no images)`);
+          console.log(`[Tab Cleaner Background] Found ${itemsNeedingScreenshot.length} items needing screenshot, adding to queue (rate limit: 1/s)`);
           
-          // 为每个需要截图的 item 截图（异步处理，不阻塞主流程）
-          // 使用 Promise.allSettled 确保即使部分失败也不影响整体流程
-          const screenshotPromises = itemsNeedingScreenshot.map(async (item) => {
-            try {
-              // 找到对应的 tab
-              const tab = uniqueTabs.find(t => t.url === item.url);
-              if (!tab) {
-                console.warn(`[Tab Cleaner Background] Tab not found for URL: ${item.url}`);
-                item.needs_screenshot = false;
-                return;
-              }
-
-              // 截图（设置超时，避免长时间阻塞）
-              const screenshotPromise = captureTabScreenshot(tab.id, tab.windowId);
-              const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Screenshot timeout')), 5000)
-              );
-              
-              const screenshotDataUrl = await Promise.race([screenshotPromise, timeoutPromise]);
-              
-              if (screenshotDataUrl) {
-                // 压缩截图（320px 宽度，质量 60）
-                const compressedScreenshot = await compressScreenshot(screenshotDataUrl, 320, 0.6);
-                
-                // 更新 item 的 screenshot_image 字段
-                item.screenshot_image = compressedScreenshot;
-                item.needs_screenshot = false;
-                
-                console.log(`[Tab Cleaner Background] ✓ Screenshot captured for ${item.url.substring(0, 60)}...`);
-                
-                // 发送截图到后端存储（可选，也可以只存在前端）
-                try {
-                  await saveScreenshotToBackend(item.url, compressedScreenshot, apiUrl);
-                } catch (saveError) {
-                  console.warn(`[Tab Cleaner Background] Failed to save screenshot to backend: ${saveError.message}`);
-                  // 即使保存失败，也继续使用前端的 screenshot_image
-                }
-              }
-            } catch (screenshotError) {
-              console.error(`[Tab Cleaner Background] Failed to capture screenshot for ${item.url}:`, screenshotError);
-              // 截图失败，保持 needs_screenshot=false，前端会使用 doc card fallback
+          // 将截图任务加入队列（异步处理，不阻塞主流程）
+          itemsNeedingScreenshot.forEach(item => {
+            const tab = uniqueTabs.find(t => t.url === item.url);
+            if (tab) {
+              screenshotQueue.enqueue({
+                item: item,
+                tab: tab,
+                apiUrl: apiUrl,
+              });
+            } else {
+              console.warn(`[Tab Cleaner Background] Tab not found for URL: ${item.url}, skipping screenshot`);
               item.needs_screenshot = false;
             }
           });
           
-          // 等待所有截图完成（但设置超时，避免长时间阻塞）
-          try {
-            await Promise.race([
-              Promise.allSettled(screenshotPromises),
-              new Promise(resolve => setTimeout(resolve, 10000)) // 最多等待 10 秒
-            ]);
-            console.log(`[Tab Cleaner Background] Screenshot process completed`);
-          } catch (error) {
-            console.warn(`[Tab Cleaner Background] Screenshot process timeout or error:`, error);
-            // 继续执行，不阻塞主流程
-          }
+          // 不等待截图完成，继续执行主流程（保存数据、关闭标签页、打开个人空间）
+          // 截图会在后台队列中异步处理
+          console.log(`[Tab Cleaner Background] Screenshot tasks queued, continuing with main flow...`);
+        } else {
+          console.log(`[Tab Cleaner Background] No items need screenshot`);
         }
 
         // 后端已经在 OpenGraph 解析时预取了 embedding，但可能还在异步处理中
@@ -707,15 +805,42 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         
         // 保存到 storage
         // 同时保存 sessions 和 opengraphData（向后兼容）
-        await chrome.storage.local.set({ 
-          sessions: updatedSessions,
-          opengraphData: {
-            ok: opengraphData.ok || true,
-            data: itemsWithIds
-          },
-          lastCleanTime: Date.now(),
-          currentSessionId: sessionId, // 设置当前 session
-        });
+        // 注意：如果存储配额超限，尝试清理旧数据
+        try {
+          await chrome.storage.local.set({ 
+            sessions: updatedSessions,
+            opengraphData: {
+              ok: opengraphData.ok || true,
+              data: itemsWithIds
+            },
+            lastCleanTime: Date.now(),
+            currentSessionId: sessionId, // 设置当前 session
+          });
+        } catch (storageError) {
+          // 如果存储配额超限，尝试清理旧数据
+          if (storageError.message && storageError.message.includes('quota')) {
+            console.warn('[Tab Cleaner Background] Storage quota exceeded, cleaning old sessions...');
+            try {
+              // 只保留最新的 10 个 sessions
+              const limitedSessions = updatedSessions.slice(0, 10);
+              await chrome.storage.local.set({ 
+                sessions: limitedSessions,
+                opengraphData: {
+                  ok: opengraphData.ok || true,
+                  data: itemsWithIds
+                },
+                lastCleanTime: Date.now(),
+                currentSessionId: sessionId,
+              });
+              console.log(`[Tab Cleaner Background] ✓ Saved with limited sessions (${limitedSessions.length} sessions)`);
+            } catch (retryError) {
+              console.error('[Tab Cleaner Background] Failed to save even after cleanup:', retryError);
+              throw retryError;
+            }
+          } else {
+            throw storageError;
+          }
+        }
 
         console.log(`[Tab Cleaner Background] ✓ All OpenGraph data fetched and saved:`);
         console.log(`  - Session ID: ${sessionId}`);
@@ -730,11 +855,18 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           hasScreenshot: !!itemsWithIds[0].screenshot_image,
         } : 'No items');
 
-        // 关闭所有标签页（OpenGraph 已获取完成，可以关闭了）
+        // 等待截图队列处理一段时间（最多等待 5 秒，确保关键截图完成）
+        // 注意：截图队列是异步的，不会阻塞主流程，但给一些时间让截图开始
+        if (itemsNeedingScreenshot.length > 0) {
+          const maxWaitTime = Math.min(itemsNeedingScreenshot.length * 1000, 5000); // 最多等待 5 秒
+          console.log(`[Tab Cleaner Background] Waiting up to ${maxWaitTime}ms for screenshot queue to start processing...`);
+          await new Promise(resolve => setTimeout(resolve, Math.min(2000, maxWaitTime))); // 至少等待 2 秒让截图开始
+          console.log(`[Tab Cleaner Background] Screenshot queue processing started, continuing with tab closure...`);
+        }
+
+        // 关闭所有标签页（OpenGraph 已获取完成，截图队列已开始处理）
         // 重要：重新获取当前所有标签页，因为截图过程中可能有些标签页已经被关闭
         // 只关闭那些在原始 uniqueTabs 列表中的标签页
-        const originalTabIds = new Set(uniqueTabs.map(tab => tab.id).filter(id => id !== undefined));
-        
         // 重新获取当前所有标签页
         const currentTabs = await chrome.tabs.query({});
         
@@ -785,21 +917,26 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         }
         
         // 即使失败，也要尝试：
-        // 1. 关闭标签页
+        // 1. 关闭标签页（使用保存的 originalTabIds）
         try {
-          const allTabIds = uniqueTabs
-            .map(tab => tab.id)
-            .filter(id => id !== undefined);
-          
-          if (allTabIds.length > 0) {
-            console.log(`[Tab Cleaner Background] Closing ${allTabIds.length} tabs after error...`);
-            for (const tabId of allTabIds) {
-              try {
-                await chrome.tabs.remove(tabId);
-              } catch (closeError) {
-                console.warn(`[Tab Cleaner Background] Tab ${tabId} already closed:`, closeError.message);
+          if (originalTabIds.size > 0) {
+            // 重新获取当前所有标签页
+            const currentTabs = await chrome.tabs.query({});
+            const tabsToClose = currentTabs.filter(tab => originalTabIds.has(tab.id));
+            const allTabIds = tabsToClose.map(tab => tab.id);
+            
+            if (allTabIds.length > 0) {
+              console.log(`[Tab Cleaner Background] Closing ${allTabIds.length} tabs after error...`);
+              for (const tabId of allTabIds) {
+                try {
+                  await chrome.tabs.remove(tabId);
+                } catch (closeError) {
+                  console.warn(`[Tab Cleaner Background] Tab ${tabId} already closed:`, closeError.message);
+                }
               }
             }
+          } else {
+            console.warn(`[Tab Cleaner Background] No originalTabIds to close after error`);
           }
         } catch (closeError) {
           console.error('[Tab Cleaner Background] Failed to close tabs:', closeError);
