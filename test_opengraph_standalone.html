@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>OpenGraph Local Test - Standalone</title>
+  <meta property="og:title" content="Test Page Title" />
+  <meta property="og:description" content="This is a test description" />
+  <meta property="og:image" content="https://example.com/test-image.jpg" />
+  <meta property="og:site_name" content="Test Site" />
+</head>
+<body>
+  <h1>OpenGraph 本地抓取测试（独立版本）</h1>
+  <p>打开 Console（F12），运行：</p>
+  <pre>window.__TAB_CLEANER_GET_OPENGRAPH()</pre>
+  
+  <script>
+    // 内联脚本，不依赖外部文件
+    (function() {
+      'use strict';
+      
+      if (window.__TAB_CLEANER_OPENGRAPH_LOCAL) {
+        return;
+      }
+      window.__TAB_CLEANER_OPENGRAPH_LOCAL = true;
+      
+      function extractOpenGraphLocal() {
+        const result = {
+          url: window.location.href,
+          title: '',
+          description: '',
+          image: '',
+          site_name: '',
+          success: false,
+          error: null,
+          is_local_fetch: true,
+        };
+        
+        try {
+          const ogTitle = document.querySelector('meta[property="og:title"]');
+          const ogDescription = document.querySelector('meta[property="og:description"]');
+          const ogImage = document.querySelector('meta[property="og:image"]');
+          const ogSiteName = document.querySelector('meta[property="og:site_name"]');
+          
+          result.title = (
+            ogTitle?.getAttribute('content') ||
+            document.querySelector('title')?.textContent ||
+            window.location.href
+          ).trim();
+          
+          result.description = (
+            ogDescription?.getAttribute('content') ||
+            ''
+          ).trim();
+          
+          const imageUrl = ogImage?.getAttribute('content') || '';
+          if (imageUrl) {
+            try {
+              result.image = new URL(imageUrl, window.location.href).href;
+            } catch (e) {
+              result.image = imageUrl;
+            }
+          }
+          
+          result.site_name = (
+            ogSiteName?.getAttribute('content') ||
+            new URL(window.location.href).hostname.replace(/^www\./, '') ||
+            ''
+          ).trim();
+          
+          result.success = !!(result.title && result.title !== window.location.href);
+        } catch (error) {
+          result.error = error.message || String(error);
+          result.success = false;
+        }
+        
+        return result;
+      }
+      
+      window.__TAB_CLEANER_GET_OPENGRAPH = function() {
+        return extractOpenGraphLocal();
+      };
+      
+      console.log('[OpenGraph Local] Loaded and ready');
+    })();
+    
+    // 自动测试
+    setTimeout(() => {
+      try {
+        const result = window.__TAB_CLEANER_GET_OPENGRAPH();
+        console.log('✅ 测试结果:', result);
+        
+        const div = document.createElement('div');
+        div.style.cssText = 'margin-top: 20px; padding: 20px; background: #f0f0f0; border-radius: 8px;';
+        div.innerHTML = `
+          <h2>测试结果：</h2>
+          <p><strong>成功：</strong> ${result.success ? '✅' : '❌'}</p>
+          <p><strong>标题：</strong> ${result.title}</p>
+          <p><strong>图片：</strong> ${result.image || '(无)'}</p>
+          <p><strong>描述：</strong> ${result.description || '(无)'}</p>
+          <p><strong>站点：</strong> ${result.site_name || '(无)'}</p>
+          ${result.error ? `<p><strong>错误：</strong> ${result.error}</p>` : ''}
+        `;
+        document.body.appendChild(div);
+      } catch (error) {
+        console.error('❌ 错误:', error);
+      }
+    }, 100);
+  </script>
+</body>
+</html>

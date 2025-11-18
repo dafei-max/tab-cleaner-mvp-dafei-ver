@@ -18,6 +18,22 @@
       setTimeout(() => {
         if (typeof window.__TAB_CLEANER_GET_OPENGRAPH === 'function') {
           console.log('[Tab Cleaner] ✅ OpenGraph function ready');
+          
+          // 可选：自动显示预览卡片
+          // const ogData = window.__TAB_CLEANER_GET_OPENGRAPH();
+          // if (ogData && ogData.success) {
+          //   // 加载预览卡片组件
+          //   const previewScript = document.createElement('script');
+          //   previewScript.src = chrome.runtime.getURL('assets/opengraph_preview.js');
+          //   previewScript.onload = () => {
+          //     setTimeout(() => {
+          //       if (window.__TAB_CLEANER_SHOW_PREVIEW) {
+          //         window.__TAB_CLEANER_SHOW_PREVIEW(ogData);
+          //       }
+          //     }, 500);
+          //   };
+          //   (document.head || document.documentElement).appendChild(previewScript);
+          // }
         } else {
           console.warn('[Tab Cleaner] ⚠️ OpenGraph function not found after load');
         }

@@ -35,7 +35,8 @@
         "assets/*.js",
         "assets/*.css",
         "assets/card.html",
-        "static/img/*"
+        "static/img/*",
+        "test_opengraph_simple.html"
       ],
       "matches": ["<all_urls>"],
       "use_dynamic_url": true
