@@ -525,49 +525,62 @@
       
       // 如果函数不存在，尝试加载脚本（无论标志如何）
       if (typeof window.__TAB_CLEANER_GET_OPENGRAPH !== 'function') {
-        console.log('[Tab Cleaner Content] Script not loaded, loading now...');
+        console.log('[Tab Cleaner Content] ⚠️ Function not found, loading script now...');
         const script = document.createElement('script');
         script.src = chrome.runtime.getURL('assets/opengraph_local.js');
         script.onload = () => {
           console.log('[Tab Cleaner Content] ✅ Script loaded, waiting for function...');
           setTimeout(() => {
-            if (window.__TAB_CLEANER_GET_OPENGRAPH) {
+            if (typeof window.__TAB_CLEANER_GET_OPENGRAPH === 'function') {
               console.log('[Tab Cleaner Content] ✅ Function ready, calling...');
+              window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = true; // 设置标志
               try {
                 const result = window.__TAB_CLEANER_GET_OPENGRAPH(true);
                 if (result instanceof Promise) {
                   result.then(data => {
-                    console.log('[Tab Cleaner Content] Promise resolved:', {
+                    console.log('[Tab Cleaner Content] ✅ Promise resolved:', {
                       success: data?.success,
                       hasTitle: !!(data?.title),
                       hasImage: !!(data?.image)
                     });
-                    send(data);
+                    if (typeof send === 'function') {
+                      send(data);
+                    }
                   }).catch(error => {
-                    console.error('[Tab Cleaner Content] Promise rejected:', error);
-                    send({ success: false, error: error.message });
+                    console.error('[Tab Cleaner Content] ❌ Promise rejected:', error);
+                    if (typeof send === 'function') {
+                      send({ success: false, error: error.message });
+                    }
                   });
                 } else {
-                  console.log('[Tab Cleaner Content] Sync result:', {
+                  console.log('[Tab Cleaner Content] ✅ Sync result:', {
                     success: result?.success,
                     hasTitle: !!(result?.title),
                     hasImage: !!(result?.image)
                   });
-                  send(result);
+                  if (typeof send === 'function') {
+                    send(result);
+                  }
                 }
               } catch (e) {
-                console.error('[Tab Cleaner Content] Error calling function:', e);
-                send({ success: false, error: e.message });
+                console.error('[Tab Cleaner Content] ❌ Error calling function:', e);
+                if (typeof send === 'function') {
+                  send({ success: false, error: e.message });
+                }
               }
             } else {
-              console.error('[Tab Cleaner Content] Function still not found after load');
-              send({ success: false, error: 'OpenGraph function not found after script load' });
+              console.error('[Tab Cleaner Content] ❌ Function still not found after load');
+              if (typeof send === 'function') {
+                send({ success: false, error: 'OpenGraph function not found after script load' });
+              }
             }
-          }, 200);
+          }, 500); // 增加等待时间
         };
         script.onerror = (e) => {
-          console.error('[Tab Cleaner Content] Failed to load script:', e);
-          send({ success: false, error: 'Failed to load opengraph_local.js' });
+          console.error('[Tab Cleaner Content] ❌ Failed to load script:', e);
+          if (typeof send === 'function') {
+            send({ success: false, error: 'Failed to load opengraph_local.js' });
+          }
         };
         (document.head || document.documentElement).appendChild(script);
         return true; // 保持消息通道开放，等待异步加载
