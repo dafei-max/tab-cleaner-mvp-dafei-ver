@@ -103,7 +103,8 @@ export const PersonalSpace = () => {
     searchQuery,
     setSearchQuery,
     isSearching,
-    opengraphWithEmbeddings,
+    // ✅ 已移除：opengraphWithEmbeddings - 不再需要
+    // opengraphWithEmbeddings,
     searchResults,
     performSearch,
     clearSearch,
@@ -412,24 +413,10 @@ export const PersonalSpace = () => {
   const handleSearch = async () => {
     const results = await performSearch(searchQuery, calculateRadialLayout);
     if (results && results.length > 0) {
-      // 确保搜索结果包含 embedding（从 opengraphWithEmbeddings 中获取）
-      const resultsWithEmbedding = results.map(result => {
-        // 尝试从 opengraphWithEmbeddings 中找到对应的 embedding
-        const withEmbedding = opengraphWithEmbeddings.find(item => 
-          item.url === result.url || item.tab_id === result.tab_id
-        );
-        if (withEmbedding) {
-          return {
-            ...result,
-            text_embedding: withEmbedding.text_embedding,
-            image_embedding: withEmbedding.image_embedding,
-            embedding: withEmbedding.embedding,
-          };
-        }
-        return result;
-      });
-      setOpengraphData(resultsWithEmbedding);
+      // ✅ 简化：搜索结果直接从数据库返回，已经包含所有需要的数据
+      setOpengraphData(results);
       setShowOriginalImages(false);
+      console.log('[PersonalSpace] Search completed,', results.length, 'results');
     }
   };
 
@@ -1116,7 +1103,7 @@ export const PersonalSpace = () => {
         } finally {
           setIsClustering(false);
         }
-      }, [isClustering, aiLabels, showOriginalImages, images, opengraphData, opengraphWithEmbeddings, clusters]);
+      }, [isClustering, aiLabels, showOriginalImages, images, opengraphData, clusters]);
 
       const handleDiscover = useCallback(async () => {
         if (isClustering) return;
@@ -1194,7 +1181,7 @@ export const PersonalSpace = () => {
         } finally {
           setIsClustering(false);
         }
-      }, [isClustering, showOriginalImages, images, opengraphData, opengraphWithEmbeddings, clusters]);
+      }, [isClustering, showOriginalImages, images, opengraphData, clusters]);
 
       // Session 容器 ref（用于 ScrollSpy）
       const sessionContainerRef = useRef(null);
