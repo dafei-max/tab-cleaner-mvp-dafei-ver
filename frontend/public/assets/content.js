@@ -837,143 +837,153 @@
           window.removeEventListener('error', errorHandler);
         }, 5000);
         
-        (document.head || document.documentElement).appendChild(script);
-        console.log('[Tab Cleaner Content] Script appended to DOM');
-        return true; // 保持消息通道开放，等待异步加载
-      }
-      
-      try {
-        // 使用 opengraph_local.js 暴露的全局函数
-        if (window.__TAB_CLEANER_GET_OPENGRAPH) {
-          console.log('[Tab Cleaner Content] ✅ Function exists, calling __TAB_CLEANER_GET_OPENGRAPH(true)...');
-          console.log('[Tab Cleaner Content] Document readyState:', document.readyState);
-          
-          const result = window.__TAB_CLEANER_GET_OPENGRAPH(true); // 等待页面加载完成
-          
-          // 如果返回 Promise，等待它完成
-          if (result instanceof Promise) {
-            console.log('[Tab Cleaner Content] ⏳ Result is Promise, waiting for resolution...');
-            result.then(data => {
-              console.log('[Tab Cleaner Content] ✅ Promise resolved! Data:', {
-                success: data?.success,
-                hasTitle: !!(data?.title),
-                hasImage: !!(data?.image),
-                title: data?.title?.substring(0, 50),
-                image: data?.image ? data.image.substring(0, 50) + '...' : null,
-                error: data?.error,
-                fullData: data
+          (document.head || document.documentElement).appendChild(script);
+          console.log('[Tab Cleaner Content] Script appended to DOM');
+          return; // 脚本加载是异步的，会在 onload 中处理
+        }
+        
+        try {
+          // 使用 opengraph_local.js 暴露的全局函数
+          if (window.__TAB_CLEANER_GET_OPENGRAPH) {
+            console.log('[Tab Cleaner Content] ✅ Function exists, calling __TAB_CLEANER_GET_OPENGRAPH(true)...');
+            console.log('[Tab Cleaner Content] Document readyState:', document.readyState);
+            
+            const result = window.__TAB_CLEANER_GET_OPENGRAPH(true); // 等待页面加载完成
+            
+            // 如果返回 Promise，等待它完成
+            if (result instanceof Promise) {
+              console.log('[Tab Cleaner Content] ⏳ Result is Promise, waiting for resolution...');
+              result.then(data => {
+                console.log('[Tab Cleaner Content] ✅ Promise resolved! Data:', {
+                  success: data?.success,
+                  hasTitle: !!(data?.title),
+                  hasImage: !!(data?.image),
+                  title: data?.title?.substring(0, 50),
+                  image: data?.image ? data.image.substring(0, 50) + '...' : null,
+                  error: data?.error,
+                  fullData: data
+                });
+                
+                // 确保 is_doc_card 被正确设置
+                if (data && data.is_doc_card === undefined) {
+                  data.is_doc_card = false;
+                }
+                
+                // 确保 sendResponse 函数可用
+                if (typeof sendResponse === 'function') {
+                  try {
+                    sendResponse(data);
+                    console.log('[Tab Cleaner Content] ✅ Data sent successfully via sendResponse');
+                  } catch (sendError) {
+                    console.error('[Tab Cleaner Content] ❌ Error sending data:', sendError);
+                  }
+                }
+              }).catch(error => {
+                console.error('[Tab Cleaner Content] ❌ Promise rejected:', error);
+                if (typeof sendResponse === 'function') {
+                  sendResponse({ 
+                    success: false, 
+                    error: error.message,
+                    is_doc_card: false
+                  });
+                }
+              });
+            } else {
+              console.log('[Tab Cleaner Content] ✅ Result is sync:', {
+                success: result?.success,
+                hasTitle: !!(result?.title),
+                hasImage: !!(result?.image),
+                title: result?.title?.substring(0, 50),
+                image: result?.image ? result.image.substring(0, 50) + '...' : null,
+                error: result?.error
               });
               
-              // 确保 sendResponse 函数可用
+              // 确保 is_doc_card 被正确设置
+              if (result && result.is_doc_card === undefined) {
+                result.is_doc_card = false;
+              }
+              
               if (typeof sendResponse === 'function') {
                 try {
-                  sendResponse(data);
-                  console.log('[Tab Cleaner Content] ✅ Data sent successfully via sendResponse');
-                } catch (sendError) {
-                  console.error('[Tab Cleaner Content] ❌ Error sending data:', sendError);
-                  // 如果 sendResponse 失败，尝试使用 chrome.runtime.sendMessage 作为后备
-                  try {
-                    chrome.runtime.sendMessage({
-                      action: 'opengraph-result',
-                      data: data,
-                      tabId: sender?.tab?.id
-                    });
-                    console.log('[Tab Cleaner Content] ✅ Data sent via chrome.runtime.sendMessage as fallback');
-                  } catch (fallbackError) {
-                    console.error('[Tab Cleaner Content] ❌ Fallback sendMessage also failed:', fallbackError);
-                  }
-                }
-              } else {
-                console.error('[Tab Cleaner Content] ❌ sendResponse function not available');
-                // 尝试使用 chrome.runtime.sendMessage 作为后备
-                try {
-                  chrome.runtime.sendMessage({
-                    action: 'opengraph-result',
-                    data: data,
-                    tabId: sender?.tab?.id
-                  });
-                  console.log('[Tab Cleaner Content] ✅ Data sent via chrome.runtime.sendMessage as fallback');
-                } catch (fallbackError) {
-                  console.error('[Tab Cleaner Content] ❌ Fallback sendMessage failed:', fallbackError);
-                }
-              }
-            }).catch(error => {
-              console.error('[Tab Cleaner Content] ❌ Promise rejected:', error);
-              if (typeof sendResponse === 'function') {
-                try {
-                  sendResponse({ success: false, error: error.message });
-                } catch (sendError) {
-                  console.error('[Tab Cleaner Content] ❌ Error sending error response:', sendError);
-                }
-              }
-            });
-          } else {
-            console.log('[Tab Cleaner Content] ✅ Result is sync:', {
-              success: result?.success,
-              hasTitle: !!(result?.title),
-              hasImage: !!(result?.image),
-              title: result?.title?.substring(0, 50),
-              image: result?.image ? result.image.substring(0, 50) + '...' : null,
-              error: result?.error
-            });
-            
-            if (typeof sendResponse === 'function') {
-              try {
-                sendResponse(result);
-                console.log('[Tab Cleaner Content] ✅ Sync data sent successfully');
-              } catch (sendError) {
-                console.error('[Tab Cleaner Content] ❌ Error sending sync data:', sendError);
-              }
-            }
-          }
-        } else {
-          console.warn('[Tab Cleaner Content] __TAB_CLEANER_GET_OPENGRAPH not found, waiting 2s...');
-          // 如果函数还没加载，等待一下（opengraph_local.js 需要时间加载）
-          setTimeout(() => {
-            if (window.__TAB_CLEANER_GET_OPENGRAPH) {
-              console.log('[Tab Cleaner Content] Function found after wait, calling...');
-              const result = window.__TAB_CLEANER_GET_OPENGRAPH(true);
-              if (result instanceof Promise) {
-                result.then(data => {
-                  console.log('[Tab Cleaner Content] Promise resolved after wait:', {
-                    success: data?.success,
-                    hasTitle: !!(data?.title),
-                    hasImage: !!(data?.image)
-                  });
-                  if (typeof sendResponse === 'function') {
-                    sendResponse(data);
-                  }
-                }).catch(error => {
-                  console.error('[Tab Cleaner Content] Promise rejected after wait:', error);
-                  if (typeof sendResponse === 'function') {
-                    sendResponse({ success: false, error: error.message });
-                  }
-                });
-              } else {
-                console.log('[Tab Cleaner Content] Sync result after wait:', {
-                  success: result?.success,
-                  hasTitle: !!(result?.title),
-                  hasImage: !!(result?.image)
-                });
-                if (typeof sendResponse === 'function') {
                   sendResponse(result);
+                  console.log('[Tab Cleaner Content] ✅ Sync data sent successfully');
+                } catch (sendError) {
+                  console.error('[Tab Cleaner Content] ❌ Error sending sync data:', sendError);
                 }
               }
-            } else {
-              console.error('[Tab Cleaner Content] Function still not found after wait');
-              console.error('[Tab Cleaner Content] Available globals:', Object.keys(window).filter(k => k.includes('TAB_CLEANER')));
-              if (typeof sendResponse === 'function') {
-                sendResponse({ success: false, error: 'OpenGraph function not loaded' });
-              }
             }
-          }, 2000); // 增加到 2 秒
+          } else {
+            console.warn('[Tab Cleaner Content] __TAB_CLEANER_GET_OPENGRAPH not found, waiting 2s...');
+            // 如果函数还没加载，等待一下（opengraph_local.js 需要时间加载）
+            setTimeout(() => {
+              if (window.__TAB_CLEANER_GET_OPENGRAPH) {
+                console.log('[Tab Cleaner Content] Function found after wait, calling...');
+                const result = window.__TAB_CLEANER_GET_OPENGRAPH(true);
+                if (result instanceof Promise) {
+                  result.then(data => {
+                    console.log('[Tab Cleaner Content] Promise resolved after wait:', {
+                      success: data?.success,
+                      hasTitle: !!(data?.title),
+                      hasImage: !!(data?.image)
+                    });
+                    // 确保 is_doc_card 被正确设置
+                    if (data && data.is_doc_card === undefined) {
+                      data.is_doc_card = false;
+                    }
+                    if (typeof sendResponse === 'function') {
+                      sendResponse(data);
+                    }
+                  }).catch(error => {
+                    console.error('[Tab Cleaner Content] Promise rejected after wait:', error);
+                    if (typeof sendResponse === 'function') {
+                      sendResponse({ 
+                        success: false, 
+                        error: error.message,
+                        is_doc_card: false
+                      });
+                    }
+                  });
+                } else {
+                  console.log('[Tab Cleaner Content] Sync result after wait:', {
+                    success: result?.success,
+                    hasTitle: !!(result?.title),
+                    hasImage: !!(result?.image)
+                  });
+                  // 确保 is_doc_card 被正确设置
+                  if (result && result.is_doc_card === undefined) {
+                    result.is_doc_card = false;
+                  }
+                  if (typeof sendResponse === 'function') {
+                    sendResponse(result);
+                  }
+                }
+              } else {
+                console.error('[Tab Cleaner Content] Function still not found after wait');
+                console.error('[Tab Cleaner Content] Available globals:', Object.keys(window).filter(k => k.includes('TAB_CLEANER')));
+                if (typeof sendResponse === 'function') {
+                  sendResponse({ 
+                    success: false, 
+                    error: 'OpenGraph function not loaded',
+                    is_doc_card: false
+                  });
+                }
+              }
+            }, 2000); // 增加到 2 秒
+          }
+        } catch (error) {
+          console.error('[Tab Cleaner Content] Error in fetch-opengraph:', error);
+          if (typeof sendResponse === 'function') {
+            sendResponse({ 
+              success: false, 
+              error: error.message,
+              is_doc_card: false
+            });
+          }
         }
-      } catch (error) {
-        console.error('[Tab Cleaner Content] Error in fetch-opengraph:', error);
-        if (typeof sendResponse === 'function') {
-          sendResponse({ success: false, error: error.message });
-        }
-      }
+      };
+      
+      // 开始读取缓存（异步操作）
+      // 注意：必须在异步操作开始前返回 true，保持消息通道开放
       return true; // 保持消息通道开放
     }
     return false;
