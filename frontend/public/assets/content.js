@@ -662,8 +662,18 @@
         script.src = chrome.runtime.getURL('assets/opengraph_local.js');
         script.onload = () => {
           console.log('[Tab Cleaner Content] ✅ Script loaded, waiting for function...');
-          // 增加等待时间，确保脚本完全执行并暴露函数
-          setTimeout(() => {
+          console.log('[Tab Cleaner Content] Script element:', script);
+          console.log('[Tab Cleaner Content] Script src:', script.src);
+          
+          // 使用轮询检查函数是否可用（更可靠）
+          let attempts = 0;
+          const maxAttempts = 20; // 最多尝试 20 次，每次 100ms，总共 2 秒
+          const checkFunction = () => {
+            attempts++;
+            console.log(`[Tab Cleaner Content] Checking function availability (attempt ${attempts}/${maxAttempts})...`);
+            console.log('[Tab Cleaner Content] window.__TAB_CLEANER_GET_OPENGRAPH:', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
+            console.log('[Tab Cleaner Content] window.__TAB_CLEANER_OPENGRAPH_LOCAL:', window.__TAB_CLEANER_OPENGRAPH_LOCAL);
+            
             if (typeof window.__TAB_CLEANER_GET_OPENGRAPH === 'function') {
               console.log('[Tab Cleaner Content] ✅ Function ready, calling...');
               window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = true; // 设置标志
@@ -711,6 +721,7 @@
                 }
               } catch (e) {
                 console.error('[Tab Cleaner Content] ❌ Error calling function:', e);
+                console.error('[Tab Cleaner Content] Error stack:', e.stack);
                 if (typeof sendResponse === 'function') {
                   sendResponse({ 
                     success: false, 
@@ -719,18 +730,26 @@
                   });
                 }
               }
+            } else if (attempts < maxAttempts) {
+              // 继续等待
+              setTimeout(checkFunction, 100);
             } else {
-              console.error('[Tab Cleaner Content] ❌ Function still not found after load');
+              // 超时，函数仍未找到
+              console.error('[Tab Cleaner Content] ❌ Function still not found after', maxAttempts, 'attempts');
               console.error('[Tab Cleaner Content] Available globals:', Object.keys(window).filter(k => k.includes('TAB_CLEANER')));
+              console.error('[Tab Cleaner Content] Script element in DOM?', document.contains(script));
               if (typeof sendResponse === 'function') {
                 sendResponse({ 
                   success: false, 
-                  error: 'OpenGraph function not found after script load',
+                  error: `OpenGraph function not found after ${maxAttempts} attempts (${maxAttempts * 100}ms)`,
                   is_doc_card: false // 明确设置不是 doc 卡片
                 });
               }
             }
-          }, 1000); // 增加到 1000ms，确保脚本完全执行
+          };
+          
+          // 立即开始检查
+          setTimeout(checkFunction, 100);
         };
         script.onerror = (e) => {
           console.error('[Tab Cleaner Content] ❌ Failed to load script:', e);

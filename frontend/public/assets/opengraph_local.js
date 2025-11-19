@@ -319,6 +319,51 @@
     console.debug('[OpenGraph Local] Auto-send setup failed (non-critical):', e);
   }
 
-  console.log('[OpenGraph Local] ✅ Loaded and ready');
-  console.log('[OpenGraph Local] Function available:', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
+  // 确保函数被正确暴露
+  try {
+    window.__TAB_CLEANER_GET_OPENGRAPH = function(waitForLoad = false) {
+      // 如果不需要等待，直接返回结果
+      if (!waitForLoad) {
+        return extractOpenGraphLocal();
+      }
+      
+      // 如果页面已经加载完成，直接返回结果（但延迟一下确保动态内容加载）
+      if (document.readyState === 'complete') {
+        return new Promise((resolve) => {
+          // 减少等待时间，避免消息通道超时（从 2000ms 减少到 500ms）
+          // Pinterest 等动态内容通常已经加载完成
+          setTimeout(() => {
+            resolve(extractOpenGraphLocal());
+          }, 500);
+        });
+      }
+      
+      // 如果页面还在加载，等待 load 事件
+      return new Promise((resolve) => {
+        window.addEventListener('load', () => {
+          // 减少等待时间，避免消息通道超时（从 2000ms 减少到 500ms）
+          setTimeout(() => {
+            resolve(extractOpenGraphLocal());
+          }, 500);
+        }, { once: true });
+      });
+    };
+    
+    console.log('[OpenGraph Local] ✅ Loaded and ready');
+    console.log('[OpenGraph Local] Function available:', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
+    console.log('[OpenGraph Local] Function is function?', typeof window.__TAB_CLEANER_GET_OPENGRAPH === 'function');
+  } catch (error) {
+    console.error('[OpenGraph Local] ❌ Failed to expose function:', error);
+    console.error('[OpenGraph Local] Error stack:', error.stack);
+    // 即使出错，也尝试暴露一个基础函数
+    window.__TAB_CLEANER_GET_OPENGRAPH = function() {
+      return {
+        url: window.location.href,
+        title: document.title || window.location.href,
+        success: false,
+        error: 'OpenGraph function initialization failed: ' + error.message,
+        is_doc_card: false,
+      };
+    };
+  }
 })();
