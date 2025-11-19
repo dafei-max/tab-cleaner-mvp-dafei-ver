@@ -41,38 +41,11 @@
     (document.head || document.documentElement).appendChild(script);
   })();
 
-  // ✅ v2.3: 简化版 —— 每个页面自动注入 pet.js
-  // 状态同步全部交给 pet.js 自己通过 chrome.storage 处理
-  // 注意：content script 无法访问页面环境中的 window.__TAB_CLEANER_PET
-  (function injectPetModule() {
-    // 避免重复注入（通过检查页面中是否有 script 标签）
-    const existingScript = document.querySelector(`script[src*="pet.js"]`);
-    if (existingScript) {
-      console.log('[Tab Cleaner] pet.js already injected, skipping');
-      return;
-    }
-    
-    try {
-      const script = document.createElement('script');
-      script.src = chrome.runtime.getURL('assets/pet.js');
-      script.onload = () => {
-        console.log('[Tab Cleaner] pet.js injected into page');
-        // ✅ v2.3: 注意：这里不要去访问 window.__TAB_CLEANER_PET，
-        // 因为 content script 看不到页面环境里的那个对象
-        // pet.js 自己会处理：
-        //   1. 从 chrome.storage.local 读取 petVisible 初始状态
-        //   2. 监听 chrome.storage.onChanged 同步显示/隐藏
-        //   3. 所有 DOM 操作都在页面环境中完成
-      };
-      script.onerror = (e) => {
-        console.error('[Tab Cleaner] Failed to inject pet.js:', e);
-        // 注入失败时允许以后重试（下次页面加载时会重试）
-      };
-      (document.head || document.documentElement).appendChild(script);
-    } catch (e) {
-      console.error('[Tab Cleaner] Unexpected error when injecting pet.js:', e);
-    }
-  })();
+  // ✅ v2.4: pet.js 现在作为 content script 在 manifest.json 中加载
+  // 不再需要通过 <script> 标签注入
+  // (function injectPetModule() {
+  //   // ... 已移除：pet.js 现在作为 content script 运行
+  // })();
 
   let cardContainer = null;
   let isVisible = false;
@@ -484,18 +457,28 @@
       });
     }
     // window-button 点击事件：显示/隐藏宠物
+    // ✅ v2.4: 直接读写 chrome.storage.local，不再发送消息到 background
     if (windowButton) {
       windowButton.addEventListener("click", (e) => {
         e.stopPropagation();
-        console.log("[Tab Cleaner] Window button clicked, sending message to background...");
+        console.log("[Tab Cleaner] Window button clicked, toggling pet visibility...");
         
-        // ✅ 发送消息给 background script（content script 不能使用 chrome.tabs）
-        chrome.runtime.sendMessage({ action: "toggle-pet" }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.error("[Tab Cleaner] Failed to send message:", chrome.runtime.lastError);
-          } else {
-            console.log("[Tab Cleaner] Pet toggle response:", response);
-          }
+        if (!chrome.storage || !chrome.storage.local) {
+          console.error("[Tab Cleaner] chrome.storage.local not available");
+          return;
+        }
+        
+        chrome.storage.local.get(["petVisible"], (items) => {
+          const currentVisible = items.petVisible === true;
+          const newVisible = !currentVisible;
+          
+          chrome.storage.local.set({ petVisible: newVisible }, () => {
+            if (chrome.runtime.lastError) {
+              console.error("[Tab Cleaner] Failed to set petVisible:", chrome.runtime.lastError);
+            } else {
+              console.log("[Tab Cleaner] petVisible updated:", newVisible);
+            }
+          });
         });
       });
     }

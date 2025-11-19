@@ -185,33 +185,14 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-// ✅ v2.3: 简化 toggle-pet 逻辑 - 只负责翻转全局开关
+// ✅ v2.4: toggle-pet 现在由 content.js 直接处理 chrome.storage.local
 // pet.js 通过 chrome.storage.onChanged 监听变化并自动显示/隐藏
 chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
-  if (req.action === "toggle-pet") {
-    if (!chrome.storage || !chrome.storage.local) {
-      sendResponse?.({ ok: false, error: "storage not available" });
-      return true;
-    }
-    
-    chrome.storage.local.get(["petVisible"], (items) => {
-      const currentVisible = items.petVisible === true;
-      const newVisible = !currentVisible;
-      
-      chrome.storage.local.set({ petVisible: newVisible }, () => {
-        if (chrome.runtime.lastError) {
-          console.warn("[Tab Cleaner Background] Failed to set petVisible:", chrome.runtime.lastError);
-          sendResponse?.({ ok: false, error: chrome.runtime.lastError.message });
-        } else {
-          console.log("[Tab Cleaner Background] petVisible updated:", newVisible);
-          sendResponse?.({ ok: true, visible: newVisible });
-        }
-      });
-    });
-    
-    // 异步响应
-    return true;
-  }
+  // if (req.action === "toggle-pet") {
+  //   // ✅ v2.4: 已移除 - content.js 现在直接读写 chrome.storage.local
+  //   // pet.js 的 setupStorageSync() 监听器会自动处理显示/隐藏
+  //   return true;
+  // }
   
   // 处理打开个人空间消息
   if (req.action === "open-personalspace") {
