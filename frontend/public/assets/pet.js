@@ -11,6 +11,124 @@
   let petContainer = null;
   let isPetVisible = false;
   let isButtonsVisible = false;
+  
+  // ✅ 全局状态同步：从 Chrome Storage 读取宠物状态
+  let petStateLoaded = false;
+  
+  /**
+   * 从 Chrome Storage 加载宠物状态
+   */
+  async function loadPetState() {
+    if (petStateLoaded) return;
+    
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        const result = await new Promise((resolve) => {
+          chrome.storage.local.get(['petVisible', 'petPosition'], (items) => {
+            resolve(items);
+          });
+        });
+        
+        const shouldBeVisible = result.petVisible === true;
+        petStateLoaded = true;
+        
+        console.log('[Tab Cleaner Pet] Loaded pet state from storage:', {
+          petVisible: shouldBeVisible,
+          petPosition: result.petPosition
+        });
+        
+        // 如果应该显示，立即显示（但需要等待容器创建）
+        if (shouldBeVisible) {
+          // 延迟一下确保页面已加载
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+              setTimeout(() => showPet(), 100);
+            }, { once: true });
+          } else {
+            setTimeout(() => showPet(), 100);
+          }
+          
+          // 恢复位置
+          if (result.petPosition && petContainer) {
+            petContainer.style.left = result.petPosition.left;
+            petContainer.style.top = result.petPosition.top;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Tab Cleaner Pet] Failed to load pet state:', e);
+      petStateLoaded = true; // 标记为已加载，避免重复尝试
+    }
+  }
+  
+  /**
+   * 保存宠物状态到 Chrome Storage
+   */
+  async function savePetState() {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        const position = petContainer ? {
+          left: petContainer.style.left,
+          top: petContainer.style.top
+        } : null;
+        
+        await new Promise((resolve) => {
+          chrome.storage.local.set({
+            petVisible: isPetVisible,
+            petPosition: position
+          }, () => {
+            if (chrome.runtime.lastError) {
+              console.warn('[Tab Cleaner Pet] Failed to save pet state:', chrome.runtime.lastError);
+            } else {
+              console.log('[Tab Cleaner Pet] Pet state saved:', { petVisible: isPetVisible, position });
+            }
+            resolve();
+          });
+        });
+        
+        // 通知所有标签页更新（通过 storage.onChanged 事件）
+        // 这个事件会自动触发所有标签页的 chrome.storage.onChanged 监听器
+      }
+    } catch (e) {
+      console.warn('[Tab Cleaner Pet] Failed to save pet state:', e);
+    }
+  }
+  
+  /**
+   * 监听存储变化，同步宠物状态到所有标签页
+   */
+  function setupStorageSync() {
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.onChanged) {
+      return;
+    }
+    
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'local') return;
+      
+      if (changes.petVisible) {
+        const newVisible = changes.petVisible.newValue === true;
+        console.log('[Tab Cleaner Pet] Pet visibility changed via storage:', newVisible);
+        
+        if (newVisible !== isPetVisible) {
+          if (newVisible) {
+            showPet();
+          } else {
+            hidePet();
+          }
+        }
+      }
+      
+      if (changes.petPosition && petContainer) {
+        const newPosition = changes.petPosition.newValue;
+        if (newPosition && newPosition.left && newPosition.top) {
+          petContainer.style.left = newPosition.left;
+          petContainer.style.top = newPosition.top;
+        }
+      }
+    });
+    
+    console.log('[Tab Cleaner Pet] Storage sync listener setup complete');
+  }
 
   // 获取扩展资源 URL
   function asset(path) {
@@ -558,7 +676,13 @@
     // 在 petContainer 上添加拖动事件
     petContainer.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mouseup', () => {
+      handleMouseUp();
+      // ✅ 拖动结束后保存位置
+      if (petContainer && isPetVisible) {
+        savePetState();
+      }
+    });
     
     // 设置可拖动样式
     petContainer.style.cursor = 'grab';
@@ -657,6 +781,9 @@
           }
         }
         console.log("[Tab Cleaner Pet] Pet shown successfully");
+        
+        // ✅ 保存状态到存储（同步到所有标签页）
+        savePetState();
       }
     });
   }
@@ -674,6 +801,9 @@
         choiceOverlay.classList.remove('visible');
       }
     }
+    
+    // ✅ 保存状态到存储（同步到所有标签页）
+    savePetState();
   }
 
   // 切换宠物显示
@@ -695,6 +825,12 @@
   
   try {
     window.__TAB_CLEANER_PET = api;
+    
+    // ✅ 设置存储同步监听器
+    setupStorageSync();
+    
+    // ✅ 加载宠物状态（从存储中读取）
+    loadPetState();
     
     // 触发加载完成事件，通知监听器
     const event = new CustomEvent('__TAB_CLEANER_PET_LOADED', {

@@ -41,10 +41,24 @@
     (document.head || document.documentElement).appendChild(script);
   })();
 
-  // 加载 pet 模块
+  // ✅ 优化：加载 pet 模块（不立即移除脚本，避免第一次闪退）
   (function loadPetModule() {
     if (window.__TAB_CLEANER_PET) {
       console.log("[Tab Cleaner] Pet module already loaded");
+      // ✅ 即使模块已加载，也要检查存储状态并同步显示
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.get(['petVisible'], (items) => {
+          if (items.petVisible === true && window.__TAB_CLEANER_PET) {
+            console.log("[Tab Cleaner] Pet should be visible, showing...");
+            // 延迟一下确保页面已加载
+            setTimeout(() => {
+              if (window.__TAB_CLEANER_PET && window.__TAB_CLEANER_PET.show) {
+                window.__TAB_CLEANER_PET.show();
+              }
+            }, 100);
+          }
+        });
+      }
       return; // 已经加载
     }
     console.log("[Tab Cleaner] Loading pet module...");
@@ -52,11 +66,22 @@
     script.src = chrome.runtime.getURL('assets/pet.js');
     script.onload = () => {
       console.log("[Tab Cleaner] Pet script loaded, checking module:", window.__TAB_CLEANER_PET);
-      script.remove();
+      // ✅ 不立即移除脚本，避免模块还没完全初始化就被移除
+      // 延迟移除，确保模块完全初始化
+      setTimeout(() => {
+        // 检查模块是否真的可用
+        if (window.__TAB_CLEANER_PET && typeof window.__TAB_CLEANER_PET.toggle === 'function') {
+          console.log("[Tab Cleaner] ✅ Pet module fully initialized, script can be removed");
+          // 可以安全移除，但为了保险起见，我们保留脚本
+          // script.remove();
+        } else {
+          console.warn("[Tab Cleaner] ⚠️ Pet module not fully initialized, keeping script");
+        }
+      }, 500);
     };
     script.onerror = (e) => {
       console.error("[Tab Cleaner] Failed to load pet.js:", e);
-      script.remove();
+      // 即使失败也不移除，避免影响后续重试
     };
     (document.head || document.documentElement).appendChild(script);
   })();

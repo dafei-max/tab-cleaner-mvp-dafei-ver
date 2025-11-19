@@ -243,43 +243,91 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       }).then(() => {
         console.log("[Tab Cleaner Background] Pet.js loaded, waiting for initialization...");
         
-        // 步骤 3: 等待模块加载后调用 toggle
-        // 增加延迟，确保 pet.js 完全加载并初始化
-        setTimeout(() => {
+        // ✅ 步骤 3: 等待模块加载后调用 toggle（优化版本，避免第一次闪退）
+        // 使用轮询机制，更可靠地等待模块初始化
+        let attempts = 0;
+        const maxAttempts = 20; // 最多尝试 20 次，每次 100ms，总共 2 秒
+        const checkAndToggle = () => {
+          attempts++;
           chrome.scripting.executeScript({
             target: { tabId: tabId },
             func: () => {
-              // 检查模块是否已加载
+              // 检查模块是否已加载并完全初始化
               if (window.__TAB_CLEANER_PET && typeof window.__TAB_CLEANER_PET.toggle === 'function') {
                 console.log("[Tab Cleaner Pet] Module ready, toggling pet...");
+                // ✅ 先读取当前状态，避免第一次 toggle 时状态不对
+                const currentVisible = window.__TAB_CLEANER_PET.isVisible();
+                console.log("[Tab Cleaner Pet] Current pet visible state:", currentVisible);
+                
                 // 使用 setTimeout 确保在下一个事件循环中执行，避免与模块初始化冲突
                 setTimeout(() => {
                   if (window.__TAB_CLEANER_PET && typeof window.__TAB_CLEANER_PET.toggle === 'function') {
+                    // ✅ 再次检查状态，确保 toggle 正确执行
+                    const beforeToggle = window.__TAB_CLEANER_PET.isVisible();
                     window.__TAB_CLEANER_PET.toggle();
+                    // 验证 toggle 是否成功
+                    setTimeout(() => {
+                      const afterToggle = window.__TAB_CLEANER_PET.isVisible();
+                      console.log("[Tab Cleaner Pet] Toggle result:", { before: beforeToggle, after: afterToggle });
+                      if (beforeToggle === afterToggle) {
+                        console.warn("[Tab Cleaner Pet] ⚠️ Toggle may have failed, retrying...");
+                        // 如果状态没变，强制切换
+                        if (afterToggle) {
+                          window.__TAB_CLEANER_PET.hide();
+                        } else {
+                          window.__TAB_CLEANER_PET.show();
+                        }
+                      }
+                    }, 100);
                   }
-                }, 50);
-              } else {
-                console.log("[Tab Cleaner Pet] Module not ready, waiting for load event...");
-                // 监听加载完成事件
-                const handleLoaded = (e) => {
-                  console.log("[Tab Cleaner Pet] Load event received, toggling...");
-                  setTimeout(() => {
-                    if (window.__TAB_CLEANER_PET && typeof window.__TAB_CLEANER_PET.toggle === 'function') {
-                      window.__TAB_CLEANER_PET.toggle();
-                    }
-                  }, 50);
-                  window.removeEventListener('__TAB_CLEANER_PET_LOADED', handleLoaded);
-                };
-                window.addEventListener('__TAB_CLEANER_PET_LOADED', handleLoaded);
+                }, 100); // 增加延迟到 100ms，确保模块完全初始化
+                return true; // 表示模块已准备好
               }
+              return false; // 表示模块还没准备好
             }
-          }).then(() => {
-            sendResponse({ ok: true, message: "Pet toggled" });
+          }).then((results) => {
+            if (results && results[0] === true) {
+              // 模块已准备好，toggle 已执行
+              sendResponse({ ok: true, message: "Pet toggled" });
+            } else if (attempts < maxAttempts) {
+              // 模块还没准备好，继续等待
+              setTimeout(checkAndToggle, 100);
+            } else {
+              // 超时，尝试使用事件监听器
+              console.log("[Tab Cleaner Pet] Max attempts reached, using event listener fallback...");
+              chrome.scripting.executeScript({
+                target: { tabId: tabId },
+                func: () => {
+                  const handleLoaded = (e) => {
+                    console.log("[Tab Cleaner Pet] Load event received, toggling...");
+                    setTimeout(() => {
+                      if (window.__TAB_CLEANER_PET && typeof window.__TAB_CLEANER_PET.toggle === 'function') {
+                        window.__TAB_CLEANER_PET.toggle();
+                      }
+                    }, 100);
+                    window.removeEventListener('__TAB_CLEANER_PET_LOADED', handleLoaded);
+                  };
+                  window.addEventListener('__TAB_CLEANER_PET_LOADED', handleLoaded);
+                }
+              }).then(() => {
+                sendResponse({ ok: true, message: "Pet toggle initiated (waiting for module)" });
+              }).catch(err => {
+                console.error("[Tab Cleaner Background] Failed to setup event listener:", err);
+                sendResponse({ ok: false, error: err.message });
+              });
+            }
           }).catch(err => {
-            console.error("[Tab Cleaner Background] Failed to trigger toggle:", err);
-            sendResponse({ ok: false, error: err.message });
+            console.error("[Tab Cleaner Background] Failed to check/toggle:", err);
+            if (attempts < maxAttempts) {
+              setTimeout(checkAndToggle, 100);
+            } else {
+              sendResponse({ ok: false, error: err.message });
+            }
           });
-        }, 300); // 增加延迟到 300ms，确保模块完全初始化
+        };
+        
+        // 开始检查
+        setTimeout(checkAndToggle, 200); // 初始延迟 200ms
       }).catch(err => {
         console.error("[Tab Cleaner Background] Failed to load pet.js:", err);
         sendResponse({ ok: false, error: "Failed to load pet.js: " + err.message });
