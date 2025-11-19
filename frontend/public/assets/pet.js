@@ -748,8 +748,8 @@
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', () => {
         handleMouseUp();
-        // ✅ 拖动结束后保存位置
-        if (petContainer && isPetVisible) {
+        // ✅ v2.3: 拖动结束后保存位置（无论是否可见，都保存位置）
+        if (petContainer) {
           savePetState();
         }
       });
