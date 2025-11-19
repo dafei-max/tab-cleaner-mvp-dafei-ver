@@ -9,6 +9,17 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from datetime import datetime
 
+
+def to_vector_str(vec: Optional[List[float]]) -> Optional[str]:
+    """
+    Convert a Python list[float] into the string format expected by ADBPG's vector(1024) type.
+    For example: [0.1, 0.2, 0.3] -> "[0.1,0.2,0.3]".
+    If vec is falsy or empty, return None.
+    """
+    if not vec:
+        return None
+    return "[" + ",".join(str(float(x)) for x in vec) + "]"
+
 # 数据库连接配置
 DB_HOST = os.getenv("ADBPG_HOST", "gp-uf6j424dtk2ww5291o-master.gpdb.rds.aliyuncs.com")
 DB_PORT = int(os.getenv("ADBPG_PORT", "5432"))
