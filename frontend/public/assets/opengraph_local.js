@@ -273,38 +273,6 @@
     }
   }
 
-  /**
-   * 暴露全局函数供外部调用
-   * 可以等待页面加载完成后再提取（对于动态内容）
-   */
-  window.__TAB_CLEANER_GET_OPENGRAPH = function(waitForLoad = false) {
-    // 如果不需要等待，直接返回结果
-    if (!waitForLoad) {
-      return extractOpenGraphLocal();
-    }
-    
-    // 如果页面已经加载完成，直接返回结果（但延迟一下确保动态内容加载）
-    if (document.readyState === 'complete') {
-      return new Promise((resolve) => {
-        // 减少等待时间，避免消息通道超时（从 2000ms 减少到 500ms）
-        // Pinterest 等动态内容通常已经加载完成
-        setTimeout(() => {
-          resolve(extractOpenGraphLocal());
-        }, 500);
-      });
-    }
-    
-    // 如果页面还在加载，等待 load 事件
-    return new Promise((resolve) => {
-      window.addEventListener('load', () => {
-        // 减少等待时间，避免消息通道超时（从 2000ms 减少到 500ms）
-        setTimeout(() => {
-          resolve(extractOpenGraphLocal());
-        }, 500);
-      }, { once: true });
-    });
-  };
-
   // 页面加载完成后自动提取（可选，不影响主要功能）
   // 注意：这个自动发送功能是可选的，主要功能是通过 window.__TAB_CLEANER_GET_OPENGRAPH() 调用
   try {
@@ -319,8 +287,12 @@
     console.debug('[OpenGraph Local] Auto-send setup failed (non-critical):', e);
   }
 
-  // 确保函数被正确暴露
+  // 确保函数被正确暴露（使用 try-catch 包裹，确保即使出错也能暴露函数）
   try {
+    /**
+     * 暴露全局函数供外部调用
+     * 可以等待页面加载完成后再提取（对于动态内容）
+     */
     window.__TAB_CLEANER_GET_OPENGRAPH = function(waitForLoad = false) {
       // 如果不需要等待，直接返回结果
       if (!waitForLoad) {
@@ -365,5 +337,6 @@
         is_doc_card: false,
       };
     };
+    console.log('[OpenGraph Local] ⚠️ Fallback function exposed');
   }
 })();
