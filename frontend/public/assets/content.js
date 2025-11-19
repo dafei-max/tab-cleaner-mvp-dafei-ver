@@ -662,6 +662,7 @@
         script.src = chrome.runtime.getURL('assets/opengraph_local.js');
         script.onload = () => {
           console.log('[Tab Cleaner Content] ✅ Script loaded, waiting for function...');
+          // 增加等待时间，确保脚本完全执行并暴露函数
           setTimeout(() => {
             if (typeof window.__TAB_CLEANER_GET_OPENGRAPH === 'function') {
               console.log('[Tab Cleaner Content] ✅ Function ready, calling...');
@@ -673,23 +674,37 @@
                     console.log('[Tab Cleaner Content] ✅ Promise resolved:', {
                       success: data?.success,
                       hasTitle: !!(data?.title),
-                      hasImage: !!(data?.image)
+                      hasImage: !!(data?.image),
+                      is_doc_card: data?.is_doc_card
                     });
+                    // 确保 is_doc_card 被正确设置
+                    if (data && data.is_doc_card === undefined) {
+                      data.is_doc_card = false;
+                    }
                     if (typeof sendResponse === 'function') {
                       sendResponse(data);
                     }
                   }).catch(error => {
                     console.error('[Tab Cleaner Content] ❌ Promise rejected:', error);
                     if (typeof sendResponse === 'function') {
-                      sendResponse({ success: false, error: error.message });
+                      sendResponse({ 
+                        success: false, 
+                        error: error.message,
+                        is_doc_card: false // 明确设置不是 doc 卡片
+                      });
                     }
                   });
                 } else {
                   console.log('[Tab Cleaner Content] ✅ Sync result:', {
                     success: result?.success,
                     hasTitle: !!(result?.title),
-                    hasImage: !!(result?.image)
+                    hasImage: !!(result?.image),
+                    is_doc_card: result?.is_doc_card
                   });
+                  // 确保 is_doc_card 被正确设置
+                  if (result && result.is_doc_card === undefined) {
+                    result.is_doc_card = false;
+                  }
                   if (typeof sendResponse === 'function') {
                     sendResponse(result);
                   }
@@ -697,16 +712,25 @@
               } catch (e) {
                 console.error('[Tab Cleaner Content] ❌ Error calling function:', e);
                 if (typeof sendResponse === 'function') {
-                  sendResponse({ success: false, error: e.message });
+                  sendResponse({ 
+                    success: false, 
+                    error: e.message,
+                    is_doc_card: false // 明确设置不是 doc 卡片
+                  });
                 }
               }
             } else {
               console.error('[Tab Cleaner Content] ❌ Function still not found after load');
+              console.error('[Tab Cleaner Content] Available globals:', Object.keys(window).filter(k => k.includes('TAB_CLEANER')));
               if (typeof sendResponse === 'function') {
-                sendResponse({ success: false, error: 'OpenGraph function not found after script load' });
+                sendResponse({ 
+                  success: false, 
+                  error: 'OpenGraph function not found after script load',
+                  is_doc_card: false // 明确设置不是 doc 卡片
+                });
               }
             }
-          }, 500); // 增加等待时间
+          }, 1000); // 增加到 1000ms，确保脚本完全执行
         };
         script.onerror = (e) => {
           console.error('[Tab Cleaner Content] ❌ Failed to load script:', e);
