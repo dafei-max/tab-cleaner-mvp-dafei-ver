@@ -592,15 +592,31 @@
 
   /**
    * ✅ 确保宠物容器已初始化（等待函数）
-   * 最多等待 50 次 × 50ms = 2.5 秒
+   * 最多等待 100 次 × 50ms = 5 秒
+   * 优化：立即尝试创建容器，不必等待
    */
   async function ensureInitialized() {
     if (petInitialized) {
       return true;
     }
     
+    // ✅ 立即尝试创建容器（如果还没创建）
+    if (!petContainer) {
+      try {
+        await createPet();
+      } catch (e) {
+        console.warn("[Tab Cleaner Pet] Failed to create pet during initialization check:", e);
+      }
+    }
+    
+    // 如果已经初始化，直接返回
+    if (petInitialized) {
+      return true;
+    }
+    
+    // ✅ 增加最大等待时间：100 次 × 50ms = 5 秒（容忍更慢的 DOM 加载）
     let attempts = 0;
-    const maxAttempts = 50;
+    const maxAttempts = 100;
     
     while (!petInitialized && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -804,55 +820,41 @@
     });
   }
 
-  // 显示宠物（优化版本：确保初始化完成后再显示，带重试机制）
+  // 显示宠物（简化版本：直接创建并显示，初始化在后台进行）
   async function showPet() {
     try {
-      // ✅ 先确保容器已初始化
-      if (!petContainer || !petInitialized) {
-        await createPet();
-        // 再次检查初始化状态
-        if (!petInitialized) {
-          const initialized = await ensureInitialized();
-          if (!initialized) {
-            console.warn("[Tab Cleaner Pet] Failed to initialize pet container, but trying to show anyway...");
-            // ✅ 即使初始化失败，也尝试创建容器（可能 DOM 刚准备好）
-            if (!petContainer) {
-              await createPet();
-            }
-          }
-        }
-      }
-      
-      // 确保容器已创建
+      // ✅ 简化：如果容器不存在，直接创建（不等待初始化完成）
       if (!petContainer) {
-        console.warn("[Tab Cleaner Pet] Failed to create pet container, retrying...");
-        // ✅ 如果容器还没创建，再试一次（可能 DOM 刚准备好）
         await createPet();
-        if (!petContainer) {
-          console.error("[Tab Cleaner Pet] Still failed to create pet container after retry");
-          return;
-        }
       }
       
-      // 使用 requestAnimationFrame 确保 DOM 已更新
-      requestAnimationFrame(() => {
-        if (petContainer) {
-          petContainer.style.display = "block";
-          isPetVisible = true;
-          isButtonsVisible = false; // 默认隐藏按钮
-          const shadow = petContainer.shadowRoot;
-          if (shadow) {
-            const choiceOverlay = shadow.querySelector('.choice-overlay');
-            if (choiceOverlay) {
-              choiceOverlay.classList.remove('visible');
+      // ✅ 立即显示，不等待初始化完成（初始化在后台继续）
+      if (petContainer) {
+        // 使用 requestAnimationFrame 确保 DOM 已更新
+        requestAnimationFrame(() => {
+          if (petContainer) {
+            petContainer.style.display = "block";
+            isPetVisible = true;
+            isButtonsVisible = false; // 默认隐藏按钮
+            const shadow = petContainer.shadowRoot;
+            if (shadow) {
+              const choiceOverlay = shadow.querySelector('.choice-overlay');
+              if (choiceOverlay) {
+                choiceOverlay.classList.remove('visible');
+              }
             }
+            console.log("[Tab Cleaner Pet] Pet shown successfully");
+            
+            // ✅ 保存状态到存储（同步到所有标签页）
+            savePetState();
           }
-          console.log("[Tab Cleaner Pet] Pet shown successfully");
-          
-          // ✅ 保存状态到存储（同步到所有标签页）
-          savePetState();
-        }
-      });
+        });
+      } else {
+        console.warn("[Tab Cleaner Pet] Pet container not available, initialization may still be in progress");
+        // ✅ 即使容器还没创建，也尝试保存状态（下次会重试）
+        isPetVisible = true;
+        savePetState();
+      }
     } catch (err) {
       console.error("[Tab Cleaner Pet] Error in showPet:", err);
       // ✅ 即使出错，也尝试保存状态（可能部分成功）
