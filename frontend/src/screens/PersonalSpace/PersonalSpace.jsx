@@ -1034,22 +1034,9 @@ export const PersonalSpace = () => {
           setIsClustering(true);
           let allItems = showOriginalImages ? images : opengraphData;
           
-          if (!showOriginalImages && opengraphWithEmbeddings.length > 0) {
-            allItems = opengraphData.map(item => {
-              const withEmbedding = opengraphWithEmbeddings.find(e => 
-                e.url === item.url || e.tab_id === item.tab_id
-              );
-              if (withEmbedding) {
-                return {
-                  ...item,
-                  text_embedding: withEmbedding.text_embedding,
-                  image_embedding: withEmbedding.image_embedding,
-                  embedding: withEmbedding.embedding,
-                };
-              }
-              return item;
-            });
-          }
+          // ✅ 已移除：opengraphWithEmbeddings 逻辑
+          // 聚类功能现在直接使用 opengraphData，embedding 数据应该已经在数据中
+          // 如果需要 embedding，应该从数据库获取或确保数据已经包含 embedding
           
           const clusteredItemIds = clusters
             .filter(c => c.type === 'manual')
@@ -1112,22 +1099,9 @@ export const PersonalSpace = () => {
           setIsClustering(true);
           let allItems = showOriginalImages ? images : opengraphData;
           
-          if (!showOriginalImages && opengraphWithEmbeddings.length > 0) {
-            allItems = opengraphData.map(item => {
-              const withEmbedding = opengraphWithEmbeddings.find(e => 
-                e.url === item.url || e.tab_id === item.tab_id
-              );
-              if (withEmbedding) {
-                return {
-                  ...item,
-                  text_embedding: withEmbedding.text_embedding,
-                  image_embedding: withEmbedding.image_embedding,
-                  embedding: withEmbedding.embedding,
-                };
-              }
-              return item;
-            });
-          }
+          // ✅ 已移除：opengraphWithEmbeddings 逻辑
+          // 聚类功能现在直接使用 opengraphData，embedding 数据应该已经在数据中
+          // 如果需要 embedding，应该从数据库获取或确保数据已经包含 embedding
           
           const clusteredItemIds = clusters
             .filter(c => c.type === 'manual')
