@@ -285,15 +285,183 @@
     }
   }
 
-  // 页面加载完成后自动提取（可选，不影响主要功能）
-  // 注意：这个自动发送功能是可选的，主要功能是通过 window.__TAB_CLEANER_GET_OPENGRAPH() 调用
-  try {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', sendOpenGraphToBackground);
-    } else {
-      // 页面已加载，延迟一下确保动态内容加载
-      setTimeout(sendOpenGraphToBackground, 1000);
+  // ✅ 优化：智能提取策略 - 立即提取 + 监听变化 + 延迟优化
+  let extractionAttempts = 0;
+  const MAX_EXTRACTION_ATTEMPTS = 3;
+  let lastExtractedData = null;
+  let mutationObserver = null;
+  let retryTimeout = null;
+
+  /**
+   * 检查提取的数据是否完整
+   */
+  function isDataComplete(data) {
+    if (!data) return false;
+    const hasTitle = data.title && data.title.trim() && data.title !== window.location.href;
+    const hasImage = data.image && data.image.trim();
+    const hasDescription = data.description && data.description.trim();
+    return hasTitle || hasImage || hasDescription;
+  }
+
+  /**
+   * 智能提取：立即提取 + 如果数据不完整则监听变化
+   */
+  function smartExtract() {
+    extractionAttempts++;
+    const currentData = extractOpenGraphLocal();
+    
+    // 如果数据完整，立即保存
+    if (isDataComplete(currentData)) {
+      console.log(`[OpenGraph Local] ✅ Complete data extracted (attempt ${extractionAttempts})`);
+      lastExtractedData = currentData;
+      sendOpenGraphToBackground();
+      
+      // 如果已经有完整数据，停止监听（避免重复提取）
+      if (mutationObserver) {
+        mutationObserver.disconnect();
+        mutationObserver = null;
+      }
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+        retryTimeout = null;
+      }
+      return;
     }
+
+    // 如果数据不完整，保存当前数据（可能后续会优化）
+    if (!lastExtractedData || !isDataComplete(lastExtractedData)) {
+      lastExtractedData = currentData;
+      sendOpenGraphToBackground();
+    }
+
+    // 如果还没达到最大尝试次数，继续监听
+    if (extractionAttempts < MAX_EXTRACTION_ATTEMPTS) {
+      // 设置重试（延迟递增：500ms, 1500ms, 3000ms）
+      const delays = [500, 1500, 3000];
+      const delay = delays[extractionAttempts - 1] || 3000;
+      
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+      }
+      
+      retryTimeout = setTimeout(() => {
+        console.log(`[OpenGraph Local] 🔄 Retry extraction (attempt ${extractionAttempts + 1}/${MAX_EXTRACTION_ATTEMPTS})`);
+        smartExtract();
+      }, delay);
+    } else {
+      console.log(`[OpenGraph Local] ⚠️ Max extraction attempts reached, using best available data`);
+    }
+  }
+
+  /**
+   * 使用 MutationObserver 监听 DOM 变化
+   * 当检测到 OG 标签或图片变化时，立即重新提取
+   */
+  function setupMutationObserver() {
+    if (mutationObserver) return; // 已经设置过了
+
+    mutationObserver = new MutationObserver((mutations) => {
+      let shouldReExtract = false;
+      
+      for (const mutation of mutations) {
+        // 检查是否有新的 meta 标签添加（OG 标签）
+        if (mutation.type === 'childList') {
+          for (const node of mutation.addedNodes) {
+            if (node.nodeType === 1) { // Element node
+              const tagName = node.tagName?.toLowerCase();
+              if (tagName === 'meta' && (
+                node.getAttribute('property')?.startsWith('og:') ||
+                node.getAttribute('name')?.startsWith('twitter:')
+              )) {
+                shouldReExtract = true;
+                break;
+              }
+              // 检查是否有新的图片添加
+              if (tagName === 'img' || node.querySelector?.('img')) {
+                shouldReExtract = true;
+                break;
+              }
+            }
+          }
+        }
+        
+        // 检查 OG 标签的属性变化
+        if (mutation.type === 'attributes') {
+          const attrName = mutation.attributeName;
+          if (attrName === 'content' || attrName === 'property' || attrName === 'name') {
+            const target = mutation.target;
+            if (target.tagName?.toLowerCase() === 'meta' && (
+              target.getAttribute('property')?.startsWith('og:') ||
+              target.getAttribute('name')?.startsWith('twitter:')
+            )) {
+              shouldReExtract = true;
+              break;
+            }
+          }
+        }
+        
+        if (shouldReExtract) break;
+      }
+      
+      if (shouldReExtract && extractionAttempts < MAX_EXTRACTION_ATTEMPTS) {
+        console.log('[OpenGraph Local] 🔍 DOM changed, re-extracting...');
+        // 延迟一下，避免频繁提取
+        if (retryTimeout) {
+          clearTimeout(retryTimeout);
+        }
+        retryTimeout = setTimeout(() => {
+          smartExtract();
+        }, 200);
+      }
+    });
+
+    // 监听 head 和 body 的变化
+    mutationObserver.observe(document.head || document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['content', 'property', 'name', 'src', 'data-src', 'data-lazy-src']
+    });
+
+    if (document.body) {
+      mutationObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['src', 'data-src', 'data-lazy-src']
+      });
+    }
+
+    console.log('[OpenGraph Local] ✅ MutationObserver setup complete');
+  }
+
+  // 页面加载完成后自动提取（优化版本）
+  try {
+    // 立即提取一次（快速响应）
+    if (document.readyState === 'loading') {
+      // 页面还在加载，等待 DOMContentLoaded
+      document.addEventListener('DOMContentLoaded', () => {
+        console.log('[OpenGraph Local] DOMContentLoaded, starting smart extraction...');
+        smartExtract();
+        setupMutationObserver();
+      }, { once: true });
+    } else {
+      // 页面已加载，立即提取
+      console.log('[OpenGraph Local] Page already loaded, starting smart extraction...');
+      smartExtract();
+      setupMutationObserver();
+    }
+
+    // 监听 load 事件（确保所有资源加载完成）
+    window.addEventListener('load', () => {
+      console.log('[OpenGraph Local] Window load event, final extraction attempt...');
+      if (extractionAttempts < MAX_EXTRACTION_ATTEMPTS) {
+        setTimeout(() => {
+          smartExtract();
+        }, 500);
+      }
+    }, { once: true });
+
   } catch (e) {
     // 静默失败，不影响主要功能
     console.debug('[OpenGraph Local] Auto-send setup failed (non-critical):', e);
@@ -308,30 +476,63 @@
      */
     const openGraphFunction = function(waitForLoad = false) {
       console.log('[OpenGraph Local] Function called with waitForLoad:', waitForLoad);
-      // 如果不需要等待，直接返回结果
+      
+      // 如果不需要等待，直接返回结果（优先使用已提取的数据）
       if (!waitForLoad) {
+        // 如果有已提取的完整数据，优先使用
+        if (lastExtractedData && isDataComplete(lastExtractedData)) {
+          console.log('[OpenGraph Local] ✅ Using cached complete data');
+          return lastExtractedData;
+        }
+        // 否则立即提取
         return extractOpenGraphLocal();
       }
       
-      // 如果页面已经加载完成，直接返回结果（但延迟一下确保动态内容加载）
-      if (document.readyState === 'complete') {
-        return new Promise((resolve) => {
-          // 减少等待时间，避免消息通道超时（从 2000ms 减少到 500ms）
-          // Pinterest 等动态内容通常已经加载完成
-          setTimeout(() => {
-            resolve(extractOpenGraphLocal());
-          }, 500);
-        });
-      }
-      
-      // 如果页面还在加载，等待 load 事件
+      // 如果需要等待，使用智能提取策略
       return new Promise((resolve) => {
-        window.addEventListener('load', () => {
-          // 减少等待时间，避免消息通道超时（从 2000ms 减少到 500ms）
-          setTimeout(() => {
-            resolve(extractOpenGraphLocal());
-          }, 500);
-        }, { once: true });
+        // 如果已经有完整数据，直接返回
+        if (lastExtractedData && isDataComplete(lastExtractedData)) {
+          console.log('[OpenGraph Local] ✅ Using cached complete data (waitForLoad)');
+          resolve(lastExtractedData);
+          return;
+        }
+
+        // 立即提取一次
+        const immediateData = extractOpenGraphLocal();
+        if (isDataComplete(immediateData)) {
+          lastExtractedData = immediateData;
+          resolve(immediateData);
+          return;
+        }
+
+        // 如果数据不完整，等待一段时间后重试
+        let attempts = 0;
+        const maxAttempts = 3;
+        const delays = [300, 800, 1500]; // 递增延迟
+
+        const tryExtract = () => {
+          attempts++;
+          const data = extractOpenGraphLocal();
+          
+          if (isDataComplete(data) || attempts >= maxAttempts) {
+            lastExtractedData = data;
+            resolve(data);
+            return;
+          }
+
+          // 继续重试
+          setTimeout(tryExtract, delays[attempts - 1] || 1500);
+        };
+
+        // 如果页面已经加载完成，延迟一下确保动态内容加载
+        if (document.readyState === 'complete') {
+          setTimeout(tryExtract, 300);
+        } else {
+          // 等待 load 事件
+          window.addEventListener('load', () => {
+            setTimeout(tryExtract, 300);
+          }, { once: true });
+        }
       });
     };
     
