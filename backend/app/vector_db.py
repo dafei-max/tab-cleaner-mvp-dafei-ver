@@ -472,6 +472,8 @@ async def search_by_text_embedding(
         pool = await get_pool()
         
         async with pool.acquire() as conn:
+            query_vec = to_vector_str(query_embedding)
+            
             rows = await conn.fetch(f"""
                 SELECT url, title, description, image, site_name,
                        tab_id, tab_title, text_embedding, image_embedding, metadata,
@@ -481,7 +483,7 @@ async def search_by_text_embedding(
                   AND (1 - (text_embedding <=> $1::vector(1024))) >= $2
                 ORDER BY text_embedding <=> $1::vector(1024)
                 LIMIT $3;
-            """, query_embedding, threshold, top_k)
+            """, query_vec, threshold, top_k)
             
             results = []
             for row in rows:
@@ -522,6 +524,8 @@ async def search_by_image_embedding(
         pool = await get_pool()
         
         async with pool.acquire() as conn:
+            query_vec = to_vector_str(query_embedding)
+            
             rows = await conn.fetch(f"""
                 SELECT url, title, description, image, site_name,
                        tab_id, tab_title, text_embedding, image_embedding, metadata,
@@ -531,7 +535,7 @@ async def search_by_image_embedding(
                   AND (1 - (image_embedding <=> $1::vector(1024))) >= $2
                 ORDER BY image_embedding <=> $1::vector(1024)
                 LIMIT $3;
-            """, query_embedding, threshold, top_k)
+            """, query_vec, threshold, top_k)
             
             results = []
             for row in rows:
