@@ -333,7 +333,7 @@ async def upsert_opengraph_item(
         url: 网页 URL（唯一标识）
         title: 标题
         description: 描述
-        image: 图片 URL 或 Base64
+        image: 图片 URL 或 Base64（必须是字符串，不能是数组）
         site_name: 站点名称
         tab_id: 标签页 ID
         tab_title: 标签页标题
@@ -345,6 +345,33 @@ async def upsert_opengraph_item(
         是否成功
     """
     try:
+        # ✅ 类型验证和规范化
+        # 确保 image 是字符串，不是数组
+        if image is not None:
+            if isinstance(image, list):
+                # 如果是数组，取第一个元素
+                if len(image) > 0:
+                    image = str(image[0]).strip()
+                else:
+                    image = None
+            elif not isinstance(image, str):
+                image = str(image).strip() if image else None
+            else:
+                image = image.strip() if image.strip() else None
+        
+        # 确保字符串字段不是 None（转换为空字符串）
+        title = str(title).strip() if title else None
+        description = str(description).strip() if description else None
+        site_name = str(site_name).strip() if site_name else None
+        tab_title = str(tab_title).strip() if tab_title else None
+        
+        # 确保 tab_id 是整数或 None
+        if tab_id is not None:
+            try:
+                tab_id = int(tab_id)
+            except (ValueError, TypeError):
+                tab_id = None
+        
         pool = await get_pool()
         
         async with pool.acquire() as conn:
@@ -566,8 +593,12 @@ async def batch_upsert_items(items: List[Dict]) -> int:
     Returns:
         成功插入/更新的数量
     """
+    # ✅ 规范化所有项
+    from search.normalize import normalize_opengraph_items
+    normalized_items = normalize_opengraph_items(items)
+    
     success_count = 0
-    for item in items:
+    for item in normalized_items:
         if await upsert_opengraph_item(
             url=item.get("url"),
             title=item.get("title"),

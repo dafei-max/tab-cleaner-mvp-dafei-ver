@@ -209,26 +209,37 @@ async def generate_embeddings(request: EmbeddingRequest):
         
         print(f"[API] Processing {len(request.opengraph_items)} items for embedding generation")
         
+        # ✅ 步骤 0: 规范化输入数据
+        from search.normalize import normalize_opengraph_items
+        normalized_items = normalize_opengraph_items(request.opengraph_items)
+        print(f"[API] Normalized {len(normalized_items)} items from {len(request.opengraph_items)} input items")
+        
         # 1. 调用 process_opengraph_for_search() 生成 embedding
-        enriched_items = await process_opengraph_for_search(request.opengraph_items)
+        enriched_items = await process_opengraph_for_search(normalized_items)
         print(f"[API] Generated embeddings for {len(enriched_items)} items")
         
-        # 2. 准备批量存储的数据
+        # 2. 准备批量存储的数据（使用规范化后的数据）
         items_to_store = []
         for item in enriched_items:
             # 只存储有 embedding 的项
             if item.get("text_embedding") or item.get("image_embedding"):
+                # 确保 metadata 包含所有必要字段
+                metadata = item.get("metadata") or {}
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                
                 items_to_store.append({
                     "url": item.get("url"),
                     "title": item.get("title"),
                     "description": item.get("description"),
-                    "image": item.get("image"),
+                    "image": item.get("image"),  # ✅ 已经是规范化后的字符串
                     "site_name": item.get("site_name"),
                     "tab_id": item.get("tab_id"),
                     "tab_title": item.get("tab_title"),
                     "text_embedding": item.get("text_embedding"),
                     "image_embedding": item.get("image_embedding"),
                     "metadata": {
+                        **metadata,
                         "is_screenshot": item.get("is_screenshot", False),
                         "is_doc_card": item.get("is_doc_card", False),
                         "success": item.get("success", False),

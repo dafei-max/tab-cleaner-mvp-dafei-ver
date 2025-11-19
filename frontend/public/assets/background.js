@@ -427,6 +427,39 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
             }
             
             try {
+              // ✅ 规范化数据：确保 image 是字符串，不是数组
+              const normalizeItem = (item) => {
+                const normalized = {
+                  url: String(item.url || '').trim(),
+                  title: item.title ? String(item.title).trim() : null,
+                  description: item.description ? String(item.description).trim() : null,
+                  image: null,
+                  site_name: item.site_name ? String(item.site_name).trim() : null,
+                  tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
+                  tab_title: item.tab_title ? String(item.tab_title).trim() : null,
+                  is_doc_card: Boolean(item.is_doc_card || false),
+                  is_screenshot: Boolean(item.is_screenshot || false),
+                  success: Boolean(item.success !== undefined ? item.success : true),
+                };
+                
+                // ✅ 关键：确保 image 是字符串，不是数组
+                let image = item.image;
+                if (image) {
+                  if (Array.isArray(image)) {
+                    image = image.length > 0 ? String(image[0]).trim() : null;
+                  } else if (typeof image === 'string') {
+                    image = image.trim() || null;
+                  } else {
+                    image = String(image).trim() || null;
+                  }
+                }
+                normalized.image = image;
+                
+                return normalized;
+              };
+              
+              const normalizedItem = normalizeItem(item);
+              
               const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
               const response = await fetch(embeddingUrl, {
                 method: 'POST',
@@ -434,15 +467,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                  opengraph_items: [{
-                    url: item.url,
-                    title: item.title,
-                    description: item.description,
-                    image: item.image,
-                    site_name: item.site_name,
-                    is_screenshot: item.is_screenshot,
-                    is_doc_card: item.is_doc_card,
-                  }]
+                  opengraph_items: [normalizedItem]
                 }),
               });
               
@@ -572,24 +597,51 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                 return;
               }
 
+              // ✅ 规范化函数：确保 image 是字符串，不是数组
+              const normalizeItem = (item) => {
+                const normalized = {
+                  url: String(item.url || '').trim(),
+                  title: item.title ? String(item.title).trim() : null,
+                  description: item.description ? String(item.description).trim() : null,
+                  image: null,
+                  site_name: item.site_name ? String(item.site_name).trim() : null,
+                  tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
+                  tab_title: item.tab_title ? String(item.tab_title).trim() : null,
+                  is_doc_card: Boolean(item.is_doc_card || false),
+                  is_screenshot: Boolean(item.is_screenshot || false),
+                  success: Boolean(item.success !== undefined ? item.success : true),
+                };
+                
+                // ✅ 关键：确保 image 是字符串，不是数组
+                let image = item.image;
+                if (image) {
+                  if (Array.isArray(image)) {
+                    image = image.length > 0 ? String(image[0]).trim() : null;
+                  } else if (typeof image === 'string') {
+                    image = image.trim() || null;
+                  } else {
+                    image = String(image).trim() || null;
+                  }
+                }
+                normalized.image = image;
+                
+                return normalized;
+              };
+              
               // 批量生成 embedding（每批 5 个，避免过载）
               const batchSize = 5;
               for (let i = 0; i < successfulItems.length; i += batchSize) {
                 const batch = successfulItems.slice(i, i + batchSize);
                 try {
+                  // ✅ 规范化每个项
+                  const normalizedBatch = batch.map(normalizeItem);
+                  
                   const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
                   const embedResponse = await fetch(embeddingUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      opengraph_items: batch.map(item => ({
-                        url: item.url,
-                        title: item.title,
-                        description: item.description,
-                        image: item.image,
-                        site_name: item.site_name,
-                        is_doc_card: item.is_doc_card,
-                      }))
+                      opengraph_items: normalizedBatch
                     }),
                   });
                   
@@ -1107,24 +1159,52 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                 return;
               }
 
+              // ✅ 规范化函数：确保 image 是字符串，不是数组
+              const normalizeItem = (item) => {
+                const normalized = {
+                  url: String(item.url || '').trim(),
+                  title: item.title ? String(item.title).trim() : null,
+                  description: item.description ? String(item.description).trim() : null,
+                  image: null, // 先设为 null，然后处理
+                  site_name: item.site_name ? String(item.site_name).trim() : null,
+                  tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
+                  tab_title: item.tab_title ? String(item.tab_title).trim() : null,
+                  is_doc_card: Boolean(item.is_doc_card || false),
+                  is_screenshot: Boolean(item.is_screenshot || false),
+                  success: Boolean(item.success !== undefined ? item.success : true),
+                };
+                
+                // ✅ 关键：确保 image 是字符串，不是数组
+                let image = item.image;
+                if (image) {
+                  if (Array.isArray(image)) {
+                    // 如果是数组，取第一个元素
+                    image = image.length > 0 ? String(image[0]).trim() : null;
+                  } else if (typeof image === 'string') {
+                    image = image.trim() || null;
+                  } else {
+                    image = String(image).trim() || null;
+                  }
+                }
+                normalized.image = image;
+                
+                return normalized;
+              };
+
               // 批量生成 embedding（每批 5 个，避免过载）
               const batchSize = 5;
               for (let i = 0; i < successfulItems.length; i += batchSize) {
                 const batch = successfulItems.slice(i, i + batchSize);
                 try {
+                  // ✅ 规范化每个项
+                  const normalizedBatch = batch.map(normalizeItem);
+                  
                   const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
                   const embedResponse = await fetch(embeddingUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      opengraph_items: batch.map(item => ({
-                        url: item.url,
-                        title: item.title,
-                        description: item.description,
-                        image: item.image,
-                        site_name: item.site_name,
-                        is_doc_card: item.is_doc_card,
-                      }))
+                      opengraph_items: normalizedBatch
                     }),
                   });
                   
@@ -1243,12 +1323,45 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         const apiUrl = API_CONFIG.getBaseUrlSync();
         if (apiUrl && ogData.success) {
           try {
+            // ✅ 规范化数据：确保 image 是字符串，不是数组
+            const normalizeItem = (item) => {
+              const normalized = {
+                url: String(item.url || '').trim(),
+                title: item.title ? String(item.title).trim() : null,
+                description: item.description ? String(item.description).trim() : null,
+                image: null,
+                site_name: item.site_name ? String(item.site_name).trim() : null,
+                tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
+                tab_title: item.tab_title ? String(item.tab_title).trim() : null,
+                is_doc_card: Boolean(item.is_doc_card || false),
+                is_screenshot: Boolean(item.is_screenshot || false),
+                success: Boolean(item.success !== undefined ? item.success : true),
+              };
+              
+              // ✅ 关键：确保 image 是字符串，不是数组
+              let image = item.image;
+              if (image) {
+                if (Array.isArray(image)) {
+                  image = image.length > 0 ? String(image[0]).trim() : null;
+                } else if (typeof image === 'string') {
+                  image = image.trim() || null;
+                } else {
+                  image = String(image).trim() || null;
+                }
+              }
+              normalized.image = image;
+              
+              return normalized;
+            };
+            
+            const normalizedOgData = normalizeItem(ogData);
+            
             const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
             fetch(embeddingUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                opengraph_items: [ogData]
+                opengraph_items: [normalizedOgData]
               }),
             }).catch(err => {
               console.warn('[Tab Cleaner Background] Failed to generate embedding:', err);

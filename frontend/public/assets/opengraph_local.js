@@ -37,7 +37,7 @@
       url: window.location.href,
       title: '',
       description: '',
-      image: '',
+      image: '', // ✅ 确保 image 始终是字符串，不是数组
       site_name: '',
       success: false,
       error: null,
