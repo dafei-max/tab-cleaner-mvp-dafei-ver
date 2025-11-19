@@ -40,10 +40,22 @@
   - 🗑️ **删除功能**：从画布移除选中的图片（支持撤销/重做）
   - 📥 **下载链接**：导出选中图片的 URL 列表为 JSON 文件
   - 🔍 **OpenGraph 数据**：
-    - Clean Button 一键抓取所有打开标签的 OpenGraph 数据
-    - 以放射状布局在个人空间展示 OpenGraph 图片
-    - 点击图片显示完整的 OpenGraph 信息卡片
-    - OpenGraph 图片支持拖拽、选中、套索、绘画、文字等所有画布工具
+    - **客户端优先提取**：使用 `opengraph_local.js` 在浏览器本地提取 OpenGraph 数据（支持动态内容）
+    - **缓存机制**：提取的数据自动保存到 Chrome Storage 的 `recent_opengraph` 缓存
+    - **一键清理流程**：
+      1. 从每个标签页的缓存读取 OpenGraph 数据（优先使用缓存，避免重复提取）
+      2. 收集所有数据并保存到 `sessions`（Chrome Storage）
+      3. 关闭所有标签页
+      4. 打开个人空间并立即渲染卡片（不等待后端处理）
+      5. 异步发送数据到后端进行 embedding 向量化和数据库存储
+    - **后端处理**：
+      - 接收 OpenGraph 数据并生成文本和图像 embedding（使用阿里云通义千问多模态 API）
+      - 保存到向量数据库（Alibaba Cloud AnalyticDB PostgreSQL）
+      - 支持后续的语义搜索和相关性检索
+    - **个人空间展示**：
+      - 以放射状布局展示 OpenGraph 图片
+      - 点击图片显示完整的 OpenGraph 信息卡片
+      - OpenGraph 图片支持拖拽、选中、套索、绘画、文字等所有画布工具
   - 🔎 **智能搜索功能**：
     - 使用阿里云通义千问多模态Embedding API实现语义搜索
     - 支持文本和图片的模糊搜索（语义相关性检索）
@@ -85,8 +97,9 @@ tab-cleaner-mvp/
    │   └─ icons/               # SVG 图标
    ├─ public/                  # 静态资源（构建时会复制到 dist/）
    │   ├─ assets/
-   │   │   ├─ background.js    # Service Worker：监听图标点击，处理消息传递
-   │   │   ├─ content.js       # Content Script：创建 Shadow DOM 卡片
+   │   │   ├─ background.js    # Service Worker：监听图标点击，处理消息传递、OpenGraph 数据收集和异步 embedding 生成
+   │   │   ├─ content.js       # Content Script：创建 Shadow DOM 卡片，从缓存读取 OpenGraph 数据
+   │   │   ├─ opengraph_local.js # 本地 OpenGraph 提取脚本：在页面上下文中提取 OG 数据并保存到缓存
    │   │   ├─ pet.js           # 宠物模块：独立处理桌面宠物功能
    │   │   ├─ card.html        # 卡片 HTML 模板
    │   │   ├─ style.css        # 卡片样式
