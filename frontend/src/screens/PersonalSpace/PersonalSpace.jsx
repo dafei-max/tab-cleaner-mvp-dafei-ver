@@ -21,6 +21,7 @@ import { calculateMultipleClustersLayout } from "../../utils/clusterLayout";
 import { createManualCluster, classifyByLabels, discoverClusters } from "../../shared/api";
 import { calculateStaggerDelay, CLUSTER_ANIMATION } from "../../motion";
 import { useClusterSpringAnimation } from "../../hooks/useClusterSpringAnimation";
+import { getBestImageSource } from "../../utils/imagePlaceholder";
 import "./style.css";
 
 export const PersonalSpace = () => {
@@ -1212,10 +1213,15 @@ export const PersonalSpace = () => {
         });
       }, [sessions, isSessionsLoading, currentSessionId]);
 
+      // 检测是否处于搜索模式
+      const hasActiveSearch = Array.isArray(searchResults) && searchResults.length > 0;
+      // 获取前3-5个搜索结果用于水平显示
+      const topSearchResults = hasActiveSearch ? searchResults.slice(0, 5) : [];
+
       return (
         <div className="personal-space" ref={containerRef}>
           {viewMode === 'masonry' ? (
-            <>
+            <div style={{ pointerEvents: hasActiveSearch ? 'none' : 'auto' }}>
               <SessionMasonryGrid
                 sessions={sessions}
                 searchQuery={searchQuery}
@@ -1232,37 +1238,229 @@ export const PersonalSpace = () => {
                   containerRef={sessionContainerRef}
                 />
               )}
-            </>
+            </div>
           ) : (
-            <RadialCanvas
-              canvasRef={canvasRef}
-              containerRef={containerRef}
-              showOriginalImages={showOriginalImages}
-              images={images}
-              opengraphData={opengraphData} // 使用已计算位置的 opengraphData（在 radial 视图时已通过 calculateRadialLayout 处理）
-              searchQuery={searchQuery}
-              selectedIds={selectedIds}
-              clusters={clusters}
-              clusterDragStartRef={clusterDragStartRef}
-              zoom={zoom}
-              pan={pan}
-              isPanning={isPanning}
-              isSpacePressed={isSpacePressed}
-              activeTool={activeTool}
-              drawPaths={drawPaths}
-              setDrawPaths={setDrawPaths}
-              textElements={textElements}
-              setTextElements={setTextElements}
-              onSelect={handleSelect}
-              onDragEnd={handleDragEnd}
-              onCanvasClick={handleCanvasClick}
-              onCardDoubleClick={handleCardDoubleClick}
-              onClusterRename={handleClusterRename}
-              onClusterDrag={handleClusterDrag}
-              onLassoSelect={handleLassoSelect}
-              onHistoryChange={handleHistoryChange}
-              getCanvasCursor={getCanvasCursor}
-            />
+            <div style={{ pointerEvents: hasActiveSearch ? 'none' : 'auto' }}>
+              <RadialCanvas
+                canvasRef={canvasRef}
+                containerRef={containerRef}
+                showOriginalImages={showOriginalImages}
+                images={images}
+                opengraphData={opengraphData} // 使用已计算位置的 opengraphData（在 radial 视图时已通过 calculateRadialLayout 处理）
+                searchQuery={searchQuery}
+                selectedIds={selectedIds}
+                clusters={clusters}
+                clusterDragStartRef={clusterDragStartRef}
+                zoom={zoom}
+                pan={pan}
+                isPanning={isPanning}
+                isSpacePressed={isSpacePressed}
+                activeTool={activeTool}
+                drawPaths={drawPaths}
+                setDrawPaths={setDrawPaths}
+                textElements={textElements}
+                setTextElements={setTextElements}
+                onSelect={handleSelect}
+                onDragEnd={handleDragEnd}
+                onCanvasClick={handleCanvasClick}
+                onCardDoubleClick={handleCardDoubleClick}
+                onClusterRename={handleClusterRename}
+                onClusterDrag={handleClusterDrag}
+                onLassoSelect={handleLassoSelect}
+                onHistoryChange={handleHistoryChange}
+                getCanvasCursor={getCanvasCursor}
+              />
+            </div>
+          )}
+
+          {/* 搜索模式：全屏遮罩层 + 搜索结果行 */}
+          {hasActiveSearch && (
+            <>
+              {/* 模糊背景遮罩层 */}
+              <div
+                style={{
+                  position: 'fixed',
+                  inset: 0,
+                  backdropFilter: 'blur(12px)',
+                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                  zIndex: 1500,
+                  pointerEvents: 'auto', // 阻止背景交互
+                }}
+                onClick={(e) => {
+                  // 点击遮罩层时清空搜索
+                  if (e.target === e.currentTarget) {
+                    clearSearch();
+                  }
+                }}
+              />
+              
+              {/* 搜索结果水平行 */}
+              <div
+                style={{
+                  position: 'fixed',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  gap: '16px',
+                  zIndex: 1501,
+                  pointerEvents: 'auto',
+                  maxWidth: '90vw',
+                  flexWrap: 'wrap',
+                }}
+              >
+                {topSearchResults.map((result, index) => {
+                  const cardWidth = 200;
+                  const cardHeight = 280;
+                  
+                  return (
+                    <div
+                      key={result.id || `search-result-${index}`}
+                      style={{
+                        width: cardWidth,
+                        height: cardHeight,
+                        backgroundColor: '#fff',
+                        borderRadius: '12px',
+                        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
+                        overflow: 'hidden',
+                        cursor: 'pointer',
+                        transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                        position: 'relative',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-4px) scale(1.02)';
+                        e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.3)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.2)';
+                      }}
+                      onClick={() => {
+                        // 点击卡片时显示详情
+                        handleCardDoubleClick(result);
+                      }}
+                    >
+                      {/* 图片 */}
+                      <div
+                        style={{
+                          width: '100%',
+                          height: '180px',
+                          backgroundColor: '#f5f5f5',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {(() => {
+                          // 使用 getBestImageSource 获取最佳图片源（与现有卡片逻辑一致）
+                          const imageSrc = getBestImageSource(result, 'initials', cardWidth, cardHeight);
+                          return (
+                            <img
+                              src={imageSrc}
+                              alt={result.title || result.tab_title || ''}
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover',
+                              }}
+                              onError={(e) => {
+                                // 图片加载失败时显示占位符
+                                const placeholder = getBestImageSource(result, 'initials', cardWidth, cardHeight, true);
+                                if (placeholder && placeholder !== imageSrc) {
+                                  e.target.src = placeholder;
+                                } else {
+                                  e.target.style.display = 'none';
+                                  const container = e.target.parentElement;
+                                  if (container) {
+                                    container.innerHTML = `
+                                      <div style="
+                                        width: 100%;
+                                        height: 100%;
+                                        display: flex;
+                                        align-items: center;
+                                        justify-content: center;
+                                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                        color: white;
+                                        font-size: 24px;
+                                        font-weight: bold;
+                                      ">
+                                        ${(result.title || result.tab_title || result.url || '?').charAt(0).toUpperCase()}
+                                      </div>
+                                    `;
+                                  }
+                                }
+                              }}
+                            />
+                          );
+                        })()}
+                      </div>
+                      
+                      {/* 文本内容 */}
+                      <div
+                        style={{
+                          padding: '12px',
+                          height: '100px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#333',
+                            lineHeight: '1.4',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            marginBottom: '4px',
+                          }}
+                          title={result.title || result.tab_title || ''}
+                        >
+                          {result.title || result.tab_title || 'Untitled'}
+                        </div>
+                        
+                        {result.description && (
+                          <div
+                            style={{
+                              fontSize: '12px',
+                              color: '#666',
+                              lineHeight: '1.3',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                            }}
+                            title={result.description}
+                          >
+                            {result.description}
+                          </div>
+                        )}
+                        
+                        {result.similarity !== undefined && (
+                          <div
+                            style={{
+                              fontSize: '11px',
+                              color: '#999',
+                              marginTop: '4px',
+                            }}
+                          >
+                            相似度: {(result.similarity * 100).toFixed(1)}%
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
 
       <div className="space-function">
