@@ -891,6 +891,29 @@
     }
   }
 
+  /**
+   * ✅ v2.1: forceShow() - 强制显示宠物，不管初始化状态
+   * 作为 show() 失败时的备选方案
+   */
+  async function forceShow() {
+    try {
+      if (!petContainer) {
+        await createPet();
+      }
+      if (petContainer) {
+        petContainer.style.display = "block";
+        isPetVisible = true;
+        await savePetState();
+        console.log("[Tab Cleaner Pet] forceShow called, forcing display...");
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error("[Tab Cleaner Pet] Error in forceShow:", e);
+      return false;
+    }
+  }
+
   // ✅ 导出 API
   const api = {
     show: showPet,
@@ -898,6 +921,7 @@
     toggle: togglePet,
     isVisible: () => isPetVisible,
     ensureInitialized: ensureInitialized, // ✅ 新增：等待初始化完成的方法
+    forceShow: forceShow, // ✅ v2.1: 强制显示方法
   };
   
   try {
@@ -915,10 +939,17 @@
     });
     window.dispatchEvent(event);
     
+    // ✅ v2.1: 监听强制显示事件（作为最后的备选方案）
+    window.addEventListener('__TAB_CLEANER_FORCE_SHOW_PET', () => {
+      console.log("[Tab Cleaner Pet] Force show event received");
+      forceShow();
+    });
+    
     console.log("[Tab Cleaner Pet] Module loaded successfully!", {
       hasToggle: typeof api.toggle === 'function',
       hasShow: typeof api.show === 'function',
       hasHide: typeof api.hide === 'function',
+      hasForceShow: typeof api.forceShow === 'function', // ✅ v2.1: 日志增强
       module: api
     });
   } catch (e) {
