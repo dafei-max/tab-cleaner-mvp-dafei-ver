@@ -351,9 +351,9 @@ async def upsert_opengraph_item(
             # 准备 metadata
             metadata_json = json.dumps(metadata or {})
             
-            # 如果 embedding 存在，直接使用列表（asyncpg 会自动转换为 vector 类型）
-            text_vec = text_embedding if text_embedding else None
-            image_vec = image_embedding if image_embedding else None
+            # 将 embedding 列表转换为 ADBPG 需要的字符串格式
+            text_vec = to_vector_str(text_embedding)
+            image_vec = to_vector_str(image_embedding)
             
             # 使用 INSERT ... ON CONFLICT 实现 upsert
             await conn.execute(f"""
