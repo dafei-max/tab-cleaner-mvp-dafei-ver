@@ -12,6 +12,9 @@
   let isPetVisible = false;
   let isButtonsVisible = false;
   
+  // ✅ 初始化状态标志：标记容器是否真正添加到 DOM
+  let petInitialized = false;
+  
   // ✅ 全局状态同步：从 Chrome Storage 读取宠物状态
   let petStateLoaded = false;
   
@@ -587,190 +590,241 @@
     `;
   }
 
-  // 创建宠物容器
-  async function createPet() {
-    if (petContainer) return;
-
-    petContainer = document.createElement("div");
-    petContainer.id = "tab-cleaner-pet-container";
-    // 先定位到屏幕中央，便于调试
-    const centerX = (window.innerWidth - 315) / 2;
-    const centerY = (window.innerHeight - 246) / 2;
-    Object.assign(petContainer.style, {
-      position: "fixed",
-      left: `${centerX}px`,
-      top: `${centerY}px`,
-      zIndex: String(2147483646),
-      width: "315px",
-      height: "246px",
-      background: "transparent",
-      pointerEvents: "auto",
-      display: "none",
-    });
-
-    const shadow = petContainer.attachShadow({ mode: "open" });
-    const css = await loadPetCss();
-    const html = generatePetHTML();
-    shadow.innerHTML = `${css}${html}`;
-
-    // 绑定事件
-    const avatar = shadow.querySelector('.avatar');
-    const hideBtn = shadow.querySelector('.hide-button');
-    const settingBtn = shadow.querySelector('.setting-button');
-    const cleanCurrentBtn = shadow.querySelector('.clean-current-button');
-    const cleanInOneClickBtn = shadow.querySelector('.clean-inoneclick');
-    const choiceOverlay = shadow.querySelector('.choice-overlay');
-
-    // ✅ 添加拖动功能 - 让整个 petContainer 可以拖动
-    let isDragging = false;
-    let startX = 0;
-    let startY = 0;
-    let initialLeft = 0;
-    let initialTop = 0;
-
-    // 拖动处理函数
-    const handleMouseDown = (e) => {
-      // 只允许通过 avatar 或 petContainer 拖动，避免按钮点击时触发
-      const target = e.target;
-      if (target.closest('.hide-button') || 
-          target.closest('.setting-button') || 
-          target.closest('.clean-current-button') || 
-          target.closest('.clean-inoneclick') ||
-          target.closest('.choice-overlay')) {
-        return; // 按钮区域不拖动
-      }
-      
-      isDragging = true;
-      const rect = petContainer.getBoundingClientRect();
-      initialLeft = rect.left;
-      initialTop = rect.top;
-      startX = e.clientX;
-      startY = e.clientY;
-      
-      petContainer.style.cursor = 'grabbing';
-      e.preventDefault();
-    };
-
-    const handleMouseMove = (e) => {
-      if (!isDragging) return;
-      
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      
-      const newLeft = initialLeft + dx;
-      const newTop = initialTop + dy;
-      
-      // 限制在可视区域内
-      const maxLeft = window.innerWidth - petContainer.offsetWidth;
-      const maxTop = window.innerHeight - petContainer.offsetHeight;
-      
-      petContainer.style.left = `${Math.max(0, Math.min(newLeft, maxLeft))}px`;
-      petContainer.style.top = `${Math.max(0, Math.min(newTop, maxTop))}px`;
-      petContainer.style.right = 'auto';
-      petContainer.style.bottom = 'auto';
-    };
-
-    const handleMouseUp = () => {
-      if (isDragging) {
-        isDragging = false;
-        petContainer.style.cursor = '';
-      }
-    };
-
-    // 在 petContainer 上添加拖动事件
-    petContainer.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', () => {
-      handleMouseUp();
-      // ✅ 拖动结束后保存位置
-      if (petContainer && isPetVisible) {
-        savePetState();
-      }
-    });
+  /**
+   * ✅ 确保宠物容器已初始化（等待函数）
+   * 最多等待 50 次 × 50ms = 2.5 秒
+   */
+  async function ensureInitialized() {
+    if (petInitialized) {
+      return true;
+    }
     
-    // 设置可拖动样式
-    petContainer.style.cursor = 'grab';
-    petContainer.style.userSelect = 'none';
-
-    // 点击 avatar 显示/隐藏按钮
-    if (avatar) {
-      avatar.addEventListener('click', (e) => {
-        // 如果正在拖动，不触发点击
-        if (isDragging) {
-          return;
-        }
-        isButtonsVisible = !isButtonsVisible;
-        if (choiceOverlay) {
-          choiceOverlay.classList.toggle('visible', isButtonsVisible);
-        }
-      });
+    let attempts = 0;
+    const maxAttempts = 50;
+    
+    while (!petInitialized && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      attempts++;
     }
-
-    // 隐藏按钮
-    if (hideBtn) {
-      hideBtn.addEventListener('click', () => {
-        hidePet();
-      });
-    }
-
-    // 设置按钮
-    if (settingBtn) {
-      settingBtn.addEventListener('click', () => {
-        chrome.runtime.sendMessage({ action: "pet-setting" });
-      });
-    }
-
-    // 清理当前页 Tab
-    if (cleanCurrentBtn) {
-      cleanCurrentBtn.addEventListener('click', () => {
-        chrome.runtime.sendMessage({ action: "clean-current-tab" });
-      });
-    }
-
-    // 一键清理
-    if (cleanInOneClickBtn) {
-      cleanInOneClickBtn.addEventListener('click', () => {
-        chrome.runtime.sendMessage({ action: "clean-all" });
-      });
-    }
-
-    // 确保 body 存在后再添加
-    if (document.body) {
-      document.body.appendChild(petContainer);
-      // 初始状态：隐藏
-      petContainer.style.display = "none";
-      isPetVisible = false;
+    
+    if (petInitialized) {
+      console.log(`[Tab Cleaner Pet] ✅ Initialized after ${attempts} attempts`);
+      return true;
     } else {
-      // 如果 body 还没准备好，等待 DOMContentLoaded
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-          if (document.body && petContainer) {
-            document.body.appendChild(petContainer);
-            petContainer.style.display = "none";
-            isPetVisible = false;
-          }
-        });
-      } else {
-        // 如果已经加载完成，直接添加
-        if (petContainer) {
-          document.body.appendChild(petContainer);
-          petContainer.style.display = "none";
-          isPetVisible = false;
-        }
-      }
+      console.warn(`[Tab Cleaner Pet] ⚠️ Initialization timeout after ${maxAttempts} attempts`);
+      return false;
     }
   }
 
-  // 显示宠物
-  async function showPet() {
-    if (!petContainer) {
-      await createPet();
+  // 创建宠物容器（改进为 Promise，确保真正添加到 DOM 后才 resolve）
+  async function createPet() {
+    if (petContainer && petInitialized) {
+      return Promise.resolve();
     }
-    // 确保容器已创建
+    
+    if (petContainer && !petInitialized) {
+      // 容器已创建但还没添加到 DOM，等待初始化
+      return ensureInitialized();
+    }
+
+    return new Promise(async (resolve) => {
+      petContainer = document.createElement("div");
+      petContainer.id = "tab-cleaner-pet-container";
+      // 先定位到屏幕中央，便于调试
+      const centerX = (window.innerWidth - 315) / 2;
+      const centerY = (window.innerHeight - 246) / 2;
+      Object.assign(petContainer.style, {
+        position: "fixed",
+        left: `${centerX}px`,
+        top: `${centerY}px`,
+        zIndex: String(2147483646),
+        width: "315px",
+        height: "246px",
+        background: "transparent",
+        pointerEvents: "auto",
+        display: "none",
+      });
+
+      const shadow = petContainer.attachShadow({ mode: "open" });
+      const css = await loadPetCss();
+      const html = generatePetHTML();
+      shadow.innerHTML = `${css}${html}`;
+
+      // 绑定事件
+      const avatar = shadow.querySelector('.avatar');
+      const hideBtn = shadow.querySelector('.hide-button');
+      const settingBtn = shadow.querySelector('.setting-button');
+      const cleanCurrentBtn = shadow.querySelector('.clean-current-button');
+      const cleanInOneClickBtn = shadow.querySelector('.clean-inoneclick');
+      const choiceOverlay = shadow.querySelector('.choice-overlay');
+
+      // ✅ 添加拖动功能 - 让整个 petContainer 可以拖动
+      let isDragging = false;
+      let startX = 0;
+      let startY = 0;
+      let initialLeft = 0;
+      let initialTop = 0;
+
+      // 拖动处理函数
+      const handleMouseDown = (e) => {
+        // 只允许通过 avatar 或 petContainer 拖动，避免按钮点击时触发
+        const target = e.target;
+        if (target.closest('.hide-button') || 
+            target.closest('.setting-button') || 
+            target.closest('.clean-current-button') || 
+            target.closest('.clean-inoneclick') ||
+            target.closest('.choice-overlay')) {
+          return; // 按钮区域不拖动
+        }
+        
+        isDragging = true;
+        const rect = petContainer.getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+        startX = e.clientX;
+        startY = e.clientY;
+        
+        petContainer.style.cursor = 'grabbing';
+        e.preventDefault();
+      };
+
+      const handleMouseMove = (e) => {
+        if (!isDragging) return;
+        
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        
+        const newLeft = initialLeft + dx;
+        const newTop = initialTop + dy;
+        
+        // 限制在可视区域内
+        const maxLeft = window.innerWidth - petContainer.offsetWidth;
+        const maxTop = window.innerHeight - petContainer.offsetHeight;
+        
+        petContainer.style.left = `${Math.max(0, Math.min(newLeft, maxLeft))}px`;
+        petContainer.style.top = `${Math.max(0, Math.min(newTop, maxTop))}px`;
+        petContainer.style.right = 'auto';
+        petContainer.style.bottom = 'auto';
+      };
+
+      const handleMouseUp = () => {
+        if (isDragging) {
+          isDragging = false;
+          petContainer.style.cursor = '';
+        }
+      };
+
+      // 在 petContainer 上添加拖动事件
+      petContainer.addEventListener('mousedown', handleMouseDown);
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', () => {
+        handleMouseUp();
+        // ✅ 拖动结束后保存位置
+        if (petContainer && isPetVisible) {
+          savePetState();
+        }
+      });
+      
+      // 设置可拖动样式
+      petContainer.style.cursor = 'grab';
+      petContainer.style.userSelect = 'none';
+
+      // 点击 avatar 显示/隐藏按钮
+      if (avatar) {
+        avatar.addEventListener('click', (e) => {
+          // 如果正在拖动，不触发点击
+          if (isDragging) {
+            return;
+          }
+          isButtonsVisible = !isButtonsVisible;
+          if (choiceOverlay) {
+            choiceOverlay.classList.toggle('visible', isButtonsVisible);
+          }
+        });
+      }
+
+      // 隐藏按钮
+      if (hideBtn) {
+        hideBtn.addEventListener('click', () => {
+          hidePet();
+        });
+      }
+
+      // 设置按钮
+      if (settingBtn) {
+        settingBtn.addEventListener('click', () => {
+          chrome.runtime.sendMessage({ action: "pet-setting" });
+        });
+      }
+
+      // 清理当前页 Tab
+      if (cleanCurrentBtn) {
+        cleanCurrentBtn.addEventListener('click', () => {
+          chrome.runtime.sendMessage({ action: "clean-current-tab" });
+        });
+      }
+
+      // 一键清理
+      if (cleanInOneClickBtn) {
+        cleanInOneClickBtn.addEventListener('click', () => {
+          chrome.runtime.sendMessage({ action: "clean-all" });
+        });
+      }
+
+      // ✅ 确保 body 存在后再添加，只有真正添加到 DOM 后才标记为初始化完成
+      const addToDOM = () => {
+        if (document.body && petContainer) {
+          document.body.appendChild(petContainer);
+          // 初始状态：隐藏
+          petContainer.style.display = "none";
+          isPetVisible = false;
+          // ✅ 只有容器真正添加到 DOM 后才标记为初始化完成
+          petInitialized = true;
+          console.log("[Tab Cleaner Pet] ✅ Pet container initialized and added to DOM");
+          resolve();
+        } else {
+          console.warn("[Tab Cleaner Pet] ⚠️ Cannot add container: body or container missing");
+          resolve(); // 即使失败也 resolve，避免无限等待
+        }
+      };
+
+      if (document.body) {
+        addToDOM();
+      } else {
+        // 如果 body 还没准备好，等待 DOMContentLoaded
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', () => {
+            addToDOM();
+          }, { once: true });
+        } else {
+          // 如果已经加载完成，直接添加
+          addToDOM();
+        }
+      }
+    });
+  }
+
+  // 显示宠物（优化版本：确保初始化完成后再显示）
+  async function showPet() {
+    // ✅ 先确保容器已初始化
+    if (!petContainer || !petInitialized) {
+      await createPet();
+      // 再次检查初始化状态
+      if (!petInitialized) {
+        const initialized = await ensureInitialized();
+        if (!initialized) {
+          console.warn("[Tab Cleaner Pet] Failed to initialize pet container");
+          return;
+        }
+      }
+    }
+    
+    // 确保容器已创建并初始化
     if (!petContainer) {
       console.warn("[Tab Cleaner Pet] Failed to create pet container");
       return;
     }
+    
     // 使用 requestAnimationFrame 确保 DOM 已更新
     requestAnimationFrame(() => {
       if (petContainer) {
@@ -825,6 +879,7 @@
     hide: hidePet,
     toggle: togglePet,
     isVisible: () => isPetVisible,
+    ensureInitialized: ensureInitialized, // ✅ 新增：等待初始化完成的方法
   };
   
   try {
