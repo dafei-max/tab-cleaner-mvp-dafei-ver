@@ -973,8 +973,9 @@ git push -u origin main
 1. **文件路径一致性**：确保 `manifest.json`、`content.js`、`background.js` 中的路径一致
 2. **资源可访问性**：所有需要从页面访问的资源必须在 `web_accessible_resources` 中声明
 3. **模块类型**：
-   - `content.js` 使用 IIFE 格式，确保可以通过 `executeScript` 注入
-   - `pet.js` 使用 IIFE 格式，在页面上下文中执行
+   - `content.js` 使用 IIFE 格式，作为 content script 运行
+   - `pet.js` 使用 IIFE 格式，作为 content script 运行（v2.4）
+   - 两个脚本都在 content script 环境中，可以直接访问 `chrome.storage` API
 4. **样式隔离**：Shadow DOM 内的样式不会影响页面，页面的样式也不会影响 Shadow DOM
 5. **上下文隔离**：
    - Content Script 运行在隔离上下文，无法直接访问页面的 `window` 对象
