@@ -1598,7 +1598,7 @@ export const PersonalSpace = () => {
 
       <SearchBar
         searchQuery={searchQuery}
-        onSearchQueryChange={setSearchQuery}
+        onSearchQueryChange={handleSearchChange}
         onSearch={handleSearch}
         onClear={handleClearSearch}
         isSearching={isSearching}
