@@ -121,17 +121,34 @@ export const useSearch = (opengraphData = []) => {
     }
 
     // 使用 ref 获取最新的 opengraphData
-    const currentOGData = opengraphDataRef.current;
+    const currentOGData = opengraphDataRef.current || [];
+    
+    // 检查当前数据是否已经有 embedding（text_embedding 或 image_embedding）
+    const hasEmbeddingsInData = currentOGData.some(item => {
+      const hasTextEmb = item.text_embedding && Array.isArray(item.text_embedding) && item.text_embedding.length > 0;
+      const hasImageEmb = item.image_embedding && Array.isArray(item.image_embedding) && item.image_embedding.length > 0;
+      return hasTextEmb || hasImageEmb;
+    });
+    
     let itemsToSearch = opengraphWithEmbeddings.length > 0 ? opengraphWithEmbeddings : currentOGData;
     
-    // 如果没有 Embedding，先生成
-    if (opengraphWithEmbeddings.length === 0) {
+    // 如果数据中没有 embedding，且 opengraphWithEmbeddings 也为空，才生成
+    if (!hasEmbeddingsInData && opengraphWithEmbeddings.length === 0 && currentOGData.length > 0) {
       console.log('[useSearch] No embeddings found, generating...');
       const generatedItems = await generateEmbeddingsForData(currentOGData);
       if (generatedItems && generatedItems.length > 0) {
         itemsToSearch = generatedItems;
-        console.log('[useSearch] Using freshly generated embeddings:', generatedItems.filter(item => item.embedding).length, 'have embedding');
+        const itemsWithEmb = generatedItems.filter(item => {
+          const hasTextEmb = item.text_embedding && Array.isArray(item.text_embedding) && item.text_embedding.length > 0;
+          const hasImageEmb = item.image_embedding && Array.isArray(item.image_embedding) && item.image_embedding.length > 0;
+          return hasTextEmb || hasImageEmb;
+        });
+        console.log('[useSearch] Using freshly generated embeddings:', itemsWithEmb.length, 'have embedding');
       }
+    } else if (hasEmbeddingsInData) {
+      // 如果数据中已经有 embedding，直接使用
+      console.log('[useSearch] Using existing embeddings from data');
+      itemsToSearch = currentOGData;
     }
 
     try {
@@ -156,12 +173,12 @@ export const useSearch = (opengraphData = []) => {
       });
       
       // 计算布局位置
-      const searchResultItems = finalList.map((item, index) => ({
+      const searchResultItems = (finalList || []).map((item, index) => ({
         ...item,
         id: item.tab_id ? `og-search-${item.tab_id}` : `og-search-${index}-${Date.now()}`,
       }));
       
-      const positionedResults = calculateRadialLayout(searchResultItems);
+      const positionedResults = calculateRadialLayout(searchResultItems) || [];
       
       const finalResults = positionedResults.map((item, idx) => ({
         ...item,
