@@ -31,8 +31,7 @@ export const PersonalSpace = () => {
   const lastOGClickRef = useRef({ time: 0, id: null }); // 用于双击检测
   
   // 搜索输入处理相关 refs
-  const previousQueryRef = useRef(""); // 跟踪之前的搜索查询长度
-  const searchDebounceTimerRef = useRef(null); // 防抖定时器
+  const previousQueryRef = useRef(""); // 跟踪之前的搜索查询（用于退格检测）
   
   // 管理图片位置和选中状态
   // 如果有 OpenGraph 数据，隐藏原有图片；否则显示原有图片
@@ -238,14 +237,6 @@ export const PersonalSpace = () => {
     }
   }, [viewMode, currentSessionId, radialOpengraphData]);
 
-  // 清理防抖定时器（组件卸载时）
-  useEffect(() => {
-    return () => {
-      if (searchDebounceTimerRef.current) {
-        clearTimeout(searchDebounceTimerRef.current);
-      }
-    };
-  }, []);
 
   // 从 storage 加载数据（兼容旧数据，但优先使用 sessions）
   // 当 sessions 加载完成后，检查是否需要迁移旧数据
@@ -423,41 +414,19 @@ export const PersonalSpace = () => {
   );
 
 
-  // 处理搜索输入变化（带防抖和退格检测）
+  // 处理搜索输入变化（退格检测：输入为空时清空搜索）
   const handleSearchChange = useCallback((nextValue) => {
     // 更新搜索查询
     setSearchQuery(nextValue);
     
-    const nextLength = nextValue.length;
-    const previousLength = previousQueryRef.current.length;
     const trimmedLength = nextValue.trim().length;
+    const previousLength = previousQueryRef.current.trim().length;
     
-    // 清除之前的防抖定时器
-    if (searchDebounceTimerRef.current) {
-      clearTimeout(searchDebounceTimerRef.current);
-      searchDebounceTimerRef.current = null;
-    }
+    // 判断是删除字符
+    const isDeleting = trimmedLength < previousLength;
     
-    // 判断是增加字符还是删除字符
-    const isAdding = nextLength > previousLength;
-    const isDeleting = nextLength < previousLength;
-    
-    if (isAdding && trimmedLength >= 2) {
-      // 输入增加且长度 >= 2：防抖触发搜索
-      searchDebounceTimerRef.current = setTimeout(() => {
-        performSearch(nextValue, calculateRadialLayout).then((results) => {
-          if (results && results.length > 0) {
-            // ✅ 简化：搜索结果直接从数据库返回，已经包含所有需要的数据
-            setOpengraphData(results);
-            setShowOriginalImages(false);
-            console.log('[PersonalSpace] Auto-search completed,', results.length, 'results');
-          }
-        }).catch((error) => {
-          console.error('[PersonalSpace] Auto-search error:', error);
-        });
-      }, 300); // 300ms 防抖延迟
-    } else if (isDeleting && trimmedLength < 2) {
-      // 删除字符且长度 < 2：清空搜索，恢复原始布局
+    if (isDeleting && trimmedLength === 0) {
+      // 删除所有字符（输入为空）：清空搜索，恢复原始布局
       clearSearch();
       // 恢复原始数据（清除相似度标记）
       if (viewMode === 'radial') {
@@ -495,16 +464,10 @@ export const PersonalSpace = () => {
     
     // 更新之前的查询引用
     previousQueryRef.current = nextValue;
-  }, [viewMode, performSearch, clearSearch, calculateRadialLayout, getCurrentSession, setOpengraphData, setShowOriginalImages, opengraphData]);
+  }, [viewMode, clearSearch, calculateRadialLayout, getCurrentSession, setOpengraphData, setShowOriginalImages, opengraphData]);
 
-  // 执行搜索（使用 hook）- 保留用于手动触发（如按 Enter）
+  // 执行搜索（使用 hook）- 仅在用户按 Enter 时触发
   const handleSearch = async () => {
-    // 清除防抖定时器（如果存在）
-    if (searchDebounceTimerRef.current) {
-      clearTimeout(searchDebounceTimerRef.current);
-      searchDebounceTimerRef.current = null;
-    }
-    
     const results = await performSearch(searchQuery, calculateRadialLayout);
     if (results && results.length > 0) {
       // ✅ 简化：搜索结果直接从数据库返回，已经包含所有需要的数据
@@ -516,12 +479,6 @@ export const PersonalSpace = () => {
 
   // 清空搜索（使用 hook）
   const handleClearSearch = () => {
-    // 清除防抖定时器（如果存在）
-    if (searchDebounceTimerRef.current) {
-      clearTimeout(searchDebounceTimerRef.current);
-      searchDebounceTimerRef.current = null;
-    }
-    
     clearSearch();
     // 恢复原始数据（清除相似度标记）
     if (viewMode === 'radial') {
