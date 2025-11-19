@@ -10,11 +10,23 @@
 (function() {
   'use strict';
 
+  console.log('[OpenGraph Local] Script starting execution...');
+  console.log('[OpenGraph Local] Document readyState:', document.readyState);
+  console.log('[OpenGraph Local] Window location:', window.location.href);
+
   // 避免重复加载
   if (window.__TAB_CLEANER_OPENGRAPH_LOCAL) {
+    console.log('[OpenGraph Local] Already loaded, skipping...');
     return;
   }
-  window.__TAB_CLEANER_OPENGRAPH_LOCAL = true;
+  
+  try {
+    window.__TAB_CLEANER_OPENGRAPH_LOCAL = true;
+    console.log('[OpenGraph Local] Flag set:', window.__TAB_CLEANER_OPENGRAPH_LOCAL);
+  } catch (e) {
+    console.error('[OpenGraph Local] Failed to set flag:', e);
+    // 继续执行，即使设置标志失败
+  }
 
   /**
    * 从当前页面提取 OpenGraph 数据

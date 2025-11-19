@@ -664,15 +664,34 @@
           console.log('[Tab Cleaner Content] ✅ Script loaded, waiting for function...');
           console.log('[Tab Cleaner Content] Script element:', script);
           console.log('[Tab Cleaner Content] Script src:', script.src);
+          console.log('[Tab Cleaner Content] Script in DOM?', document.contains(script));
+          
+          // 检查脚本是否有执行错误
+          const scriptText = script.textContent || script.innerHTML;
+          console.log('[Tab Cleaner Content] Script has content?', !!scriptText);
+          
+          // 检查控制台是否有错误（通过监听全局错误）
+          const originalError = console.error;
+          const errors = [];
+          console.error = function(...args) {
+            errors.push(args);
+            originalError.apply(console, args);
+          };
           
           // 使用轮询检查函数是否可用（更可靠）
           let attempts = 0;
           const maxAttempts = 20; // 最多尝试 20 次，每次 100ms，总共 2 秒
           const checkFunction = () => {
             attempts++;
-            console.log(`[Tab Cleaner Content] Checking function availability (attempt ${attempts}/${maxAttempts})...`);
-            console.log('[Tab Cleaner Content] window.__TAB_CLEANER_GET_OPENGRAPH:', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
-            console.log('[Tab Cleaner Content] window.__TAB_CLEANER_OPENGRAPH_LOCAL:', window.__TAB_CLEANER_OPENGRAPH_LOCAL);
+            if (attempts <= 5 || attempts % 5 === 0) {
+              // 只在前5次和每5次记录日志，避免日志过多
+              console.log(`[Tab Cleaner Content] Checking function availability (attempt ${attempts}/${maxAttempts})...`);
+              console.log('[Tab Cleaner Content] window.__TAB_CLEANER_GET_OPENGRAPH:', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
+              console.log('[Tab Cleaner Content] window.__TAB_CLEANER_OPENGRAPH_LOCAL:', window.__TAB_CLEANER_OPENGRAPH_LOCAL);
+              if (errors.length > 0) {
+                console.warn('[Tab Cleaner Content] Script errors detected:', errors);
+              }
+            }
             
             if (typeof window.__TAB_CLEANER_GET_OPENGRAPH === 'function') {
               console.log('[Tab Cleaner Content] ✅ Function ready, calling...');
@@ -753,11 +772,32 @@
         };
         script.onerror = (e) => {
           console.error('[Tab Cleaner Content] ❌ Failed to load script:', e);
+          console.error('[Tab Cleaner Content] Script error event:', e);
+          console.error('[Tab Cleaner Content] Script src:', script.src);
           if (typeof sendResponse === 'function') {
             sendResponse({ success: false, error: 'Failed to load opengraph_local.js' });
           }
         };
+        
+        // 监听全局错误，捕获脚本执行错误
+        const errorHandler = (event) => {
+          if (event.filename && event.filename.includes('opengraph_local.js')) {
+            console.error('[Tab Cleaner Content] ❌ Script execution error:', event.error);
+            console.error('[Tab Cleaner Content] Error message:', event.message);
+            console.error('[Tab Cleaner Content] Error filename:', event.filename);
+            console.error('[Tab Cleaner Content] Error lineno:', event.lineno);
+            window.removeEventListener('error', errorHandler);
+          }
+        };
+        window.addEventListener('error', errorHandler);
+        
+        // 5秒后移除错误监听器
+        setTimeout(() => {
+          window.removeEventListener('error', errorHandler);
+        }, 5000);
+        
         (document.head || document.documentElement).appendChild(script);
+        console.log('[Tab Cleaner Content] Script appended to DOM');
         return true; // 保持消息通道开放，等待异步加载
       }
       
