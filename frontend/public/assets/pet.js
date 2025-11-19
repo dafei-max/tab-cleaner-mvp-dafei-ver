@@ -5,21 +5,19 @@
   // ✅ v2.3: 检查是否已经加载（避免重复加载）
   // 使用更可靠的标志检查
   if (window.__TAB_CLEANER_PET_LOADED) {
-    console.log("[Tab Cleaner Pet] Module already loaded, checking if state sync is needed...");
-    // ✅ v2.3: 即使已经加载，也要检查当前状态并同步（处理页面刷新等情况）
+    console.log("[Tab Cleaner Pet] Module already loaded, skipping initialization");
+    // ✅ v2.3: 如果模块已加载，检查存储状态并同步（处理页面刷新等情况）
     if (window.__TAB_CLEANER_PET && typeof window.__TAB_CLEANER_PET.show === 'function') {
-      // 模块已加载，检查存储状态并同步
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.get(['petVisible'], (items) => {
+        chrome.storage.local.get(['petVisible', 'petPosition'], (items) => {
           const shouldBeVisible = items.petVisible === true;
           const currentVisible = window.__TAB_CLEANER_PET.isVisible();
-          console.log('[Tab Cleaner Pet] State check:', { shouldBeVisible, currentVisible });
           
           if (shouldBeVisible && !currentVisible) {
-            console.log('[Tab Cleaner Pet] Pet should be visible but is not, showing...');
+            console.log('[Tab Cleaner Pet] State sync: showing pet (was hidden)');
             window.__TAB_CLEANER_PET.show();
           } else if (!shouldBeVisible && currentVisible) {
-            console.log('[Tab Cleaner Pet] Pet should be hidden but is visible, hiding...');
+            console.log('[Tab Cleaner Pet] State sync: hiding pet (was visible)');
             window.__TAB_CLEANER_PET.hide();
           }
         });

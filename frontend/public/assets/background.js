@@ -185,31 +185,25 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-// ✅ v2.3: 简化 toggle-pet 逻辑 - 只负责翻转全局开关，显示/隐藏交给 content.js + pet.js
+// ✅ v2.3: 简化 toggle-pet 逻辑 - 只负责翻转全局开关
+// pet.js 通过 chrome.storage.onChanged 监听变化并自动显示/隐藏
 chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   if (req.action === "toggle-pet") {
-    console.log("[Tab Cleaner Background] toggle-pet (global)");
+    if (!chrome.storage || !chrome.storage.local) {
+      sendResponse?.({ ok: false, error: "storage not available" });
+      return true;
+    }
     
-    // ✅ 只负责"翻转全局开关"，真正的显示/隐藏交给 content.js + pet.js
     chrome.storage.local.get(["petVisible"], (items) => {
       const currentVisible = items.petVisible === true;
       const newVisible = !currentVisible;
       
       chrome.storage.local.set({ petVisible: newVisible }, () => {
         if (chrome.runtime.lastError) {
-          console.error(
-            "[Tab Cleaner Background] Failed to set petVisible:",
-            chrome.runtime.lastError
-          );
-          sendResponse?.({
-            ok: false,
-            error: chrome.runtime.lastError.message,
-          });
+          console.warn("[Tab Cleaner Background] Failed to set petVisible:", chrome.runtime.lastError);
+          sendResponse?.({ ok: false, error: chrome.runtime.lastError.message });
         } else {
-          console.log(
-            "[Tab Cleaner Background] petVisible set to:",
-            newVisible
-          );
+          console.log("[Tab Cleaner Background] petVisible updated:", newVisible);
           sendResponse?.({ ok: true, visible: newVisible });
         }
       });
