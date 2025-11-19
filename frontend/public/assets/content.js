@@ -649,14 +649,55 @@
     }
     if (req.action === "fetch-opengraph") {
       // 重要：返回 true 保持消息通道开放，以便异步发送响应
-      // 处理本地 OpenGraph 抓取请求
+      // 优化：直接从 recent_opengraph 读取已缓存的数据，而不是重新执行函数
       console.log('[Tab Cleaner Content] fetch-opengraph requested');
-      console.log('[Tab Cleaner Content] Checking if opengraph_local.js is loaded...');
-      console.log('[Tab Cleaner Content] window.__TAB_CLEANER_GET_OPENGRAPH exists?', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
-      console.log('[Tab Cleaner Content] window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED?', window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED);
+      console.log('[Tab Cleaner Content] Reading from recent_opengraph cache...');
       
-      // 如果函数不存在，尝试加载脚本（无论标志如何）
-      if (typeof window.__TAB_CLEANER_GET_OPENGRAPH !== 'function') {
+      // ✅ 优先从缓存读取（opengraph_local.js 已经自动提取并保存了）
+      chrome.storage.local.get(['recent_opengraph'], (items) => {
+        if (chrome.runtime.lastError) {
+          console.error('[Tab Cleaner Content] ❌ Failed to get recent_opengraph:', chrome.runtime.lastError);
+          // 如果读取失败，fallback 到重新提取
+          fallbackToExtract();
+          return;
+        }
+        
+        const recent = items.recent_opengraph || [];
+        const currentUrl = window.location.href;
+        
+        // 查找当前 URL 的数据
+        const cachedData = recent.find(item => item && item.url === currentUrl);
+        
+        if (cachedData) {
+          console.log('[Tab Cleaner Content] ✅ Found cached data:', {
+            url: cachedData.url,
+            success: cachedData.success,
+            hasTitle: !!(cachedData.title),
+            hasImage: !!(cachedData.image)
+          });
+          
+          // 确保 is_doc_card 被正确设置
+          if (cachedData.is_doc_card === undefined) {
+            cachedData.is_doc_card = false;
+          }
+          
+          if (typeof sendResponse === 'function') {
+            sendResponse(cachedData);
+          }
+        } else {
+          console.log('[Tab Cleaner Content] ⚠️ No cached data found for', currentUrl, ', falling back to extraction...');
+          // 如果没有缓存，fallback 到重新提取
+          fallbackToExtract();
+        }
+      });
+      
+      // Fallback 函数：如果缓存中没有，才重新提取
+      const fallbackToExtract = () => {
+        console.log('[Tab Cleaner Content] Attempting to extract OpenGraph data...');
+        console.log('[Tab Cleaner Content] window.__TAB_CLEANER_GET_OPENGRAPH exists?', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
+        
+        // 如果函数不存在，尝试加载脚本
+        if (typeof window.__TAB_CLEANER_GET_OPENGRAPH !== 'function') {
         console.log('[Tab Cleaner Content] ⚠️ Function not found, loading script now...');
         const script = document.createElement('script');
         script.src = chrome.runtime.getURL('assets/opengraph_local.js');
