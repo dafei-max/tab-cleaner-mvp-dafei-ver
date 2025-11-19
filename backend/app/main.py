@@ -111,90 +111,43 @@ class OpenGraphRequest(BaseModel):
 @app.post("/api/v1/tabs/opengraph")
 async def fetch_tabs_opengraph(request: OpenGraphRequest):
     """
-    批量抓取多个 tabs 的 OpenGraph 数据
-    如果提供了 local_opengraph_data，优先使用本地抓取的数据（用于需要登录的网站）
+    接收客户端发送的本地 OpenGraph 数据
+    后端不再主动抓取 OpenGraph，只接收和处理客户端数据
     """
     try:
-        urls = [tab.url for tab in request.tabs]
-        if not urls:
-            return {"ok": True, "data": []}
-        
-        # 如果有本地抓取的数据，优先使用
+        # ✅ 简化：只接收客户端发送的 local_opengraph_data
         if request.local_opengraph_data and len(request.local_opengraph_data) > 0:
-            print(f"[API] Using local OpenGraph data for {len(request.local_opengraph_data)} items")
+            print(f"[API] Received local OpenGraph data for {len(request.local_opengraph_data)} items")
+            
+            # 创建 tab URL 到 tab 信息的映射
+            tab_map = {tab.url: tab for tab in request.tabs}
+            
+            # 处理本地数据：标记为 is_local_fetch=True，并合并 tab 信息
             opengraph_data = []
-            
-            # 创建本地数据的 URL 映射
-            local_data_map = {item.get("url"): item for item in request.local_opengraph_data if item.get("url")}
-            
-            # 将本地数据与 tab 信息合并
-            for i, tab in enumerate(request.tabs):
-                local_item = local_data_map.get(tab.url)
+            for item in request.local_opengraph_data:
+                url = item.get("url")
+                if not url:
+                    continue
                 
-                if local_item:
-                    # 确保字段映射正确（本地抓取返回的字段名可能与后端一致）
-                    opengraph_data.append({
-                        "url": local_item.get("url") or tab.url,
-                        "title": local_item.get("title") or local_item.get("og:title") or tab.title or "",
-                        "description": local_item.get("description") or local_item.get("og:description") or "",
-                        "image": local_item.get("image") or local_item.get("og:image") or local_item.get("thumbnail_url") or "",
-                        "site_name": local_item.get("site_name") or local_item.get("og:site_name") or "",
-                        "tab_id": tab.id,
-                        "tab_title": tab.title,
-                        "success": local_item.get("success", True),
-                        "is_local_fetch": True,  # 标记为本地抓取
-                    })
-                else:
-                    # 如果没有本地数据，使用后端抓取
-                    results = await fetch_multiple_opengraph([tab.url])
-                    if results and len(results) > 0:
-                        opengraph_data.append({
-                            **results[0],
-                            "tab_id": tab.id,
-                            "tab_title": tab.title,
-                            "is_screenshot": results[0].get("is_screenshot", False),
-                        })
+                tab = tab_map.get(url)
+                normalized_item = {
+                    **item,
+                    "is_local_fetch": True,  # ✅ 标记为本地抓取
+                    "tab_id": tab.id if tab else None,
+                    "tab_title": tab.title if tab else None,
+                }
+                opengraph_data.append(normalized_item)
             
-            print(f"[API] Processed {len(opengraph_data)} items (local fetch)")
-            
-            # 🔄 对于本地抓取的数据，也需要生成 embedding 并存储到数据库
-            # 模拟 fetch_opengraph 的行为，触发 embedding 预取
-            try:
-                from opengraph import _prefetch_embedding
-                import asyncio
-                # 异步触发 embedding 预取（不阻塞响应）
-                for item in opengraph_data:
-                    if item.get("success") and item.get("is_local_fetch"):
-                        # 创建后台任务，不等待完成（异步执行）
-                        asyncio.create_task(_prefetch_embedding(item))
-                print(f"[API] Triggered embedding prefetch for {sum(1 for item in opengraph_data if item.get('success') and item.get('is_local_fetch'))} local items")
-            except Exception as e:
-                print(f"[API] Warning: Failed to prefetch embeddings for local data: {e}")
-                import traceback
-                traceback.print_exc()
+            print(f"[API] Processed {len(opengraph_data)} items from local OpenGraph data")
+            return {"ok": True, "data": opengraph_data}
         else:
-            # 没有本地数据，使用后端抓取
-            results = await fetch_multiple_opengraph(urls)
-            
-            # 将结果与原始 tab 信息合并
-            opengraph_data = []
-            for i, result in enumerate(results):
-                opengraph_data.append({
-                    **result,
-                    "tab_id": request.tabs[i].id,
-                    "tab_title": request.tabs[i].title,
-                    "is_screenshot": result.get("is_screenshot", False),
-                })
-            
-            print(f"[API] Processed {len(opengraph_data)} items (backend fetch)")
-        
-        # 统计截图数量
-        screenshot_count = sum(1 for item in opengraph_data if item.get("is_screenshot", False))
-        local_count = sum(1 for item in opengraph_data if item.get("is_local_fetch", False))
-        print(f"[API] OpenGraph data: {len(opengraph_data)} items, {screenshot_count} screenshots, {local_count} local fetches")
-        
-        return {"ok": True, "data": opengraph_data}
+            # ✅ 如果没有本地数据，返回空列表并记录警告
+            print("[OpenGraph] No local_opengraph_data provided; backend no longer fetches OG by itself.")
+            return {"ok": True, "data": []}
     except Exception as e:
+        print(f"[API] Error processing OpenGraph request: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 

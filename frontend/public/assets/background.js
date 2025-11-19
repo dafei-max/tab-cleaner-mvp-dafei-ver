@@ -794,62 +794,33 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           return;
         }
 
-        // ✅ 优先使用本地 OpenGraph 抓取（使用用户的浏览器会话）
+        // ✅ 只使用本地 OpenGraph 抓取（后端不再抓取）
         let item = null;
         try {
-          // 尝试从 content script 获取本地 OpenGraph 数据
+          // 从 content script 获取本地 OpenGraph 数据
           const localOG = await chrome.tabs.sendMessage(tab.id, { action: 'fetch-opengraph' });
           if (localOG && localOG.success) {
             console.log('[Tab Cleaner Background] ✅ Got local OpenGraph data:', localOG);
             item = localOG;
+          } else {
+            // 本地抓取失败，记录警告
+            console.warn(`[OpenGraph] Local OG failed for ${url}, skipping backend OG fetch (backend no longer crawls)`);
+            sendResponse({ 
+              ok: false, 
+              error: "需要刷新页面再试",
+              hint: "OpenGraph 数据获取失败，请刷新页面后重试"
+            });
+            return;
           }
         } catch (localError) {
-          console.log('[Tab Cleaner Background] Local OpenGraph fetch failed, will try backend:', localError.message);
-        }
-
-        // 如果本地抓取失败，使用后端 API
-        if (!item || !item.success) {
-          console.log('[Tab Cleaner Background] Using backend API for OpenGraph...');
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-          // 获取 API 地址
-          const apiUrl = API_CONFIG.getBaseUrlSync();
-          const opengraphUrl = `${apiUrl}/api/v1/tabs/opengraph`;
-
-          let response;
-          try {
-            response = await fetch(opengraphUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                tabs: [{ url, title, id: tab.id }]
-              }),
-              signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-          } catch (fetchError) {
-            clearTimeout(timeoutId);
-            console.error('[Tab Cleaner Background] Failed to fetch OpenGraph:', fetchError);
-            sendResponse({ ok: false, error: fetchError.message });
-            return;
-          }
-
-          if (!response.ok) {
-            const errorText = await response.text().catch(() => '未知错误');
-            sendResponse({ ok: false, error: `HTTP ${response.status}: ${errorText}` });
-            return;
-          }
-
-          const opengraphData = await response.json();
-          const items = opengraphData.data || (Array.isArray(opengraphData) ? opengraphData : []);
-          
-          if (items.length === 0) {
-            sendResponse({ ok: false, error: "No OpenGraph data received" });
-            return;
-          }
-
-          item = items[0];
+          // 本地抓取异常，记录警告
+          console.warn(`[OpenGraph] Local OG failed for ${url}, skipping backend OG fetch (backend no longer crawls):`, localError.message);
+          sendResponse({ 
+            ok: false, 
+            error: "需要刷新页面再试",
+            hint: "OpenGraph 数据获取失败，请刷新页面后重试"
+          });
+          return;
         }
 
         // 获取现有 sessions
