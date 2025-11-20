@@ -645,16 +645,21 @@
     }
     if (req.action === "fetch-opengraph") {
       // 重要：返回 true 保持消息通道开放，以便异步发送响应
-      // 优化：直接从 recent_opengraph 读取已缓存的数据，而不是重新执行函数
+      // ✅ 简化：只从缓存读取，不尝试注入脚本（content scripts 运行在隔离世界，无法访问页面脚本的全局函数）
       console.log('[Tab Cleaner Content] fetch-opengraph requested');
       console.log('[Tab Cleaner Content] Reading from recent_opengraph cache...');
       
-      // ✅ 优先从缓存读取（opengraph_local.js 已经自动提取并保存了）
+      // 从缓存读取（opengraph_local.js 已经通过 window.postMessage 发送数据，content script 已保存到 chrome.storage.local）
       chrome.storage.local.get(['recent_opengraph'], (items) => {
         if (chrome.runtime.lastError) {
           console.error('[Tab Cleaner Content] ❌ Failed to get recent_opengraph:', chrome.runtime.lastError);
-          // 如果读取失败，fallback 到重新提取
-          fallbackToExtract();
+          if (typeof sendResponse === 'function') {
+            sendResponse({ 
+              success: false, 
+              error: `Failed to read cache: ${chrome.runtime.lastError.message}`,
+              is_doc_card: false
+            });
+          }
           return;
         }
         
@@ -681,14 +686,21 @@
             sendResponse(cachedData);
           }
         } else {
-          console.log('[Tab Cleaner Content] ⚠️ No cached data found for', currentUrl, ', falling back to extraction...');
-          // 如果没有缓存，fallback 到重新提取
-          fallbackToExtract();
+          console.log('[Tab Cleaner Content] ⚠️ No cached data found for', currentUrl);
+          // 如果没有缓存，直接返回错误（不尝试注入脚本，因为 content scripts 无法访问页面脚本的全局函数）
+          if (typeof sendResponse === 'function') {
+            sendResponse({ 
+              success: false, 
+              error: 'No cached OpenGraph data, please refresh this page and try again.',
+              url: currentUrl,
+              is_doc_card: false
+            });
+          }
         }
       });
       
-      // Fallback 函数：如果缓存中没有，才重新提取
-      const fallbackToExtract = () => {
+      return true; // 保持消息通道开放
+    }
         console.log('[Tab Cleaner Content] Attempting to extract OpenGraph data...');
         console.log('[Tab Cleaner Content] window.__TAB_CLEANER_GET_OPENGRAPH exists?', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
         
