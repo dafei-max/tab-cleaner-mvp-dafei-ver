@@ -633,6 +633,7 @@
   top: 24px;
   width: 290px;
   z-index: 10;
+  justify-content: flex-end; /* 让按钮靠右对齐 */
 }
 
 .personal-space .add-new-session {
@@ -673,7 +674,7 @@
   align-items: center;
   background-color: #cfcfcf;
   border-radius: 5px;
-  display: inline-flex;
+  display: none !important; /* 暂时隐藏分享按钮 */
   height: 34px;
   overflow: hidden;
   padding: 5px 35px;
