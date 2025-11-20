@@ -311,11 +311,80 @@
   }
 
   /**
+   * 重置提取状态（用于 URL 变化时）
+   */
+  function resetExtractionState() {
+    console.log('[OpenGraph Local] 🔄 Resetting extraction state for new URL');
+    extractionAttempts = 0;
+    lastExtractedData = null;
+    lastExtractedUrl = window.location.href;
+    
+    // 清理现有的监听器
+    if (mutationObserver) {
+      mutationObserver.disconnect();
+      mutationObserver = null;
+    }
+    if (retryTimeout) {
+      clearTimeout(retryTimeout);
+      retryTimeout = null;
+    }
+  }
+
+  /**
+   * 检查 URL 是否变化，如果变化则重新提取
+   */
+  function checkUrlAndReextract() {
+    const currentUrl = window.location.href;
+    
+    // 如果 URL 没有变化，不需要重新提取
+    if (lastExtractedUrl === currentUrl) {
+      return;
+    }
+    
+    console.log('[OpenGraph Local] 🔄 URL changed:', {
+      from: lastExtractedUrl,
+      to: currentUrl
+    });
+    
+    // 重置状态并立即重新提取
+    resetExtractionState();
+    
+    // 立即提取新 URL 的数据
+    const newData = extractOpenGraphLocal();
+    lastExtractedData = newData;
+    lastExtractedUrl = currentUrl;
+    
+    console.log('[OpenGraph Local] ✅ Re-extracted for new URL:', {
+      success: newData.success,
+      hasTitle: !!(newData.title),
+      hasImage: !!(newData.image)
+    });
+    
+    // 发送到后台
+    sendOpenGraphToBackground();
+    
+    // 如果数据不完整，设置监听和重试
+    if (!isDataComplete(newData)) {
+      setupMutationObserver();
+      if (extractionAttempts < MAX_EXTRACTION_ATTEMPTS) {
+        setTimeout(() => {
+          smartExtract();
+        }, 500);
+      }
+    } else {
+      setupMutationObserver();
+    }
+  }
+
+  /**
    * 智能提取：立即提取 + 如果数据不完整则监听变化
    */
   function smartExtract() {
     extractionAttempts++;
     const currentData = extractOpenGraphLocal();
+    
+    // 更新 URL 记录
+    lastExtractedUrl = window.location.href;
     
     // 如果数据完整，立即保存
     if (isDataComplete(currentData)) {
@@ -502,6 +571,33 @@
       setupMutationObserver();
     }
 
+    // ✅ 监听 URL 变化（SPA 支持）
+    // 1. 监听 popstate 事件（浏览器前进/后退）
+    window.addEventListener('popstate', () => {
+      console.log('[OpenGraph Local] 🔄 popstate event detected');
+      checkUrlAndReextract();
+    });
+
+    // 2. 拦截 history.pushState 和 history.replaceState
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+
+    history.pushState = function(...args) {
+      originalPushState.apply(history, args);
+      console.log('[OpenGraph Local] 🔄 pushState detected');
+      // 使用 setTimeout 确保 URL 已更新
+      setTimeout(() => checkUrlAndReextract(), 0);
+    };
+
+    history.replaceState = function(...args) {
+      originalReplaceState.apply(history, args);
+      console.log('[OpenGraph Local] 🔄 replaceState detected');
+      // 使用 setTimeout 确保 URL 已更新
+      setTimeout(() => checkUrlAndReextract(), 0);
+    };
+
+    console.log('[OpenGraph Local] ✅ URL change detection setup complete');
+
   } catch (e) {
     // 静默失败，不影响主要功能
     console.debug('[OpenGraph Local] Auto-send setup failed (non-critical):', e);
@@ -520,6 +616,13 @@
      */
     const openGraphFunction = function(waitForLoad = false) {
       console.log('[OpenGraph Local] Function called with waitForLoad:', waitForLoad);
+      
+      // ✅ 检查 URL 是否变化
+      const currentUrl = window.location.href;
+      if (lastExtractedUrl !== currentUrl) {
+        console.log('[OpenGraph Local] ⚠️ URL changed since last extraction, re-extracting...');
+        checkUrlAndReextract();
+      }
       
       // 如果不需要等待，直接返回结果（优先使用已提取的数据）
       if (!waitForLoad) {
