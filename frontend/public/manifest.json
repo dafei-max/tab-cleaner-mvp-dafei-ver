@@ -50,6 +50,7 @@
       "use_dynamic_url": true
     }
   ],
+  // Note: assets/opengraph_local.js is included via "assets/*.js" pattern above
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://tab-cleaner-mvp-production.up.railway.app http://localhost:8000"
   }

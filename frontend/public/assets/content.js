@@ -2,43 +2,35 @@
   if (window.__TAB_CLEANER_CONTENT_INSTALLED) return;
   window.__TAB_CLEANER_CONTENT_INSTALLED = true;
 
-  // 加载本地 OpenGraph 抓取工具
-  (function loadOpenGraphLocal() {
-    // 如果函数已经存在，说明脚本已经加载成功
-    if (typeof window.__TAB_CLEANER_GET_OPENGRAPH === 'function') {
-      console.log('[Tab Cleaner] OpenGraph local already loaded and ready');
-      window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = true;
+  // ✅ Always inject opengraph_local.js into the page world on page load
+  // Note: Content scripts run in an isolated world and cannot access page-world globals,
+  // so we inject the script and let it communicate via window.postMessage
+  (function injectOpenGraphScriptOnce() {
+    // Use a flag in the content script's isolated world to avoid duplicate injection
+    if (window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED) {
+      console.log('[Tab Cleaner Content] opengraph_local already marked as loaded in this world, skipping inject.');
       return;
     }
     
-    // 如果标志已设置但函数不存在，重置标志（可能是之前的加载失败了）
-    if (window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED) {
-      console.warn('[Tab Cleaner] OpenGraph flag set but function missing, reloading...');
-      window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = false;
+    try {
+      const script = document.createElement('script');
+      script.src = chrome.runtime.getURL('assets/opengraph_local.js');
+      script.async = false;
+      script.onload = () => {
+        console.log('[Tab Cleaner Content] opengraph_local script injected and loaded.');
+        // Mark as loaded in content script's isolated world
+        window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = true;
+        // Remove script tag after load (opengraph_local.js will handle its own initialization)
+        script.remove();
+      };
+      script.onerror = (e) => {
+        console.error('[Tab Cleaner Content] Failed to inject opengraph_local:', e);
+      };
+      (document.head || document.documentElement).appendChild(script);
+      console.log('[Tab Cleaner Content] Injected opengraph_local into page.');
+    } catch (err) {
+      console.error('[Tab Cleaner Content] Failed to inject opengraph_local:', err);
     }
-    
-    const script = document.createElement('script');
-    script.src = chrome.runtime.getURL('assets/opengraph_local.js');
-    script.onload = () => {
-      console.log('[Tab Cleaner] OpenGraph local script loaded');
-      // 等待一下确保函数已定义
-      setTimeout(() => {
-        if (typeof window.__TAB_CLEANER_GET_OPENGRAPH === 'function') {
-          console.log('[Tab Cleaner] ✅ OpenGraph function ready');
-          // 只有在函数确实可用时才设置标志
-          window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = true;
-        } else {
-          console.warn('[Tab Cleaner] ⚠️ OpenGraph function not found after load');
-          window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = false; // 允许重试
-        }
-      }, 300); // 增加等待时间
-      // 不立即移除，保留脚本以便函数可用
-    };
-    script.onerror = (e) => {
-      console.error('[Tab Cleaner] Failed to load opengraph_local.js:', e);
-      window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = false; // 允许重试
-    };
-    (document.head || document.documentElement).appendChild(script);
   })();
 
   // ✅ v2.4: pet.js 现在作为 content script 在 manifest.json 中加载
@@ -644,12 +636,12 @@
       return true; // 保持消息通道开放
     }
     if (req.action === "fetch-opengraph") {
-      // 重要：返回 true 保持消息通道开放，以便异步发送响应
-      // ✅ 简化：只从缓存读取，不尝试注入脚本（content scripts 运行在隔离世界，无法访问页面脚本的全局函数）
+      // ✅ Simplified: Only read cached OpenGraph data from chrome.storage.local
+      // Content scripts run in an isolated world and cannot access page-world globals,
+      // so we rely on opengraph_local.js (injected on page load) to extract data
+      // and save it via window.postMessage -> chrome.storage.local
       console.log('[Tab Cleaner Content] fetch-opengraph requested');
-      console.log('[Tab Cleaner Content] Reading from recent_opengraph cache...');
       
-      // 从缓存读取（opengraph_local.js 已经通过 window.postMessage 发送数据，content script 已保存到 chrome.storage.local）
       chrome.storage.local.get(['recent_opengraph'], (items) => {
         if (chrome.runtime.lastError) {
           console.error('[Tab Cleaner Content] ❌ Failed to get recent_opengraph:', chrome.runtime.lastError);
@@ -666,18 +658,18 @@
         const recent = items.recent_opengraph || [];
         const currentUrl = window.location.href;
         
-        // 查找当前 URL 的数据
+        // Find cached data for current URL
         const cachedData = recent.find(item => item && item.url === currentUrl);
         
         if (cachedData) {
-          console.log('[Tab Cleaner Content] ✅ Found cached data:', {
+          console.log('[Tab Cleaner Content] ✅ Using cached OpenGraph:', {
             url: cachedData.url,
             success: cachedData.success,
             hasTitle: !!(cachedData.title),
             hasImage: !!(cachedData.image)
           });
           
-          // 确保 is_doc_card 被正确设置
+          // Ensure is_doc_card is set
           if (cachedData.is_doc_card === undefined) {
             cachedData.is_doc_card = false;
           }
@@ -686,12 +678,11 @@
             sendResponse(cachedData);
           }
         } else {
-          console.log('[Tab Cleaner Content] ⚠️ No cached data found for', currentUrl);
-          // 如果没有缓存，直接返回错误（不尝试注入脚本，因为 content scripts 无法访问页面脚本的全局函数）
+          console.log('[Tab Cleaner Content] ⚠️ No cached OpenGraph data for', currentUrl);
           if (typeof sendResponse === 'function') {
             sendResponse({ 
               success: false, 
-              error: 'No cached OpenGraph data, please refresh this page and try again.',
+              error: 'No cached OpenGraph data for this URL. Please refresh this page once and try again.',
               url: currentUrl,
               is_doc_card: false
             });
@@ -699,7 +690,7 @@
         }
       });
       
-      return true; // 保持消息通道开放
+      return true; // Keep message channel open for async sendResponse
     }
     return false;
   });
