@@ -1393,6 +1393,107 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     return true; // 异步响应
   }
   
+  // ✅ 处理立即发送 OG 数据到后端的请求
+  if (req.action === "send-opengraph-to-backend") {
+    console.log('[Tab Cleaner Background] 📥 Received OG data to send to backend:', {
+      url: req.data?.url,
+      hasTitle: !!(req.data?.title),
+      hasImage: !!(req.data?.image),
+      success: req.data?.success
+    });
+    
+    // 异步处理，不阻塞
+    (async () => {
+      try {
+        const ogData = req.data;
+        if (!ogData || !ogData.success) {
+          console.log('[Tab Cleaner Background] ⚠️ OG data not valid, skipping backend send');
+          return;
+        }
+        
+        const apiUrl = API_CONFIG.getBaseUrlSync();
+        if (!apiUrl) {
+          console.log('[Tab Cleaner Background] ⚠️ No API URL configured, skipping backend send');
+          return;
+        }
+        
+        // ✅ 规范化函数：确保 image 是字符串，不是数组
+        const normalizeItem = (item) => {
+          const normalized = {
+            url: String(item.url || '').trim(),
+            title: item.title ? String(item.title).trim() : null,
+            description: item.description ? String(item.description).trim() : null,
+            image: null,
+            site_name: item.site_name ? String(item.site_name).trim() : null,
+            tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
+            tab_title: item.tab_title ? String(item.tab_title).trim() : null,
+            is_doc_card: Boolean(item.is_doc_card || false),
+            is_screenshot: Boolean(item.is_screenshot || false),
+            success: Boolean(item.success !== undefined ? item.success : true),
+          };
+          
+          // ✅ 关键：确保 image 是字符串，不是数组
+          let image = item.image;
+          if (image) {
+            if (Array.isArray(image)) {
+              image = image.length > 0 ? String(image[0]).trim() : null;
+            } else if (typeof image === 'string') {
+              image = image.trim() || null;
+            } else {
+              image = String(image).trim() || null;
+            }
+          }
+          normalized.image = image;
+          
+          return normalized;
+        };
+        
+        const normalizedItem = normalizeItem(ogData);
+        const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
+        
+        console.log('[Tab Cleaner Background] 📤 Sending OG data to backend for embedding:', {
+          url: embeddingUrl,
+          item: {
+            url: normalizedItem.url,
+            hasTitle: !!(normalizedItem.title),
+            hasImage: !!(normalizedItem.image),
+            image: normalizedItem.image ? normalizedItem.image.substring(0, 60) + '...' : null
+          }
+        });
+        
+        const response = await fetch(embeddingUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            opengraph_items: [normalizedItem]
+          }),
+        });
+        
+        console.log('[Tab Cleaner Background] 📥 Backend response (immediate send):', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok
+        });
+        
+        if (response.ok) {
+          const embedData = await response.json();
+          console.log('[Tab Cleaner Background] ✅ Backend processed OG data:', {
+            saved: embedData.saved,
+            hasData: !!(embedData.data && embedData.data.length > 0)
+          });
+        } else {
+          console.warn('[Tab Cleaner Background] ⚠️ Backend returned error:', response.status, response.statusText);
+        }
+      } catch (error) {
+        console.error('[Tab Cleaner Background] ❌ Failed to send OG to backend:', error);
+      }
+    })();
+    
+    // 立即返回，不等待异步处理完成
+    sendResponse?.({ ok: true, message: "OG data queued for backend processing" });
+    return true;
+  }
+  
   // 处理其他消息类型
   return false;
 });

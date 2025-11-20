@@ -549,6 +549,26 @@
                     console.error('[Tab Cleaner Content] ❌ Failed to save recent_opengraph:', chrome.runtime.lastError);
                   } else {
                     console.log('[Tab Cleaner Content] ✅ Added to recent_opengraph list (total:', limited.length, ')');
+                    
+                    // ✅ 立即发送到后端处理（异步，不阻塞）
+                    if (cacheData && cacheData.success) {
+                      console.log('[Tab Cleaner Content] 📤 Sending OG data to background for backend processing:', {
+                        url: cacheData.url,
+                        hasTitle: !!(cacheData.title),
+                        hasImage: !!(cacheData.image)
+                      });
+                      
+                      chrome.runtime.sendMessage({
+                        action: 'send-opengraph-to-backend',
+                        data: cacheData
+                      }, (response) => {
+                        if (chrome.runtime.lastError) {
+                          console.error('[Tab Cleaner Content] ❌ Failed to send OG to background:', chrome.runtime.lastError);
+                        } else {
+                          console.log('[Tab Cleaner Content] ✅ OG data sent to background:', response);
+                        }
+                      });
+                    }
                   }
                 });
               });
