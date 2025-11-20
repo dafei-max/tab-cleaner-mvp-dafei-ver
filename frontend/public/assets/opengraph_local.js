@@ -295,6 +295,7 @@
   let extractionAttempts = 0;
   const MAX_EXTRACTION_ATTEMPTS = 3;
   let lastExtractedData = null;
+  let lastExtractedUrl = null; // ✅ 追踪最后提取的 URL
   let mutationObserver = null;
   let retryTimeout = null;
 
@@ -448,10 +449,12 @@
     console.log('[OpenGraph Local] [IMMEDIATE] Executing immediate extraction...');
     const immediateData = extractOpenGraphLocal();
     lastExtractedData = immediateData;
+    lastExtractedUrl = window.location.href; // ✅ 记录当前 URL
     console.log('[OpenGraph Local] [IMMEDIATE] First extraction complete:', {
       success: immediateData.success,
       hasTitle: !!(immediateData.title),
-      hasImage: !!(immediateData.image)
+      hasImage: !!(immediateData.image),
+      url: lastExtractedUrl
     });
     
     // 第二步：发送到后台（可选，不影响主要功能）
