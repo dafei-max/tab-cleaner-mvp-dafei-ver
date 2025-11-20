@@ -115,9 +115,25 @@ async def fetch_tabs_opengraph(request: OpenGraphRequest):
     后端不再主动抓取 OpenGraph，只接收和处理客户端数据
     """
     try:
+        print(f"[API] 📥 /api/v1/tabs/opengraph endpoint called")
+        print(f"[API] Request details: tabs={len(request.tabs)}, local_opengraph_data={len(request.local_opengraph_data) if request.local_opengraph_data else 0}")
+        
         # ✅ 简化：只接收客户端发送的 local_opengraph_data
         if request.local_opengraph_data and len(request.local_opengraph_data) > 0:
-            print(f"[API] Received local OpenGraph data for {len(request.local_opengraph_data)} items")
+            print(f"[API] ✅ Received local OpenGraph data for {len(request.local_opengraph_data)} items")
+            
+            # 打印第一个 item 的详细信息
+            if len(request.local_opengraph_data) > 0:
+                first_item = request.local_opengraph_data[0]
+                print(f"[API] 📋 First local OG item sample:", {
+                    "url": first_item.get("url"),
+                    "has_title": bool(first_item.get("title")),
+                    "has_description": bool(first_item.get("description")),
+                    "has_image": bool(first_item.get("image")),
+                    "image_preview": str(first_item.get("image"))[:60] + "..." if first_item.get("image") else None,
+                    "success": first_item.get("success"),
+                    "is_local_fetch": first_item.get("is_local_fetch"),
+                })
             
             # 创建 tab URL 到 tab 信息的映射
             tab_map = {tab.url: tab for tab in request.tabs}
@@ -138,14 +154,14 @@ async def fetch_tabs_opengraph(request: OpenGraphRequest):
                 }
                 opengraph_data.append(normalized_item)
             
-            print(f"[API] Processed {len(opengraph_data)} items from local OpenGraph data")
+            print(f"[API] ✅ Processed {len(opengraph_data)} items from local OpenGraph data")
             return {"ok": True, "data": opengraph_data}
         else:
             # ✅ 如果没有本地数据，返回空列表并记录警告
-            print("[OpenGraph] No local_opengraph_data provided; backend no longer fetches OG by itself.")
+            print("[API] ⚠️ No local_opengraph_data provided; backend no longer fetches OG by itself.")
             return {"ok": True, "data": []}
     except Exception as e:
-        print(f"[API] Error processing OpenGraph request: {e}")
+        print(f"[API] ❌ Error processing OpenGraph request: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -209,6 +225,7 @@ async def generate_embeddings(request: EmbeddingRequest):
             return {"ok": True, "saved": 0, "data": []}
         
         print(f"[API] 📥 Received request with {len(request.opengraph_items)} items for embedding generation")
+        print(f"[API] 🔍 Endpoint: /api/v1/search/embedding")
         
         # ✅ 添加详细日志：打印第一个 item 的字段
         if len(request.opengraph_items) > 0:
@@ -223,6 +240,7 @@ async def generate_embeddings(request: EmbeddingRequest):
                 "tab_id": first_item.get("tab_id"),
                 "is_doc_card": first_item.get("is_doc_card"),
                 "success": first_item.get("success"),
+                "is_local_fetch": first_item.get("is_local_fetch"),  # ✅ 检查是否是本地抓取
             })
         
         # ✅ 步骤 0: 规范化输入数据
