@@ -1109,6 +1109,7 @@
   width: 431px;
   min-width: 431px;
   z-index: 10;
+  display: none !important; /* 隐藏工具栏 */
 }
 
 .personal-space .tool {
