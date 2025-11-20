@@ -21,7 +21,7 @@ export const SessionHeader = ({
         justifyContent: 'space-between',
         padding: '16px 20px',
         borderBottom: '1px solid #e0e0e0',
-        backgroundColor: '#fafafa',
+        backgroundColor: 'transparent', // 隐藏白色背景
       }}
     >
       {/* 左侧：Session 名称和标签页数量 */}
