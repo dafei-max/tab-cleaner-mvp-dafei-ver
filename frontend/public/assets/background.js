@@ -1357,6 +1357,18 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
             const normalizedOgData = normalizeItem(ogData);
             
             const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
+            
+            // ✅ 添加详细日志
+            console.log(`[Tab Cleaner Background] 📤 Sending preview item to backend:`, {
+              url: embeddingUrl,
+              item: {
+                url: normalizedOgData.url,
+                hasTitle: !!(normalizedOgData.title),
+                hasImage: !!(normalizedOgData.image),
+                image: normalizedOgData.image ? normalizedOgData.image.substring(0, 60) + '...' : null
+              }
+            });
+            
             fetch(embeddingUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
