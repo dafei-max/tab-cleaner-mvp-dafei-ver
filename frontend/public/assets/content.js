@@ -701,7 +701,6 @@
       
       return true; // 保持消息通道开放
     }
-        console.log('[Tab Cleaner Content] Attempting to extract OpenGraph data...');
         console.log('[Tab Cleaner Content] window.__TAB_CLEANER_GET_OPENGRAPH exists?', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
         
         // 如果函数不存在，尝试加载脚本
