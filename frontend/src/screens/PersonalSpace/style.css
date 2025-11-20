@@ -1,5 +1,5 @@
 .personal-space {
-  background-color: #f5f5f5;
+  /* background-color: #f5f5f5; */ /* 移除背景色，使用流动天空背景 */
   min-height: 100vh;
   min-width: 100vw;
   position: relative;

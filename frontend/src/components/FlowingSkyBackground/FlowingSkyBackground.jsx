@@ -197,9 +197,15 @@ export default function FlowingSkyBackground({
       className={className}
       style={{
         position: "fixed",
-        inset: 0,
-        zIndex: -1,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: "100%",
+        height: "100%",
+        zIndex: 0,
         overflow: "hidden",
+        pointerEvents: "none", // 确保背景不拦截鼠标事件
         ...style,
       }}
     />
