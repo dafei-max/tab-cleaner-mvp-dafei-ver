@@ -5,6 +5,7 @@
   // ✅ Always inject opengraph_local.js into the page world on page load
   // Note: Content scripts run in an isolated world and cannot access page-world globals,
   // so we inject the script and let it communicate via window.postMessage
+  // ✅ FIX: Use inline script injection to bypass CSP restrictions (Pinterest, Instagram, etc.)
   (function injectOpenGraphScriptOnce() {
     // Use a flag in the content script's isolated world to avoid duplicate injection
     if (window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED) {
@@ -12,25 +13,44 @@
       return;
     }
     
-    try {
-      const script = document.createElement('script');
-      script.src = chrome.runtime.getURL('assets/opengraph_local.js');
-      script.async = false;
-      script.onload = () => {
-        console.log('[Tab Cleaner Content] opengraph_local script injected and loaded.');
-        // Mark as loaded in content script's isolated world
-        window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = true;
-        // Remove script tag after load (opengraph_local.js will handle its own initialization)
-        script.remove();
-      };
-      script.onerror = (e) => {
-        console.error('[Tab Cleaner Content] Failed to inject opengraph_local:', e);
-      };
-      (document.head || document.documentElement).appendChild(script);
-      console.log('[Tab Cleaner Content] Injected opengraph_local into page.');
-    } catch (err) {
-      console.error('[Tab Cleaner Content] Failed to inject opengraph_local:', err);
-    }
+    // Mark as loading to prevent duplicate attempts
+    window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = 'loading';
+    
+    // Fetch the script content and inject as inline script (bypasses CSP)
+    const scriptUrl = chrome.runtime.getURL('assets/opengraph_local.js');
+    
+    fetch(scriptUrl)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Failed to fetch script: ${response.status} ${response.statusText}`);
+        }
+        return response.text();
+      })
+      .then(jsCode => {
+        try {
+          // Inject as inline script (CSP-safe)
+          const script = document.createElement('script');
+          script.textContent = jsCode;
+          (document.head || document.documentElement).appendChild(script);
+          
+          // Remove script tag after injection
+          script.remove();
+          
+          // Script is injected, mark as executed
+          // The script will execute synchronously when appended to DOM
+          console.log('[Tab Cleaner] ✅ Injected OpenGraph inline script executed.');
+          window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = true;
+          
+          console.log('[Tab Cleaner Content] ✅ Injected opengraph_local as inline script (CSP-safe).');
+        } catch (err) {
+          console.error('[Tab Cleaner Content] ❌ Failed to inject inline script:', err);
+          window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = false;
+        }
+      })
+      .catch(error => {
+        console.error('[Tab Cleaner Content] ❌ Failed to fetch opengraph_local.js:', error);
+        window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = false;
+      });
   })();
 
   // ✅ v2.4: pet.js 现在作为 content script 在 manifest.json 中加载
