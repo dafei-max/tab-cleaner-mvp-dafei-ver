@@ -30,9 +30,10 @@ QUERY_SLEEP_S = 0.05
 # ---- Fusion weights (text, image) ----
 # 用于融合文本相似度和图像相似度分数
 # 格式：(text_weight, image_weight)
-DEFAULT_WEIGHTS = (0.4, 0.6)  # 默认：文本 40%，图像 60%（提高图像权重）
-IMAGE_FOCUSED_WEIGHTS = (0.1, 0.9)  # 视觉站（Pinterest/Behance/Dribbble/INS）：文本 10%，图像 90%
-DOC_FOCUSED_WEIGHTS = (0.7, 0.3)  # 文本站（博客/文档/知乎）：文本 70%，图像 30%
+# 设计师找图场景：默认更偏向图像
+DEFAULT_WEIGHTS = (0.2, 0.8)  # 默认：文本 20%，图像 80%（设计师找图，图像优先）
+IMAGE_FOCUSED_WEIGHTS = (0.05, 0.95)  # 视觉站（Pinterest/Behance/Dribbble/INS）：文本 5%，图像 95%
+DOC_FOCUSED_WEIGHTS = (0.6, 0.4)  # 文本站（博客/文档/知乎）：文本 60%，图像 40%（即使文档站也保留图像权重）
 
 
 def get_api_key() -> str:

@@ -372,8 +372,12 @@ async def search_content(request: SearchRequest):
         from vector_db import search_by_text_embedding
         from search.rank import sort_by_vector_similarity
         
-        # 增强查询文本（添加相关词、同义词等）
-        enhanced_query = enhance_query(request.query, enable_synonym_expansion=True)
+        # 增强查询文本（设计师找图场景，默认偏向视觉查询）
+        enhanced_query = enhance_query(
+            request.query, 
+            enable_synonym_expansion=True,
+            default_to_visual=True  # 设计师找图场景，默认偏向视觉
+        )
         
         # 使用增强后的查询生成 embedding
         query_embedding = await embed_text(enhanced_query)
@@ -386,9 +390,28 @@ async def search_content(request: SearchRequest):
         print(f"[API] Generated query embedding (dimension: {len(query_embedding)})")
         
         # 2. 从数据库检索更多结果（包含 text_embedding 和 image_embedding）
-        # 扩大 top_k 以获取更多候选，后续会重新排序
+        # 设计师找图场景：同时检索文本和图像 embedding，扩大候选池
         expanded_top_k = top_k * 3  # 获取 3 倍结果用于融合排序
-        db_results = await search_by_text_embedding(query_embedding, top_k=expanded_top_k)
+        
+        # 同时检索文本和图像 embedding（图像优先）
+        from vector_db import search_by_text_embedding, search_by_image_embedding
+        
+        # 文本检索
+        text_db_results = await search_by_text_embedding(query_embedding, top_k=expanded_top_k)
+        # 图像检索（设计师找图场景，图像更重要）
+        image_db_results = await search_by_image_embedding(query_embedding, top_k=expanded_top_k)
+        
+        # 合并并去重（图像结果优先）
+        all_results_map = {}
+        # 先添加图像结果（优先级更高）
+        for item in image_db_results:
+            all_results_map[item["url"]] = item
+        # 再添加文本结果（如果图像结果中没有）
+        for item in text_db_results:
+            if item["url"] not in all_results_map:
+                all_results_map[item["url"]] = item
+        
+        db_results = list(all_results_map.values())
         
         if not db_results:
             print(f"[API] No results found in database for query: '{request.query}'")

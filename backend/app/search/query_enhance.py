@@ -42,17 +42,18 @@ SYNONYM_MAP = {
 }
 
 
-def detect_query_type(query: str) -> str:
+def detect_query_type(query: str, default_to_visual: bool = True) -> str:
     """
     识别查询类型
     
     Args:
         query: 用户查询文本
+        default_to_visual: 是否默认偏向视觉查询（设计师找图场景，默认 True）
     
     Returns:
         "visual": 视觉查询（找图片/设计）
         "tech": 技术文档查询（找教程/文档）
-        "general": 通用查询
+        "general": 通用查询（如果 default_to_visual=True，会偏向 visual）
     """
     query_lower = query.lower()
     
@@ -61,10 +62,14 @@ def detect_query_type(query: str) -> str:
     if visual_count > 0:
         return "visual"
     
-    # 检查技术关键词
+    # 检查技术关键词（需要明确的技术词汇才识别为 tech）
     tech_count = sum(1 for kw in TECH_KEYWORDS if kw.lower() in query_lower)
-    if tech_count > 0:
+    if tech_count >= 2:  # 需要至少2个技术关键词才识别为 tech
         return "tech"
+    
+    # 对于设计师找图场景，默认偏向视觉查询
+    if default_to_visual:
+        return "visual"
     
     return "general"
 

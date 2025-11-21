@@ -28,21 +28,30 @@ def fuzzy_score(query: str, title: str, description: str) -> float:
 
 
 def _choose_weights(item: Dict) -> Tuple[float, float]:
-    """根据内容类型选择融合权重"""
+    """
+    根据内容类型选择融合权重
+    
+    设计师找图场景：默认更偏向图像，只有明确的技术文档站才降低图像权重
+    """
     url = (item.get("url") or "").lower()
     site = (item.get("site_name") or "").lower()
     
-    # 视觉为主的站点：图像权重更高（图8:文2）
-    image_keywords = ["pinterest", "xiaohongshu", "arena", "unsplash", "behance", "dribbble", "instagram"]
+    # 视觉为主的站点：图像权重极高（图95%:文5%）
+    image_keywords = [
+        "pinterest", "xiaohongshu", "arena", "unsplash", "behance", "dribbble", 
+        "instagram", "pexels", "pixabay", "freepik", "shutterstock", "getty",
+        "deviantart", "artstation", "500px", "flickr", "imgur", "tumblr"
+    ]
     if any(k in url or k in site for k in image_keywords):
-        return IMAGE_FOCUSED_WEIGHTS  # (0.2, 0.8) - 文本 20%，图像 80%
+        return IMAGE_FOCUSED_WEIGHTS  # (0.05, 0.95) - 文本 5%，图像 95%
     
-    # 文档为主的站点：文本权重更高
-    doc_keywords = ["github.com", "readthedocs", "/docs/", "developer.", "dev.", "zhihu", "blog"]
+    # 明确的技术文档站点：降低图像权重（但仍保留40%）
+    doc_keywords = ["github.com", "readthedocs", "/docs/", "developer.", "dev.", "stackoverflow"]
     if any(k in url for k in doc_keywords):
-        return DOC_FOCUSED_WEIGHTS  # (0.8, 0.2)
+        return DOC_FOCUSED_WEIGHTS  # (0.6, 0.4) - 即使文档站也保留图像权重
     
-    return DEFAULT_WEIGHTS  # (0.6, 0.4)
+    # 默认：图像优先（设计师找图场景）
+    return DEFAULT_WEIGHTS  # (0.2, 0.8) - 文本 20%，图像 80%
 
 
 def sort_by_vector_similarity(
