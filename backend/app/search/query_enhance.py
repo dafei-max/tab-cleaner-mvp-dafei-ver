@@ -97,18 +97,19 @@ def expand_with_synonyms(query: str) -> str:
     return " ".join(enhanced_words).strip()
 
 
-def enhance_query(query: str, enable_synonym_expansion: bool = True) -> str:
+def enhance_query(query: str, enable_synonym_expansion: bool = True, default_to_visual: bool = True) -> str:
     """
     增强查询文本，提高 embedding 质量和检索准确度
     
     增强策略：
     1. 识别查询类型（视觉/技术/通用）
-    2. 根据类型添加相关关键词
+    2. 根据类型添加相关关键词（设计师找图场景，默认偏向视觉）
     3. 可选：添加英文同义词（支持中英文混合内容）
     
     Args:
         query: 原始查询文本
         enable_synonym_expansion: 是否启用同义词扩展（默认 True）
+        default_to_visual: 是否默认偏向视觉查询（设计师找图场景，默认 True）
     
     Returns:
         增强后的查询文本
@@ -117,7 +118,7 @@ def enhance_query(query: str, enable_synonym_expansion: bool = True) -> str:
         return query
     
     query = query.strip()
-    query_type = detect_query_type(query)
+    query_type = detect_query_type(query, default_to_visual=default_to_visual)
     
     # 根据查询类型添加相关词（使用 set 避免重复）
     enhanced_words = set(query.split())
