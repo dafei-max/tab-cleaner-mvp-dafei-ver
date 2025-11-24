@@ -1,6 +1,7 @@
 import { Canvas, useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { getImageUrl } from '../../shared/utils';
 
 /**
  * 渐变网格组件 - 使用自定义 shader 创建动画渐变效果
@@ -12,9 +13,9 @@ const GradientMesh = () => {
     () => ({
       uTime: { value: 0 },
       uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-      uColor1: { value: new THREE.Color('#CCE1F4') },
+      uColor1: { value: new THREE.Color('#86BCE9') },
       uColor2: { value: new THREE.Color('#E3EBF5') },
-      uColor3: { value: new THREE.Color('#D4E3F1') },
+      uColor3: { value: new THREE.Color('#B8D9F0') },
     }),
     []
   );
@@ -85,23 +86,20 @@ const GradientMesh = () => {
       tuv.y += sin(tuv.x*frequency*1.5+speed)/(amplitude*.5);
       
       // draw the image - 使用我们的三个颜色
-      // layer1: 从 uColor1 (#fafffc) 到 uColor2 (#ebf5ff)
+      // layer1: 从 uColor1 到 uColor2
       vec3 layer1 = mix(uColor1, uColor2, S(-.3, .2, (tuv*Rot(radians(-5.))).x));
       
-      // layer2: 从 uColor2 (#ebf5ff) 到 uColor3 (#c2dfff)
+      // layer2: 从 uColor2 到 uColor3
       vec3 layer2 = mix(uColor2, uColor3, S(-.3, .2, (tuv*Rot(radians(-5.))).x));
       
-      // 混合两层
-      vec3 finalComp = mix(layer1, layer2, S(.5, -.3, tuv.y));
+      // 使用噪声来创建随机的混合权重，让深色分布更随机
+      float noiseMix = noise(vec2(tuv.x * 2.0 + uTime * 0.1, tuv.y * 2.0 + uTime * 0.15));
+      // 反转分布：让深色（layer2）在下方和随机位置出现
+      float mixFactor = mix(S(-.3, .5, tuv.y), noiseMix * 0.5 + 0.5, 0.4);
+      vec3 finalComp = mix(layer1, layer2, mixFactor);
       
-      // 添加白色 grain（颗粒感）效果
-      vec2 grainCoord = uv * uResolution.xy;
-      float grain = fract(sin(dot(grainCoord + uTime * 10.0, vec2(12.9898, 78.233))) * 43758.5453);
-      grain = (grain - 0.5) * 0.4; // ⬅️ 调整颗粒强度：0.4 是当前强度（可以改成 0.05-0.5）
-      
-      // 白色颗粒：将 grain 应用到所有 RGB 通道
-      vec3 whiteGrain = vec3(grain);
-      vec3 col = finalComp + whiteGrain;
+      // grain 效果已移除
+      vec3 col = finalComp;
       
       gl_FragColor = vec4(col, 1.0);
     }
@@ -114,7 +112,7 @@ const GradientMesh = () => {
   });
 
   return (
-    <mesh ref={mesh} scale={[2, 2, 1]} position={[0, 0, 0]}>
+    <mesh ref={mesh} scale={[2.7, 2, 1]} position={[0, 0, 0]}>
       <planeGeometry args={[1, 1, 1, 1]} />
       <shaderMaterial
         vertexShader={vertexShader}
@@ -152,7 +150,7 @@ export default function FlowingSkyBackground({
         zIndex: 0,
         overflow: "hidden",
         pointerEvents: "none", // 确保背景不拦截鼠标事件
-        filter: 'blur(40px) contrast(1.5)',
+        filter: 'blur(40px) contrast(1)',
         ...style,
       }}
     >
@@ -171,6 +169,21 @@ export default function FlowingSkyBackground({
         <color attach="background" args={['#CCE1F4']} />
         <GradientMesh />
       </Canvas>
+      {/* Filter 遮罩层 */}
+      <img
+        src={getImageUrl("filter.png")}
+        alt="Filter overlay"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          pointerEvents: 'none',
+          zIndex: 1,
+        }}
+      />
     </div>
   );
 }

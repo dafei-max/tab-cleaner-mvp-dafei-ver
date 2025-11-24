@@ -502,6 +502,14 @@ export const PersonalSpace = () => {
     }
   };
 
+  // 处理宠物设定空间入口点击
+  const handlePetSettingsClick = () => {
+    // TODO: 实现宠物设定空间的导航逻辑
+    console.log('[PersonalSpace] Pet settings clicked - navigate to pet settings space');
+    // 这里可以添加路由跳转或打开宠物设定面板的逻辑
+    // 例如：navigate('/pet-settings') 或 setShowPetSettingsPanel(true)
+  };
+
   // 处理选中
   const handleSelect = (id, isMultiSelect) => {
     setSelectedIds(prev => {
@@ -1573,6 +1581,7 @@ export const PersonalSpace = () => {
         onSearch={handleSearch}
         onClear={handleClearSearch}
         isSearching={isSearching}
+        onPetSettingsClick={handlePetSettingsClick}
       />
 
       <ViewButtons 

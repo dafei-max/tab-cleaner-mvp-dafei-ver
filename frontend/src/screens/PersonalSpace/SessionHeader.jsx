@@ -22,7 +22,7 @@ export const SessionHeader = ({
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: '16px 20px',
-        borderBottom: '1px solid #e0e0e0',
+        borderBottom: 'none',
         backgroundColor: 'transparent', // 隐藏白色背景
       }}
     >
@@ -30,17 +30,17 @@ export const SessionHeader = ({
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         <div
           style={{
-            fontSize: '16px',
+            fontSize: '14px',
             fontWeight: 500,
-            color: '#000',
+            color: '#ffffff',
           }}
         >
           {session.name}
         </div>
         <div
           style={{
-            fontSize: '14px',
-            color: '#666',
+            fontSize: '12px',
+            color: '#ffffff',
           }}
         >
           {session.tabCount} 个标签页
@@ -70,8 +70,8 @@ export const SessionHeader = ({
             border: 'none',
             backgroundColor: 'transparent',
             cursor: 'pointer',
-            width: '40px',
-            height: '40px',
+            width: '32px',
+            height: '32px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -97,8 +97,8 @@ export const SessionHeader = ({
             border: 'none',
             backgroundColor: 'transparent',
             cursor: 'pointer',
-            width: '40px',
-            height: '40px',
+            width: '32px',
+            height: '32px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
