@@ -12,8 +12,8 @@ const GradientMesh = () => {
     () => ({
       uTime: { value: 0 },
       uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-      uColor1: { value: new THREE.Color('#93BBFA') },
-      uColor2: { value: new THREE.Color('#DDECF1') },
+      uColor1: { value: new THREE.Color('#CCE1F4') },
+      uColor2: { value: new THREE.Color('#E3EBF5') },
       uColor3: { value: new THREE.Color('#D4E3F1') },
     }),
     []
@@ -30,8 +30,8 @@ const GradientMesh = () => {
   const fragmentShader = `
     uniform float uTime;
     uniform vec2 uResolution;
-    uniform vec3 uColor1; // #93BBFA - 最浅色
-    uniform vec3 uColor2; // #DDECF1 - 中间色
+    uniform vec3 uColor1; // #CCE1F4 - 最浅色
+    uniform vec3 uColor2; // #E3EBF5 - 中间色
     uniform vec3 uColor3; // #D4E3F1 - 深色
     varying vec2 vUv;
     
@@ -94,9 +94,16 @@ const GradientMesh = () => {
       // 混合两层
       vec3 finalComp = mix(layer1, layer2, S(.5, -.3, tuv.y));
       
-      vec3 col = finalComp;
+      // 添加白色 grain（颗粒感）效果
+      vec2 grainCoord = uv * uResolution.xy;
+      float grain = fract(sin(dot(grainCoord + uTime * 10.0, vec2(12.9898, 78.233))) * 43758.5453);
+      grain = (grain - 0.5) * 0.4; // ⬅️ 调整颗粒强度：0.4 是当前强度（可以改成 0.05-0.5）
       
-      gl_FragColor = vec4(col,1.0);
+      // 白色颗粒：将 grain 应用到所有 RGB 通道
+      vec3 whiteGrain = vec3(grain);
+      vec3 col = finalComp + whiteGrain;
+      
+      gl_FragColor = vec4(col, 1.0);
     }
   `;
 
@@ -161,7 +168,7 @@ export default function FlowingSkyBackground({
         dpr={[1, 2]}
         frameloop="always"
       >
-        <color attach="background" args={['#93BBFA']} />
+        <color attach="background" args={['#CCE1F4']} />
         <GradientMesh />
       </Canvas>
     </div>

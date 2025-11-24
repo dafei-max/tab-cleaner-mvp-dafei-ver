@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { motion } from "framer-motion";
 import { Component } from "../../components/Component";
 import { SearchBar } from "../../components/SearchBar";
 import { ToolSets } from "../../components/ToolSets";
@@ -1524,7 +1525,7 @@ export const PersonalSpace = () => {
           )}
 
       <div className="space-function">
-        <div 
+        <motion.div 
           className="add-new-session"
           onClick={() => {
             // 创建新的空 session
@@ -1534,11 +1535,17 @@ export const PersonalSpace = () => {
             setViewMode('masonry');
           }}
           style={{ cursor: 'pointer' }}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.95 }}
+          transition={{ type: "spring", stiffness: 400, damping: 17 }}
         >
-          <img className="image-10" alt="Image" src={getImageUrl("3.svg")} />
-
-          <div className="text-wrapper-16">加新洗衣筐</div>
-        </div>
+          <img 
+            className="image-10" 
+            alt="Add button" 
+            src={getImageUrl("add-button.png")} 
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+          />
+        </motion.div>
 
         <div className="share">
           <img className="image-11" alt="Image" src={getImageUrl("4.svg")} />
@@ -1548,13 +1555,16 @@ export const PersonalSpace = () => {
       </div>
 
       <div className="space-title">
-        <img
+        <motion.img
           className="basket-icon"
-          alt="Basket icon"
-          src={getImageUrl("basket-icon-1.png")}
+          alt="Space name icon"
+          src={getImageUrl("space-name-icon.png")}
+          whileHover={{ scale: 1.1, rotate: 5 }}
+          whileTap={{ scale: 0.95 }}
+          transition={{ type: "spring", stiffness: 400, damping: 17 }}
         />
 
-        <div className="text-wrapper-18">我的收藏</div>
+        <div className="text-wrapper-18">洗衣房</div>
       </div>
 
       <SearchBar
