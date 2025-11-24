@@ -268,3 +268,4 @@ if items_to_process:
 - [x] ✅ 搜索降级逻辑完善
 - [ ] ⚠️ `/api/v1/search/embedding` API 存储 embedding（需要修复）
 
+

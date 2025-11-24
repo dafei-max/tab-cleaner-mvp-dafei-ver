@@ -162,3 +162,4 @@ Background Script → Backend API → Embedding → 更新 Session
 3. **离线支持**：完全离线模式（无后端）
 4. **智能重试**：自动重试失败的 embedding
 
+

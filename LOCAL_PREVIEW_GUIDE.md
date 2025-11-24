@@ -128,3 +128,4 @@ window.__TAB_CLEANER_HIDE_PREVIEW();
 - 预览卡片不会影响页面原有功能
 - 可以同时显示多个预览（如果需要）
 
+

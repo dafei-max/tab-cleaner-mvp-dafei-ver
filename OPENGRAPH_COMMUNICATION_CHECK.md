@@ -286,3 +286,4 @@ chrome.storage.local.get(['recent_opengraph'], (items) => {
    - 查看后端日志是否有 `[API] Processing X items` 消息
    - 如果没有，说明请求没有到达后端
 
+
