@@ -2,7 +2,7 @@
 
 /* Placeholder 颜色减淡 */
 .search-input::placeholder {
-  color: rgba(189, 189, 189, 0.75) !important; /* 更淡、更亮 */
+  color: var(--search-placeholder-color, rgba(189, 189, 189, 0.75)) !important; /* 更淡、更亮 */
   opacity: 1; /* 确保透明度生效 */
 }
 

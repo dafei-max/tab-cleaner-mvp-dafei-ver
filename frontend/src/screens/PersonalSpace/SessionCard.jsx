@@ -22,20 +22,36 @@ export const SessionCard = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [hoveredButton, setHoveredButton] = useState(null);
+  const tooltipBaseStyle = {
+    position: 'absolute',
+    bottom: '100%',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    marginBottom: '6px',
+    padding: '3px 6px',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    color: '#fff',
+    fontSize: '10px',
+    borderRadius: '4px',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+    zIndex: 20000,
+    opacity: 1,
+  };
+
+  const handleSelect = (e) => {
+    if (onSelect) {
+      onSelect(og.id, e?.shiftKey);
+    }
+  };
 
   const handleCardClick = (e) => {
     // 如果点击的是按钮，不触发卡片点击
     if (e.target.closest('.card-action-button')) {
       return;
     }
+    handleSelect(e);
     // 可以在这里添加双击打开链接的逻辑
-  };
-
-  const handleSelect = (e) => {
-    e.stopPropagation();
-    if (onSelect) {
-      onSelect(og.id);
-    }
   };
 
   const handleDelete = (e) => {
@@ -190,7 +206,7 @@ export const SessionCard = ({
         position: 'relative',
         backgroundColor: '#fff',
         borderRadius: '8px',
-        overflow: 'hidden',
+        overflow: 'visible',
         // 搜索结果发光效果
         boxShadow: isSearchResult 
           ? `0 0 ${8 + glowIntensity * 12}px ${glowColor}, 0 0 ${4 + glowIntensity * 8}px ${glowColor}, 0 2px 8px rgba(0,0,0,0.15)`
@@ -212,14 +228,15 @@ export const SessionCard = ({
       {/* 灰色圆角 Header */}
       <div
         style={{
-          backgroundColor: '#F0F0F0',
-          padding: '4px 10px',
+          backgroundColor: UI_CONFIG.cardHeader.background,
+          padding: UI_CONFIG.cardHeader.padding,
           display: 'flex',
           alignItems: 'center',
-          gap: '6px',
+          gap: `${UI_CONFIG.cardHeader.gap}px`,
           borderTopLeftRadius: '8px',
           borderTopRightRadius: '8px',
-          borderBottom: '1px solid #E0E0E0',
+          borderBottom: `1px solid ${UI_CONFIG.cardHeader.borderColor}`,
+          minHeight: UI_CONFIG.cardHeader.height ? `${UI_CONFIG.cardHeader.height}px` : 'auto',
         }}
       >
         {/* Favicon */}
@@ -363,21 +380,7 @@ export const SessionCard = ({
               {hoveredButton === 'copy' && (
                 <div
                   className="tooltip"
-                  style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    marginBottom: '8px',
-                    padding: '4px 8px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    color: 'white',
-                    fontSize: '12px',
-                    borderRadius: '4px',
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'none',
-                    zIndex: 1000,
-                  }}
+                  style={tooltipBaseStyle}
                 >
                   复制链接
                 </div>
@@ -410,13 +413,11 @@ export const SessionCard = ({
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = '#87CEEB';
-                const tooltip = e.currentTarget.querySelector('.tooltip');
-                if (tooltip) tooltip.style.opacity = '1';
+                setHoveredButton('delete');
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = '#F5F5F5';
-                const tooltip = e.currentTarget.querySelector('.tooltip');
-                if (tooltip) tooltip.style.opacity = '0';
+                setHoveredButton(null);
               }}
             >
               <img
@@ -428,21 +429,7 @@ export const SessionCard = ({
               {hoveredButton === 'delete' && (
                 <div
                   className="tooltip"
-                  style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    marginBottom: '8px',
-                    padding: '4px 8px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    color: 'white',
-                    fontSize: '12px',
-                    borderRadius: '4px',
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'none',
-                    zIndex: 1000,
-                  }}
+                  style={tooltipBaseStyle}
                 >
                   删除此卡片
                 </div>
@@ -491,21 +478,7 @@ export const SessionCard = ({
               {hoveredButton === 'download' && (
                 <div
                   className="tooltip"
-                  style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    marginBottom: '8px',
-                    padding: '4px 8px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    color: 'white',
-                    fontSize: '12px',
-                    borderRadius: '4px',
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'none',
-                    zIndex: 1000,
-                  }}
+                  style={tooltipBaseStyle}
                 >
                   下载此图
                 </div>
@@ -554,21 +527,7 @@ export const SessionCard = ({
               {hoveredButton === 'redirect' && (
                 <div
                   className="tooltip"
-                  style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    marginBottom: '8px',
-                    padding: '4px 8px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    color: 'white',
-                    fontSize: '12px',
-                    borderRadius: '4px',
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'none',
-                    zIndex: 1000,
-                  }}
+                  style={tooltipBaseStyle}
                 >
                   打开链接
                 </div>

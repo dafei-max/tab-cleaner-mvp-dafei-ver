@@ -7,25 +7,25 @@
 export const UI_CONFIG = {
   // ========== 顶部标题区域 ==========
   spaceTitle: {
-    fontSize: 20,              // 洗衣房字号（px）
+    fontSize: 16,              // 洗衣房字号（px）
     leftOffset: -120,          // 左边距偏移（px，负值表示更靠左）
     top: 13,                   // 距离顶部距离（px）
   },
 
   // ========== 添加 Session 按钮 ==========
   addSessionButton: {
-    rightOffset: -50,          // 右边距偏移（px，负值表示更靠右）
+    rightOffset: -120,          // 右边距偏移（px，负值表示更靠右）
     top: 24,                   // 距离顶部距离（px）
   },
 
   // ========== Session Header ==========
   sessionHeader: {
     title: {
-      fontSize: 18,            // Session 名称字号（px）
+      fontSize: 14,            // Session 名称字号（px）
       marginLeft: 110,          // 左边距（px，对齐 masonry 第一个卡片）
     },
     tabCount: {
-      fontSize: 18,            // 标签页数量字号（px）
+      fontSize: 12,            // 标签页数量字号（px）
     },
     actionButtons: {
       size: 32,                // 按钮大小（px）
@@ -36,9 +36,12 @@ export const UI_CONFIG = {
 
   // ========== 卡片 Header ==========
   cardHeader: {
-    fontSize: 8,              // 卡片 header 字号（px，最多12px）
-    padding: '4px 10px',        // 内边距
+    fontSize: 8,               // 卡片 header 字号（px，可调）
+    padding: '1px 10px',       // 内边距
     gap: 6,                    // Favicon 和文字之间的间距（px）
+    height: 18,                // Header 最小高度（px），调节灰色区域占比
+    background: '#F0F0F0',     // Header 背景色
+    borderColor: '#E0E0E0',    // Header 底部分割线颜色
   },
 
   // ========== Marker Bar (Scroll Spy Indicator) ==========
@@ -55,18 +58,18 @@ export const UI_CONFIG = {
   // ========== 搜索栏（Search Bar） ==========
   searchBar: {
     width: 380,              // 搜索栏宽度（px）
-    height: 45,              // 搜索栏高度（px）
+    height: 60,              // 搜索栏高度（px）
     borderRadius: 72,        // 搜索栏圆角
     placeholderColor: 'rgba(255, 255, 255, 0.75)', // Placeholder 颜色
-    backgroundHeightPercent: 100,   // 背景图占比高度（%）
+    backgroundHeightPercent: 80,   // 背景图占比高度（%）
     inputPaddingLeft: 4,     // 输入框左边距
     searchButton: {
       size: 100,
-      marginLeft: -30,
+      marginLeft: -18,
     },
     submitButton: {
       size: 32,
-      marginRight: 8,
+      marginRight: -38,
     },
     elephantIcon: {
       size: 100,

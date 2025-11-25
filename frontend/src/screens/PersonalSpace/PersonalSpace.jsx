@@ -26,6 +26,7 @@ import { getBestImageSource } from "../../utils/imagePlaceholder";
 import FlowingSkyBackground from "../../components/FlowingSkyBackground";
 import { GradualBlur } from "../../components/GradualBlur";
 import FluidGlassCursor from "../../components/FluidGlassCursor/FluidGlassCursor";
+import { UI_CONFIG } from "./uiConfig";
 import "./style.css";
 
 export const PersonalSpace = () => {
@@ -47,6 +48,7 @@ export const PersonalSpace = () => {
     }))
   );
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showAddTooltip, setShowAddTooltip] = useState(false);
   const [activeTool, setActiveTool] = useState(null); // 'draw' | 'lasso' | 'text' | null
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
@@ -1394,8 +1396,7 @@ export const PersonalSpace = () => {
                 onLassoSelect={handleLassoSelect}
                 onHistoryChange={handleHistoryChange}
                 getCanvasCursor={getCanvasCursor}
-              />
-              </motion.div>
+              />              </motion.div>
             )}
           </AnimatePresence>
 
@@ -1589,9 +1590,18 @@ export const PersonalSpace = () => {
             </>
           )}
 
-      <div className="space-function">
+      <div 
+        className="space-function"
+        style={{
+          right: `max(${UI_CONFIG.addSessionButton.rightOffset}px, calc(50% - 720px + ${UI_CONFIG.addSessionButton.rightOffset}px))`,
+          top: `${UI_CONFIG.addSessionButton.top}px`,
+        }}
+      >
         <motion.div 
           className="add-new-session"
+          onMouseEnter={() => setShowAddTooltip(true)}
+          onMouseLeave={() => setShowAddTooltip(false)}
+          title="添加新的 session"
           onClick={() => {
             // 创建新的空 session
             const newSession = createSession([]);
@@ -1599,7 +1609,7 @@ export const PersonalSpace = () => {
             // 切换到 masonry 视图
             setViewMode('masonry');
           }}
-          style={{ cursor: 'pointer' }}
+          style={{ cursor: 'pointer', position: 'relative' }}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.95 }}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
@@ -1610,6 +1620,27 @@ export const PersonalSpace = () => {
             src={getImageUrl("add-button.png")} 
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
+          {showAddTooltip && (
+            <div
+              className="tooltip"
+              style={{
+                position: 'absolute',
+                bottom: 'calc(100% + 6px)',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                padding: '3px 6px',
+                backgroundColor: 'rgba(0,0,0,0.85)',
+                color: '#fff',
+                fontSize: '10px',
+                borderRadius: '4px',
+                whiteSpace: 'nowrap',
+                pointerEvents: 'none',
+                zIndex: 20000,
+              }}
+            >
+              新增 Session
+            </div>
+          )}
         </motion.div>
 
         <div className="share">

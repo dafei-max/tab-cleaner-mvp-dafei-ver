@@ -35,6 +35,21 @@ export const RadialCard = ({
   const [isAnimating, setIsAnimating] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [hoveredButton, setHoveredButton] = useState(null);
+  const tooltipBaseStyle = {
+    position: 'absolute',
+    bottom: '100%',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    marginBottom: '6px',
+    padding: '3px 6px',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    color: '#fff',
+    fontSize: '10px',
+    borderRadius: '4px',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+    zIndex: 20000,
+  };
   const [imageSrc, setImageSrc] = useState(getBestImageSource(og, 'initials', width, height));
   const [faviconSrc, setFaviconSrc] = useState(null);
   const prevPositionRef = useRef({ x: initialX, y: initialY });
@@ -331,7 +346,7 @@ export const RadialCard = ({
         width: `${width}px`,
         backgroundColor: '#fff',
         borderRadius: '8px',
-        overflow: 'hidden',
+        overflow: 'visible',
         boxShadow: isSearchResult 
           ? `0 0 ${8 + glowIntensity * 12}px ${glowColor}, 0 0 ${4 + glowIntensity * 8}px ${glowColor}, 0 2px 8px rgba(0,0,0,0.15)`
           : '0 2px 8px rgba(0,0,0,0.15)',
@@ -352,14 +367,15 @@ export const RadialCard = ({
       {/* 灰色圆角 Header */}
       <div
         style={{
-          backgroundColor: '#F0F0F0',
-          padding: '4px 10px',
+          backgroundColor: UI_CONFIG.cardHeader.background,
+          padding: UI_CONFIG.cardHeader.padding,
           display: 'flex',
           alignItems: 'center',
-          gap: '6px',
+          gap: `${UI_CONFIG.cardHeader.gap}px`,
           borderTopLeftRadius: '8px',
           borderTopRightRadius: '8px',
-          borderBottom: '1px solid #E0E0E0',
+          borderBottom: `1px solid ${UI_CONFIG.cardHeader.borderColor}`,
+          minHeight: UI_CONFIG.cardHeader.height ? `${UI_CONFIG.cardHeader.height}px` : 'auto',
         }}
       >
         {/* Favicon */}
@@ -499,25 +515,11 @@ export const RadialCard = ({
                 alt="复制链接"
                 style={{ width: '12px', height: '12px', objectFit: 'contain' }}
               />
-              {hoveredButton === 'copy' && (
-                <div
-                  className="tooltip"
-                  style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    marginBottom: '8px',
-                    padding: '4px 8px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    color: 'white',
-                    fontSize: '12px',
-                    borderRadius: '4px',
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'none',
-                    zIndex: 1000,
-                  }}
-                >
+                    {hoveredButton === 'copy' && (
+                      <div
+                        className="tooltip"
+                        style={tooltipBaseStyle}
+                      >
                   复制链接
                 </div>
               )}
@@ -562,25 +564,11 @@ export const RadialCard = ({
                 alt="删除此卡片"
                 style={{ width: '12px', height: '12px', objectFit: 'contain' }}
               />
-              {hoveredButton === 'delete' && (
-                <div
-                  className="tooltip"
-                  style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    marginBottom: '8px',
-                    padding: '4px 8px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    color: 'white',
-                    fontSize: '12px',
-                    borderRadius: '4px',
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'none',
-                    zIndex: 1000,
-                  }}
-                >
+                    {hoveredButton === 'delete' && (
+                      <div
+                        className="tooltip"
+                        style={tooltipBaseStyle}
+                      >
                   删除此卡片
                 </div>
               )}
@@ -624,25 +612,11 @@ export const RadialCard = ({
                 alt="下载此图"
                 style={{ width: '12px', height: '12px', objectFit: 'contain' }}
               />
-              {hoveredButton === 'download' && (
-                <div
-                  className="tooltip"
-                  style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    marginBottom: '8px',
-                    padding: '4px 8px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    color: 'white',
-                    fontSize: '12px',
-                    borderRadius: '4px',
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'none',
-                    zIndex: 1000,
-                  }}
-                >
+                    {hoveredButton === 'download' && (
+                      <div
+                        className="tooltip"
+                        style={tooltipBaseStyle}
+                      >
                   下载此图
                 </div>
               )}
@@ -686,25 +660,11 @@ export const RadialCard = ({
                 alt="打开链接"
                 style={{ width: '12px', height: '12px', objectFit: 'contain' }}
               />
-              {hoveredButton === 'redirect' && (
-                <div
-                  className="tooltip"
-                  style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    marginBottom: '8px',
-                    padding: '4px 8px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    color: 'white',
-                    fontSize: '12px',
-                    borderRadius: '4px',
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'none',
-                    zIndex: 1000,
-                  }}
-                >
+                    {hoveredButton === 'redirect' && (
+                      <div
+                        className="tooltip"
+                        style={tooltipBaseStyle}
+                      >
                   打开链接
                 </div>
               )}

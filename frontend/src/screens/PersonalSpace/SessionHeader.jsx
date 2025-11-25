@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { getImageUrl } from '../../shared/utils';
 import { UI_CONFIG } from './uiConfig';
@@ -14,6 +14,21 @@ export const SessionHeader = ({
   onRename 
 }) => {
   const hasSelected = selectedCount > 0;
+  const [hoveredAction, setHoveredAction] = useState(null);
+  const tooltipBaseStyle = {
+    position: 'absolute',
+    bottom: 'calc(100% + 6px)',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    color: '#fff',
+    padding: '3px 6px',
+    borderRadius: '4px',
+    fontSize: '10px',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+    zIndex: 20000,
+  };
 
   return (
     <div
@@ -76,7 +91,10 @@ export const SessionHeader = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            position: 'relative',
           }}
+          onMouseEnter={() => setHoveredAction('open')}
+          onMouseLeave={() => setHoveredAction(null)}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.95 }}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
@@ -86,6 +104,11 @@ export const SessionHeader = ({
             alt="Open all"
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
+          {hoveredAction === 'open' && (
+            <div className="tooltip" style={tooltipBaseStyle}>
+              {hasSelected ? '打开选中标签页' : '打开全部标签页'}
+            </div>
+          )}
         </motion.button>
 
         {/* 删除按钮 */}
@@ -103,7 +126,10 @@ export const SessionHeader = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            position: 'relative',
           }}
+          onMouseEnter={() => setHoveredAction('delete')}
+          onMouseLeave={() => setHoveredAction(null)}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.95 }}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
@@ -113,6 +139,11 @@ export const SessionHeader = ({
             alt="Delete"
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
+          {hoveredAction === 'delete' && (
+            <div className="tooltip" style={tooltipBaseStyle}>
+              {hasSelected ? '删除选中标签页' : '删除整个 Session'}
+            </div>
+          )}
         </motion.button>
       </div>
     </div>

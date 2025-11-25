@@ -758,14 +758,14 @@
 
 .personal-space .search-bar {
   align-items: center;
-  border-radius: 72px; /* 增强圆角 */
+  border-radius: var(--search-bar-radius, 72px);
   display: flex;
   gap: 10px;
-  height: 45px;
+  height: var(--search-bar-height, 45px);
   padding: 0px 30px;
   position: relative;
-  width: 380px; /* 从420px改为380px，稍微短一点 */
-  min-width: 380px; /* 从420px改为380px */
+  width: var(--search-bar-width, 380px);
+  min-width: var(--search-bar-min-width, 380px);
   overflow: visible;
 }
 
@@ -786,6 +786,12 @@
 /* 隐藏 WebKit 浏览器的滚动条 */
 .personal-space .session-masonry-container::-webkit-scrollbar {
   display: none;
+}
+
+.tooltip,
+.tool-tooltip {
+  z-index: 20000 !important;
+  pointer-events: none;
 }
 
 .personal-space .session-section {

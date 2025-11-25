@@ -39,7 +39,7 @@ export const ToolButton = ({ className, alt, src, tooltip, isActive, onClick }) 
             borderRadius: '4px',
             fontSize: '12px',
             whiteSpace: 'nowrap',
-            zIndex: 1000,
+            zIndex: 20000,
             pointerEvents: 'none',
           }}
         >
