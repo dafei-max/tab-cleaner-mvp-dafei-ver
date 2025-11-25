@@ -13,9 +13,9 @@ const GradientMesh = () => {
     () => ({
       uTime: { value: 0 },
       uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-      uColor1: { value: new THREE.Color('#E3EBF5') }, // 最浅最亮的颜色
-      uColor2: { value: new THREE.Color('#E3EBF5') }, // 中间色（保持最浅）
-      uColor3: { value: new THREE.Color('#C8DFF1') }, // 最深的混色
+      uColor1: { value: new THREE.Color('#F2F7FD') }, // 最浅、偏冷色
+      uColor2: { value: new THREE.Color('#DCEBFA') }, // 中间过渡色
+      uColor3: { value: new THREE.Color('#7FAFE3') }, // 更纯更深的蓝色
     }),
     []
   );
@@ -79,9 +79,9 @@ const GradientMesh = () => {
       tuv.y *= ratio;
       
       // Wave warp with sin
-      float frequency = 5.;
-      float amplitude = 40.;
-      float speed = uTime * 3.;
+      float frequency = 6.;
+      float amplitude = 25.;
+      float speed = uTime * 4.;
       tuv.x += sin(tuv.y*frequency+speed)/amplitude;
       tuv.y += sin(tuv.x*frequency*1.5+speed)/(amplitude*.5);
       
@@ -98,8 +98,17 @@ const GradientMesh = () => {
       float mixFactor = mix(S(-.3, .5, tuv.y), noiseMix * 0.5 + 0.5, 0.4);
       vec3 finalComp = mix(layer1, layer2, mixFactor);
       
-      // grain 效果已移除
-      vec3 col = finalComp;
+      // 添加更明显的 noise/grain 纹理效果
+      // 使用多层噪声创建更丰富的 grain 纹理
+      vec2 grainUV1 = uv * uResolution.xy * 0.8; // 较大颗粒
+      vec2 grainUV2 = uv * uResolution.xy * 1.5; // 较小颗粒
+      float grain1 = noise(grainUV1 + uTime * 0.3);
+      float grain2 = noise(grainUV2 + uTime * 0.7);
+      // 混合两层噪声，增强可见度
+      float grain = mix(grain1, grain2, 0.5);
+      // 增强 noise 的可见度（从 0.0-1.0 映射到 -0.2 到 0.2，然后叠加）
+      float grainAmount = (grain - 0.5) * 0.4; // 增加强度到 0.4，使 noise 更明显
+      vec3 col = finalComp + grainAmount;
       
       gl_FragColor = vec4(col, 1.0);
     }
@@ -112,7 +121,7 @@ const GradientMesh = () => {
   });
 
   return (
-    <mesh ref={mesh} scale={[2.7, 2, 1]} position={[0, 0, 0]}>
+    <mesh ref={mesh} scale={[3, 2.5, 1]} position={[0, 0, 0]}>
       <planeGeometry args={[1, 1, 1, 1]} />
       <shaderMaterial
         vertexShader={vertexShader}
@@ -150,7 +159,7 @@ export default function FlowingSkyBackground({
         zIndex: 0,
         overflow: "hidden",
         pointerEvents: "none", // 确保背景不拦截鼠标事件
-        filter: 'blur(30px) contrast(1)',
+        filter: 'blur(10px) contrast(1.2)',
         ...style,
       }}
     >

@@ -24,7 +24,7 @@ export const MASONRY_CONFIG = {
   columns: {
     maxColumns: 7,         // 最大列数
     minColumnWidth: 200,  // 最小列宽（px）
-    gutter: 8,            // 列间距（px）- 减小间距让布局更紧密
+    gutter: 14,            // 列间距（px）- 减小间距让布局更紧密
     getColumnWidth: () => {
       const containerWidth = MASONRY_CONFIG.container.getContainerWidth();
       const { maxColumns, gutter } = MASONRY_CONFIG.columns;

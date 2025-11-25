@@ -1,5 +1,6 @@
 import React from "react";
 import { DraggableImage } from "./DraggableImage";
+import { RadialCard } from "./RadialCard";
 import { ClusterLabel } from "./ClusterLabel";
 import { CanvasTools } from "./CanvasTools";
 import { getBestImageSource } from "../../utils/imagePlaceholder";
@@ -61,6 +62,8 @@ export const RadialCanvas = ({
   onDragEnd,
   onCanvasClick,
   onCardDoubleClick,
+  onDelete,
+  onOpenLink,
   onClusterRename,
   onClusterDrag,
   onLassoSelect,
@@ -128,17 +131,13 @@ export const RadialCanvas = ({
         
         const { cardWidth, cardHeight, isDocCard } = calculateCardSize(og);
         const isTopResult = topResultId === og.id;
-
-        // 使用最佳图片源（优先级：image → screenshot_image → doc card → placeholder）
-        const imageSrc = getBestImageSource(og, 'initials', cardWidth, cardHeight);
+        const isSearchResult = og.similarity !== undefined && og.similarity > 0;
+        const similarity = og.similarity || 0;
         
         return (
-          <DraggableImage
+          <RadialCard
             key={og.id}
-            id={og.id}
-            className={`opengraph-image ${isDocCard ? 'doc-card' : ''} ${isTopResult ? 'top-result' : ''}`}
-            src={imageSrc}
-            alt={og.title || og.url}
+            og={og}
             initialX={x}
             initialY={y}
             width={cardWidth}
@@ -146,30 +145,37 @@ export const RadialCanvas = ({
             animationDelay={og.animationDelay || 0}
             isSelected={selectedIds.has(og.id)}
             onSelect={onSelect}
-            zoom={zoom}
-            pan={pan}
+            onDelete={onDelete}
+            onOpenLink={onOpenLink}
             onDragEnd={onDragEnd}
             onClick={() => onCardDoubleClick(og)}
-            og={og} // 传递 og 对象用于错误处理
+            zoom={zoom}
+            pan={pan}
+            isTopResult={isTopResult}
+            isSearchResult={isSearchResult}
+            similarity={similarity}
+            hasSearchResults={hasSearchResults}
           />
         );
       })}
 
-      {/* 聚类中心标签 */}
-      {clusters.map((cluster) => (
-        <ClusterLabel
-          key={cluster.id}
-          cluster={cluster}
-          onRename={onClusterRename}
-          onDrag={onClusterDrag}
-        />
-      ))}
+      {/* 聚类中心标签 - 隐藏"未分类"标签 */}
+      {clusters
+        .filter(cluster => !(cluster.type === 'default' && cluster.id === 'default-cluster'))
+        .map((cluster) => (
+          <ClusterLabel
+            key={cluster.id}
+            cluster={cluster}
+            onRename={onClusterRename}
+            onDrag={onClusterDrag}
+          />
+        ))}
 
       {/* 保留非图片元素 */}
       <div className="i-leave-you-love-and" />
       <div className="live-NEAR" />
       <div className="flow-on-the-edge" />
-      <div className="text-wrapper-15">视觉参考</div>
+      {/* <div className="text-wrapper-15">视觉参考</div> */}
 
       {/* 画布工具层 */}
       <CanvasTools

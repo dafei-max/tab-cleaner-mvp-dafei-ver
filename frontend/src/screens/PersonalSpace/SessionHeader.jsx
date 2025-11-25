@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { getImageUrl } from '../../shared/utils';
+import { UI_CONFIG } from './uiConfig';
 
 /**
  * Session 标题栏组件（带操作按钮）
@@ -27,10 +28,10 @@ export const SessionHeader = ({
       }}
     >
       {/* 左侧：Session 名称和标签页数量 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: '42px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: `${UI_CONFIG.sessionHeader.title.marginLeft}px` }}>
         <div
           style={{
-            fontSize: '14px',
+            fontSize: `${UI_CONFIG.sessionHeader.title.fontSize}px`,
             fontWeight: 400,
             color: '#ffffff',
           }}
@@ -39,7 +40,7 @@ export const SessionHeader = ({
         </div>
         <div
           style={{
-            fontSize: '12px',
+            fontSize: `${UI_CONFIG.sessionHeader.tabCount.fontSize}px`,
             color: '#ffffff',
           }}
         >
@@ -58,8 +59,8 @@ export const SessionHeader = ({
         )}
       </div>
 
-      {/* 右侧：操作按钮 */}
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+      {/* 右侧：操作按钮 - 往左移，右对齐masonry最右边 */}
+      <div style={{ display: 'flex', gap: `${UI_CONFIG.sessionHeader.actionButtons.gap}px`, alignItems: 'center', marginRight: `${UI_CONFIG.sessionHeader.actionButtons.marginRight}px` }}>
         {/* 全部打开按钮 */}
         <motion.button
           onClick={onOpenAll}
@@ -70,8 +71,8 @@ export const SessionHeader = ({
             border: 'none',
             backgroundColor: 'transparent',
             cursor: 'pointer',
-            width: '24px',
-            height: '24px',
+            width: `${UI_CONFIG.sessionHeader.actionButtons.size}px`,
+            height: `${UI_CONFIG.sessionHeader.actionButtons.size}px`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -97,8 +98,8 @@ export const SessionHeader = ({
             border: 'none',
             backgroundColor: 'transparent',
             cursor: 'pointer',
-            width: '24px',
-            height: '24px',
+            width: `${UI_CONFIG.sessionHeader.actionButtons.size}px`,
+            height: `${UI_CONFIG.sessionHeader.actionButtons.size}px`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

@@ -268,6 +268,8 @@ const SessionMasonryGridContent = ({
           const isSearchResult = hasSearchResults && og.similarity !== undefined && og.similarity > 0;
           const similarity = og.similarity ?? 0;
 
+          const appearDelay = Math.min(index * 0.05, 1.2); // 控制总时长 <= 1.5s
+
           return (
             <SessionCard
               key={itemId}
@@ -277,6 +279,7 @@ const SessionMasonryGridContent = ({
               isSearchResult={isSearchResult}
               similarity={similarity}
               hasSearchResults={hasSearchResults}
+              appearDelay={appearDelay}
               onSelect={onCardSelect}
               onDelete={onCardDelete}
               onOpenLink={onOpenLink}

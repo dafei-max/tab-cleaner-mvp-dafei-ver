@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Component } from "../../components/Component";
 import { SearchBar } from "../../components/SearchBar";
 import { ToolSets } from "../../components/ToolSets";
@@ -25,6 +25,7 @@ import { useClusterSpringAnimation } from "../../hooks/useClusterSpringAnimation
 import { getBestImageSource } from "../../utils/imagePlaceholder";
 import FlowingSkyBackground from "../../components/FlowingSkyBackground";
 import { GradualBlur } from "../../components/GradualBlur";
+import FluidGlassCursor from "../../components/FluidGlassCursor/FluidGlassCursor";
 import "./style.css";
 
 export const PersonalSpace = () => {
@@ -1288,6 +1289,7 @@ export const PersonalSpace = () => {
       return (
         <>
           {/* 静态天空背景 - 使用 background-space.png */}
+          <FluidGlassCursor />
           <FlowingSkyBackground />
           <div className="personal-space" ref={containerRef} style={{ position: "relative", zIndex: 1 }}>
           {/* 底部渐变模糊遮罩层 - 使用 reactbits.dev 风格的 GradualBlur */}
@@ -1303,28 +1305,43 @@ export const PersonalSpace = () => {
             target="page"
             zIndex={100}
           />
-          {viewMode === 'masonry' ? (
-            <div style={{ pointerEvents: hasActiveSearch ? 'none' : 'auto' }}>
-              <SessionMasonryGrid
-                sessions={sessions}
-                searchQuery={searchQuery}
-                onCardClick={handleCardDoubleClick}
-                onSessionDelete={handleSessionDelete}
-                onSessionOpenAll={handleSessionOpenAll}
-                searchBarHeight={200} // 搜索栏高度 + 间距
-                containerRef={sessionContainerRef}
-              />
-              {/* Scroll Spy Indicator */}
-              {sessions.length > 1 && (
-                <ScrollSpyIndicator 
-                  sessions={sessions} 
+          <AnimatePresence mode="wait">
+            {viewMode === 'masonry' ? (
+              <motion.div
+                key="masonry"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.3, ease: "easeInOut" }}
+                style={{ pointerEvents: hasActiveSearch ? 'none' : 'auto' }}
+              >
+                <SessionMasonryGrid
+                  sessions={sessions}
+                  searchQuery={searchQuery}
+                  onCardClick={handleCardDoubleClick}
+                  onSessionDelete={handleSessionDelete}
+                  onSessionOpenAll={handleSessionOpenAll}
+                  searchBarHeight={200} // 搜索栏高度 + 间距
                   containerRef={sessionContainerRef}
                 />
-              )}
-            </div>
-          ) : (
-            <div style={{ pointerEvents: hasActiveSearch ? 'none' : 'auto' }}>
-              <RadialCanvas
+                {/* Scroll Spy Indicator */}
+                {sessions.length > 1 && (
+                  <ScrollSpyIndicator 
+                    sessions={sessions} 
+                    containerRef={sessionContainerRef}
+                  />
+                )}
+              </motion.div>
+            ) : (
+              <motion.div
+                key="radial"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.3, ease: "easeInOut" }}
+                style={{ pointerEvents: hasActiveSearch ? 'none' : 'auto' }}
+              >
+                <RadialCanvas
                 canvasRef={canvasRef}
                 containerRef={containerRef}
                 showOriginalImages={showOriginalImages}
@@ -1347,14 +1364,40 @@ export const PersonalSpace = () => {
                 onDragEnd={handleDragEnd}
                 onCanvasClick={handleCanvasClick}
                 onCardDoubleClick={handleCardDoubleClick}
+                onDelete={(ogId) => {
+                  // 从画布移除 OpenGraph 图片
+                  setOpengraphData(prev => {
+                    const prevOG = [...prev];
+                    const newOG = prev.filter(og => og.id !== ogId);
+                    addToHistory({ 
+                      type: 'opengraph-delete', 
+                      action: 'delete', 
+                      deletedIds: [ogId],
+                      prevOG: prevOG
+                    });
+                    return newOG;
+                  });
+                  // 如果被删除的卡片是选中的，从选中列表中移除
+                  if (selectedIds.has(ogId)) {
+                    const newSelectedIds = new Set(selectedIds);
+                    newSelectedIds.delete(ogId);
+                    setSelectedIds(newSelectedIds);
+                  }
+                }}
+                onOpenLink={(url) => {
+                  if (url) {
+                    window.open(url, '_blank');
+                  }
+                }}
                 onClusterRename={handleClusterRename}
                 onClusterDrag={handleClusterDrag}
                 onLassoSelect={handleLassoSelect}
                 onHistoryChange={handleHistoryChange}
                 getCanvasCursor={getCanvasCursor}
               />
-            </div>
-          )}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* 搜索模式：全屏遮罩层 + 搜索结果行 */}
           {hasActiveSearch && (

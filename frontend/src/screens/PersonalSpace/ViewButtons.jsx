@@ -1,6 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { getImageUrl } from "../../shared/utils";
+import { UI_CONFIG } from "./uiConfig";
 import "./style.css";
 
 export const ViewButtons = ({ viewMode, onViewModeChange }) => {
@@ -10,35 +11,39 @@ export const ViewButtons = ({ viewMode, onViewModeChange }) => {
       <div
         style={{
           position: 'absolute',
-          bottom: '65px',
-          left: '50%',
-          transform: 'translateX(-50%) translateY(50%)',
+          bottom: `${UI_CONFIG.viewButtons.pan.bottom}px`,
+          left: `${UI_CONFIG.viewButtons.pan.left}%`,
+          transform: `translateX(${UI_CONFIG.viewButtons.pan.translateX}%)`,
           width: 'auto',
           height: 'auto',
           zIndex: 0,
           pointerEvents: 'none',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          maxWidth: 'none',
         }}
       >
         <img 
           src={getImageUrl("pan.png")} 
           alt="Pan background"
-          style={{ width: '420%', height: 'auto', display: 'block' }}
+          style={{ 
+            width: `${UI_CONFIG.viewButtons.pan.width}%`,
+            height: 'auto', 
+            display: 'block',
+            maxWidth: 'none',
+            objectFit: 'contain',
+          }}
         />
       </div>
 
       {/* 按钮容器 */}
-      <div style={{ position: 'relative', zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '48px' }}>
+      <div style={{ position: 'relative', zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: `${UI_CONFIG.viewButtons.gap}px` }}>
         {/* 网格视图按钮（GridCollection） */}
         <motion.button
           className={`view-button ${viewMode === 'masonry' ? 'active' : ''}`}
           onClick={() => onViewModeChange('masonry')}
           title="网格视图"
           style={{
-            width: '40px',
-            height: '40px',
+            width: `${UI_CONFIG.viewButtons.buttonSize}px`,
+            height: `${UI_CONFIG.viewButtons.buttonSize}px`,
             borderRadius: '50%',
             border: 'none',
             background: 'transparent',
@@ -68,8 +73,8 @@ export const ViewButtons = ({ viewMode, onViewModeChange }) => {
           onClick={() => onViewModeChange('radial')}
           title="聚类视图"
           style={{
-            width: '40px',
-            height: '40px',
+            width: `${UI_CONFIG.viewButtons.buttonSize}px`,
+            height: `${UI_CONFIG.viewButtons.buttonSize}px`,
             borderRadius: '50%',
             border: 'none',
             background: 'transparent',

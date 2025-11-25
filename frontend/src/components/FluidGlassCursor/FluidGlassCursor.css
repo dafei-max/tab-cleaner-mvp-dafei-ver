@@ -1,0 +1,94 @@
+.magnifier-cursor {
+  position: fixed;
+  width: 40px;
+  height: 40px;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+  mix-blend-mode: normal;
+  will-change: left, top, transform;
+}
+
+.magnifier-outer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid rgba(135, 206, 235, 0.8);
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: 
+    0 0 12px rgba(135, 206, 235, 0.5),
+    inset 0 0 12px rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
+}
+
+.magnifier-inner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 30% 30%,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(135, 206, 235, 0.3) 50%,
+    rgba(135, 206, 235, 0.1) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 
+    inset 0 0 10px rgba(255, 255, 255, 0.3),
+    0 0 8px rgba(135, 206, 235, 0.4);
+  transition: all 0.3s ease;
+}
+
+/* 悬浮状态 - 放大效果 */
+.magnifier-cursor[style*="scale(1.2)"] .magnifier-outer,
+.magnifier-cursor:hover .magnifier-outer {
+  width: 40px;
+  height: 40px;
+  border-width: 3px;
+  border-color: rgba(135, 206, 235, 1);
+  box-shadow: 
+    0 0 18px rgba(135, 206, 235, 0.7),
+    inset 0 0 18px rgba(255, 255, 255, 0.3);
+}
+
+.magnifier-cursor[style*="scale(1.2)"] .magnifier-inner,
+.magnifier-cursor:hover .magnifier-inner {
+  width: 30px;
+  height: 30px;
+  box-shadow: 
+    inset 0 0 12px rgba(255, 255, 255, 0.4),
+    0 0 10px rgba(135, 206, 235, 0.6);
+}
+
+/* 呼吸动画 */
+@keyframes breathe {
+  0%, 100% {
+    opacity: 0.8;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.05);
+  }
+}
+
+.magnifier-inner {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+/* 为可交互元素添加特殊样式 */
+button:hover,
+a:hover,
+.card-action-button:hover,
+.view-button:hover,
+.masonry-item:hover,
+.radial-card:hover {
+  cursor: none !important;
+}

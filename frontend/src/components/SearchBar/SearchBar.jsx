@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { getImageUrl } from "../../shared/utils";
+import { UI_CONFIG } from "../../screens/PersonalSpace/uiConfig";
 import "./SearchBar.css";
 
 /**
@@ -27,7 +28,18 @@ export const SearchBar = ({
   return (
     <div className="search-bar-container" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
       {/* 搜索栏 */}
-      <div className="search-bar" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+      <motion.div 
+        className={`search-bar ${isSearching ? 'searching' : ''}`}
+        style={{ 
+          position: 'relative', 
+          display: 'flex', 
+          alignItems: 'center',
+          "--search-bar-width": `${UI_CONFIG.searchBar.width}px`,
+          "--search-bar-min-width": `${UI_CONFIG.searchBar.width}px`,
+          "--search-bar-radius": `${UI_CONFIG.searchBar.borderRadius}px`,
+          "--search-bar-height": `${UI_CONFIG.searchBar.height}px`,
+        }}
+      >
         {/* 搜索栏背景 */}
         <img 
           src={getImageUrl("search-bar.png")} 
@@ -35,9 +47,11 @@ export const SearchBar = ({
           style={{
             position: 'absolute',
             width: '100%',
-            height: '85%',
+            height: '100%',
             objectFit: 'cover',
             zIndex: 0,
+            borderRadius: 'inherit',
+            pointerEvents: 'none', // 让背景图片不拦截鼠标事件，只作为视觉装饰
           }}
         />
         
@@ -51,7 +65,7 @@ export const SearchBar = ({
             background: 'transparent',
             cursor: 'pointer',
             padding: 0,
-            marginLeft: '-30px',
+            marginLeft: `${UI_CONFIG.searchBar.searchButton.marginLeft}px`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -63,7 +77,11 @@ export const SearchBar = ({
           <img 
             src={getImageUrl("search-button.png")} 
             alt="Search button"
-            style={{ width: '96px', height: '96px', objectFit: 'contain' }}
+            style={{ 
+              width: `${UI_CONFIG.searchBar.searchButton.size}px`, 
+              height: `${UI_CONFIG.searchBar.searchButton.size}px`, 
+              objectFit: 'contain' 
+            }}
           />
         </motion.button>
         
@@ -85,38 +103,43 @@ export const SearchBar = ({
             fontSize: '16px',
             fontFamily: '"SF Pro Display-Regular", Helvetica',
             color: '#000000',
-            padding: '0 12px',
+            padding: `0 12px 0 ${UI_CONFIG.searchBar.inputPaddingLeft}px`,
             margin: 0,
+            "--search-placeholder-color": UI_CONFIG.searchBar.placeholderColor,
           }}
         />
         
-        {/* 提交按钮（右侧） */}
-        {searchQuery && (
-          <motion.button
-            onClick={onSearch}
-            style={{
-              position: 'relative',
-              zIndex: 1,
-              border: 'none',
-              background: 'transparent',
-              cursor: 'pointer',
-              padding: 0,
-              marginRight: '12px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.95 }}
-            transition={{ type: "spring", stiffness: 400, damping: 17 }}
-          >
-            <img 
-              src={getImageUrl("search-submit-button.png")} 
-              alt="Submit button"
-              style={{ width: '40px', height: '40px', objectFit: 'contain' }}
-            />
-          </motion.button>
-        )}
+        {/* 提交按钮（右侧）- 使用 Send-btn.png */}
+        <motion.button
+          onClick={onSearch}
+          style={{
+            position: 'relative',
+            zIndex: 1,
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            padding: 0,
+            marginRight: `${UI_CONFIG.searchBar.submitButton.marginRight}px`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: searchQuery ? 1 : 0.5, // 有输入时显示，无输入时半透明
+          }}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.95 }}
+          transition={{ type: "spring", stiffness: 400, damping: 17 }}
+          disabled={!searchQuery} // 无输入时禁用
+        >
+          <img 
+            src={getImageUrl("Send-btn.png")} 
+            alt="Submit button"
+            style={{ 
+              width: `${UI_CONFIG.searchBar.submitButton.size}px`, 
+              height: `${UI_CONFIG.searchBar.submitButton.size}px`, 
+              objectFit: 'contain' 
+            }} 
+          />
+        </motion.button>
         
         {isSearching && (
           <div style={{ 
@@ -129,7 +152,7 @@ export const SearchBar = ({
             搜索中...
           </div>
         )}
-      </div>
+      </motion.div>
 
       {/* 大象图标入口（宠物设定空间） */}
       {onPetSettingsClick && (
@@ -143,6 +166,7 @@ export const SearchBar = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            marginLeft: `${UI_CONFIG.searchBar.elephantIcon.marginLeft}px`,
           }}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.95 }}
@@ -152,7 +176,11 @@ export const SearchBar = ({
           <img 
             src={getImageUrl("icon-elephant (1).png")} 
             alt="Pet settings"
-            style={{ width: '96px', height: '96px', objectFit: 'contain' }}
+            style={{ 
+              width: `${UI_CONFIG.searchBar.elephantIcon.size}px`, 
+              height: `${UI_CONFIG.searchBar.elephantIcon.size}px`, 
+              objectFit: 'contain' 
+            }}
           />
         </motion.button>
       )}

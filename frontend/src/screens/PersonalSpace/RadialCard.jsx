@@ -1,40 +1,219 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { MASONRY_CONFIG } from '../../config/masonryConfig';
+import { CARD_ANIMATION, calculateDistance, calculateDurationByDistance } from '../../motion';
 import { getBestImageSource, handleImageError } from '../../utils/imagePlaceholder';
 import { getImageUrl } from '../../shared/utils';
 import { UI_CONFIG } from './uiConfig';
 
 /**
- * 单个卡片组件（带悬浮功能）
+ * 聚类视图卡片组件（统一样式和功能）
+ * 结合了 SessionCard 的样式和 DraggableImage 的拖拽功能
  */
-export const SessionCard = ({ 
-  og, 
-  isSelected, 
-  onSelect, 
-  onDelete, 
+export const RadialCard = ({
+  og,
+  initialX,
+  initialY,
+  width,
+  height,
+  animationDelay = 0,
+  isSelected,
+  onSelect,
+  onDelete,
   onOpenLink,
+  onDragEnd,
+  onClick,
+  zoom = 1,
+  pan = { x: 0, y: 0 },
   isTopResult = false,
   isSearchResult = false,
   similarity = 0,
   hasSearchResults = false,
-  appearDelay = 0,
 }) => {
+  const [position, setPosition] = useState({ x: initialX, y: initialY });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isAnimating, setIsAnimating] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [hoveredButton, setHoveredButton] = useState(null);
+  const [imageSrc, setImageSrc] = useState(getBestImageSource(og, 'initials', width, height));
+  const [faviconSrc, setFaviconSrc] = useState(null);
+  const prevPositionRef = useRef({ x: initialX, y: initialY });
+  const cardRef = useRef(null);
+  const dragStartPosRef = useRef({ x: 0, y: 0 });
+  const hasMovedRef = useRef(false);
 
-  const handleCardClick = (e) => {
-    // 如果点击的是按钮，不触发卡片点击
-    if (e.target.closest('.card-action-button')) {
+  const isDocCard = og.is_doc_card || false;
+
+  // 当 og、width 或 height 改变时，更新图片源
+  useEffect(() => {
+    setImageSrc(getBestImageSource(og, 'initials', width, height));
+  }, [og, width, height]);
+
+  useEffect(() => {
+    setFaviconSrc(getFaviconUrl() || getFallbackFavicon());
+  }, [og]);
+
+  // 当 initialX 或 initialY 改变时，同步位置并触发动画
+  useEffect(() => {
+    if (!isDragging) {
+      const prevX = prevPositionRef.current.x;
+      const prevY = prevPositionRef.current.y;
+      
+      if (prevX !== initialX || prevY !== initialY) {
+        const distance = calculateDistance(prevX, prevY, initialX, initialY);
+        
+        if (distance > 5) {
+          setIsAnimating(true);
+          setPosition({ x: initialX, y: initialY });
+          
+          const duration = calculateDurationByDistance(
+            distance,
+            CARD_ANIMATION.MOVE_DURATION,
+            CARD_ANIMATION.MOVE_DURATION * 2
+          );
+          
+          const timer = setTimeout(() => {
+            setIsAnimating(false);
+          }, duration);
+          
+          prevPositionRef.current = { x: initialX, y: initialY };
+          return () => clearTimeout(timer);
+        } else {
+          setPosition({ x: initialX, y: initialY });
+          prevPositionRef.current = { x: initialX, y: initialY };
+        }
+      }
+    }
+  }, [initialX, initialY, isDragging]);
+
+  // 鼠标按下处理拖拽
+  const handleMouseDown = (e) => {
+    const canvas = cardRef.current?.closest('.canvas');
+    if (canvas && canvas.style.cursor !== 'default') {
       return;
     }
-    // 可以在这里添加双击打开链接的逻辑
+    
+    if (e.button !== 0) return;
+    if (e.target.closest('.card-action-button')) {
+      return; // 如果点击的是按钮，不处理拖拽
+    }
+    
+    if (onSelect) {
+      onSelect(og.id, e.shiftKey);
+    }
+
+    dragStartPosRef.current = { x: e.clientX, y: e.clientY };
+    hasMovedRef.current = false;
+
+    const rect = cardRef.current.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+    
+    setDragOffset({ x: offsetX, y: offsetY });
+    setIsDragging(true);
+    e.preventDefault();
+    e.stopPropagation();
   };
 
-  const handleSelect = (e) => {
-    e.stopPropagation();
-    if (onSelect) {
-      onSelect(og.id);
+  // 鼠标移动处理拖拽
+  useEffect(() => {
+    if (!isDragging) return;
+
+    let currentPos = { x: position.x, y: position.y };
+
+    const handleMouseMove = (e) => {
+      const moveDistance = Math.sqrt(
+        Math.pow(e.clientX - dragStartPosRef.current.x, 2) +
+        Math.pow(e.clientY - dragStartPosRef.current.y, 2)
+      );
+      
+      if (moveDistance > 5) {
+        hasMovedRef.current = true;
+      }
+      
+      const canvas = cardRef.current?.closest('.canvas');
+      if (!canvas) return;
+      
+      const canvasRect = canvas.getBoundingClientRect();
+      const canvasCenterX = canvasRect.left + canvasRect.width / 2;
+      const canvasCenterY = canvasRect.top + canvasRect.height / 2;
+      
+      const screenOffsetX = e.clientX - canvasCenterX;
+      const screenOffsetY = e.clientY - canvasCenterY;
+      
+      const canvasOffsetX = screenOffsetX / zoom;
+      const canvasOffsetY = screenOffsetY / zoom;
+      
+      const canvasCenterInCanvas = { 
+        x: 720 + pan.x, 
+        y: 512 + pan.y 
+      };
+      
+      const mouseXInCanvas = canvasCenterInCanvas.x + canvasOffsetX;
+      const mouseYInCanvas = canvasCenterInCanvas.y + canvasOffsetY;
+      
+      const dragOffsetInCanvas = {
+        x: dragOffset.x / zoom,
+        y: dragOffset.y / zoom
+      };
+      
+      const newX = mouseXInCanvas - dragOffsetInCanvas.x;
+      const newY = mouseYInCanvas - dragOffsetInCanvas.y;
+      
+      currentPos = { x: newX, y: newY };
+      setPosition(currentPos);
+    };
+
+    const handleMouseUp = () => {
+      if (!hasMovedRef.current && onClick) {
+        onClick();
+      }
+      
+      if (hasMovedRef.current && onDragEnd) {
+        onDragEnd(og.id, currentPos.x, currentPos.y);
+      }
+      
+      setIsDragging(false);
+      hasMovedRef.current = false;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, dragOffset, og.id, position.x, position.y, onDragEnd, zoom, pan, onClick]);
+
+  // 计算动画样式
+  const getAnimationStyle = () => {
+    if (isDragging || !isAnimating) {
+      return {};
+    }
+    
+    const distance = calculateDistance(
+      prevPositionRef.current.x,
+      prevPositionRef.current.y,
+      position.x,
+      position.y
+    );
+    
+    const duration = calculateDurationByDistance(
+      distance,
+      CARD_ANIMATION.MOVE_DURATION,
+      CARD_ANIMATION.MOVE_DURATION * 2
+    );
+    
+    return {
+      transition: `left ${duration}ms ${CARD_ANIMATION.MOVE_EASING}, top ${duration}ms ${CARD_ANIMATION.MOVE_EASING}`,
+      transitionDelay: `${animationDelay}ms`,
+    };
+  };
+
+  const handleCardClick = (e) => {
+    if (e.target.closest('.card-action-button')) {
+      return;
     }
   };
 
@@ -56,11 +235,9 @@ export const SessionCard = ({
     e.stopPropagation();
     try {
       await navigator.clipboard.writeText(og.url || '');
-      // 可以添加一个提示，比如显示 "已复制"
       console.log('链接已复制到剪贴板');
     } catch (err) {
       console.error('复制失败:', err);
-      // 降级方案：使用传统方法
       const textArea = document.createElement('textarea');
       textArea.value = og.url || '';
       document.body.appendChild(textArea);
@@ -78,13 +255,11 @@ export const SessionCard = ({
   const handleDownloadImage = async (e) => {
     e.stopPropagation();
     try {
-      const imageUrl = getBestImageSource(og, 'text', fixedCardWidth, fixedCardWidth * 0.75);
+      const imageUrl = getBestImageSource(og, 'initials', width, height);
       
-      // 使用 fetch 获取图片
       const response = await fetch(imageUrl);
       const blob = await response.blob();
       
-      // 创建下载链接
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -100,42 +275,11 @@ export const SessionCard = ({
     }
   };
 
-  const isDocCard = og.is_doc_card || false;
-  const BASE_HEIGHT = 120;
-  let cardWidth, cardHeight;
-
-  if (isDocCard) {
-    cardWidth = 200;
-    cardHeight = 150;
-  } else {
-    if (og.image_width && og.image_height) {
-      const aspectRatio = og.image_width / og.image_height;
-      cardHeight = BASE_HEIGHT;
-      cardWidth = BASE_HEIGHT * aspectRatio;
-    } else if (og.original_width && og.original_height) {
-      const aspectRatio = og.original_width / og.original_height;
-      cardHeight = BASE_HEIGHT;
-      cardWidth = BASE_HEIGHT * aspectRatio;
-    } else if (og.width && og.height) {
-      const aspectRatio = og.width / og.height;
-      cardHeight = BASE_HEIGHT;
-      cardWidth = BASE_HEIGHT * aspectRatio;
-    } else {
-      cardHeight = BASE_HEIGHT;
-      cardWidth = BASE_HEIGHT * (16/9);
-    }
-  }
-
-  // 使用配置中的固定宽度（Pinterest 风格：固定宽度，fitWidth 要求）
-  // 注意：不再使用动态计算的 displayWidth，而是使用配置中的固定 cardWidth
-  // 这样可以确保 fitWidth 正常工作
-  const fixedCardWidth = MASONRY_CONFIG.columns.getColumnWidth();
-
-  // 计算发光效果强度（基于相似度）
+  // 计算发光效果强度
   const glowIntensity = isSearchResult ? Math.min(similarity * 2, 1) : 0;
-  const glowColor = `rgba(26, 115, 232, ${glowIntensity * 0.8})`; // 蓝色发光
+  const glowColor = `rgba(26, 115, 232, ${glowIntensity * 0.8})`;
 
-  // 获取 favicon URL
+  // 获取 Favicon URL
   const getFaviconUrl = () => {
     if (og.favicon) return og.favicon;
     if (og.url) {
@@ -149,7 +293,6 @@ export const SessionCard = ({
     return null;
   };
 
-  // Google favicon fallback（更高成功率）
   const getFallbackFavicon = () => {
     if (!og.url) return null;
     try {
@@ -159,7 +302,7 @@ export const SessionCard = ({
     }
   };
 
-  // 获取网页名称（优先使用 title，否则使用 site_name，最后使用 URL）
+  // 获取网页名称
   const getPageName = () => {
     if (og.title) return og.title;
     if (og.site_name) return og.site_name;
@@ -174,41 +317,38 @@ export const SessionCard = ({
     return '未知网页';
   };
 
-  const [faviconSrc, setFaviconSrc] = useState(() => getFaviconUrl() || getFallbackFavicon());
+  const faviconUrl = getFaviconUrl();
   const pageName = getPageName();
-  
-  const shouldAnimate = !(hasSearchResults && !isSearchResult);
-  const baseOpacity = hasSearchResults && !isSearchResult ? 0.4 : 1;
 
   return (
     <div
-      className={`masonry-item ${isSelected ? 'selected' : ''} ${isSearchResult ? 'search-result' : ''} ${hasSearchResults && !isSearchResult ? 'search-blur' : ''}`}
+      ref={cardRef}
+      className={`radial-card ${isSelected ? 'selected' : ''} ${isSearchResult ? 'search-result' : ''} ${hasSearchResults && !isSearchResult ? 'search-blur' : ''} ${isDragging ? 'dragging' : ''} ${isAnimating ? 'animating' : ''}`}
       style={{
-        width: `${fixedCardWidth}px`,  // 固定像素值，fitWidth 要求
-        marginBottom: `${MASONRY_CONFIG.columns.gutter}px`,  // 使用配置中的 gutter
-        breakInside: 'avoid',
-        position: 'relative',
+        position: 'absolute',
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+        width: `${width}px`,
         backgroundColor: '#fff',
         borderRadius: '8px',
         overflow: 'hidden',
-        // 搜索结果发光效果
         boxShadow: isSearchResult 
           ? `0 0 ${8 + glowIntensity * 12}px ${glowColor}, 0 0 ${4 + glowIntensity * 8}px ${glowColor}, 0 2px 8px rgba(0,0,0,0.15)`
           : '0 2px 8px rgba(0,0,0,0.15)',
         filter: hasSearchResults && !isSearchResult ? 'blur(3px)' : 'none',
-        opacity: shouldAnimate ? 0 : baseOpacity,
-        transition: 'all 0.3s ease',
-        zIndex: isSearchResult ? 10 : 1,
+        opacity: hasSearchResults && !isSearchResult ? 0.4 : (isDragging ? 0.8 : 1),
+        transition: isDragging ? 'none' : 'all 0.3s ease',
+        zIndex: isDragging ? 200 : (isSearchResult ? 10 : 1),
         border: isSelected ? '3px solid #1a73e8' : 'none',
-        animation: shouldAnimate ? `masonryFadeIn 0.6s ease forwards` : 'none',
-        animationDelay: shouldAnimate ? `${appearDelay}s` : '0s',
-        transform: shouldAnimate ? 'translateY(12px)' : 'none',
+        cursor: isDragging ? 'grabbing' : 'grab',
+        userSelect: 'none',
+        ...getAnimationStyle(),
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onMouseDown={handleMouseDown}
       onClick={handleCardClick}
     >
-
       {/* 灰色圆角 Header */}
       <div
         style={{
@@ -244,7 +384,6 @@ export const SessionCard = ({
                   return;
                 }
               }
-              // 如果 favicon 加载失败，显示默认图标
               e.target.style.display = 'none';
               const placeholder = e.target.nextElementSibling;
               if (placeholder) {
@@ -292,7 +431,7 @@ export const SessionCard = ({
       {/* 图片内容 */}
       <div style={{ position: 'relative' }}>
         <img
-          src={getBestImageSource(og, 'text', fixedCardWidth, fixedCardWidth * 0.75)}
+          src={imageSrc}
           alt={og.title || og.url}
           className={`opengraph-image ${isDocCard ? 'doc-card' : ''} ${isTopResult ? 'top-result' : ''} ${isSelected ? 'selected' : ''}`}
           style={{
@@ -305,18 +444,18 @@ export const SessionCard = ({
             objectFit: 'contain',
             backgroundColor: '#f5f5f5',
           }}
-          onError={(e) => handleImageError(e, og, 'text')}
+          onError={(e) => handleImageError(e, og, 'initials')}
         />
         
         {/* 悬浮按钮（底部靠右） */}
-        {isHovered && (
+        {isHovered && !isDragging && (
           <div
             style={{
               position: 'absolute',
               bottom: '12px',
               right: '12px',
               display: 'flex',
-              gap: '8px',
+              gap: '6px',
               zIndex: 10,
               alignItems: 'center',
             }}
@@ -333,11 +472,12 @@ export const SessionCard = ({
               whileTap={{ scale: 0.95 }}
               style={{
                 position: 'relative',
-                width: '24px',
-                height: '24px',
-                borderRadius: '6px',
+                width: '20px',
+                height: '20px',
+                borderRadius: '4px',
                 border: 'none',
                 backgroundColor: '#F5F5F5',
+                color: '#333',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -357,9 +497,8 @@ export const SessionCard = ({
               <img
                 src={getImageUrl('copy icon.png')}
                 alt="复制链接"
-                style={{ width: '14px', height: '14px', objectFit: 'contain' }}
+                style={{ width: '12px', height: '12px', objectFit: 'contain' }}
               />
-              {/* 提示文字 */}
               {hoveredButton === 'copy' && (
                 <div
                   className="tooltip"
@@ -396,11 +535,12 @@ export const SessionCard = ({
               whileTap={{ scale: 0.95 }}
               style={{
                 position: 'relative',
-                width: '24px',
-                height: '24px',
-                borderRadius: '6px',
+                width: '20px',
+                height: '20px',
+                borderRadius: '4px',
                 border: 'none',
                 backgroundColor: '#F5F5F5',
+                color: '#333',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -410,21 +550,18 @@ export const SessionCard = ({
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = '#87CEEB';
-                const tooltip = e.currentTarget.querySelector('.tooltip');
-                if (tooltip) tooltip.style.opacity = '1';
+                setHoveredButton('delete');
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = '#F5F5F5';
-                const tooltip = e.currentTarget.querySelector('.tooltip');
-                if (tooltip) tooltip.style.opacity = '0';
+                setHoveredButton(null);
               }}
             >
               <img
                 src={getImageUrl('delete icon.png')}
                 alt="删除此卡片"
-                style={{ width: '14px', height: '14px', objectFit: 'contain' }}
+                style={{ width: '12px', height: '12px', objectFit: 'contain' }}
               />
-              {/* 提示文字 */}
               {hoveredButton === 'delete' && (
                 <div
                   className="tooltip"
@@ -461,9 +598,9 @@ export const SessionCard = ({
               whileTap={{ scale: 0.95 }}
               style={{
                 position: 'relative',
-                width: '24px',
-                height: '24px',
-                borderRadius: '6px',
+                width: '20px',
+                height: '20px',
+                borderRadius: '4px',
                 border: 'none',
                 backgroundColor: '#F5F5F5',
                 cursor: 'pointer',
@@ -485,9 +622,8 @@ export const SessionCard = ({
               <img
                 src={getImageUrl('download icon.png')}
                 alt="下载此图"
-                style={{ width: '14px', height: '14px', objectFit: 'contain' }}
+                style={{ width: '12px', height: '12px', objectFit: 'contain' }}
               />
-              {/* 提示文字 */}
               {hoveredButton === 'download' && (
                 <div
                   className="tooltip"
@@ -524,9 +660,9 @@ export const SessionCard = ({
               whileTap={{ scale: 0.95 }}
               style={{
                 position: 'relative',
-                width: '24px',
-                height: '24px',
-                borderRadius: '6px',
+                width: '20px',
+                height: '20px',
+                borderRadius: '4px',
                 border: 'none',
                 backgroundColor: '#F5F5F5',
                 cursor: 'pointer',
@@ -548,9 +684,8 @@ export const SessionCard = ({
               <img
                 src={getImageUrl('Redirect.png')}
                 alt="打开链接"
-                style={{ width: '14px', height: '14px', objectFit: 'contain' }}
+                style={{ width: '12px', height: '12px', objectFit: 'contain' }}
               />
-              {/* 提示文字 */}
               {hoveredButton === 'redirect' && (
                 <div
                   className="tooltip"

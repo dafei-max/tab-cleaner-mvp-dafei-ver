@@ -1,5 +1,60 @@
 /* SearchBar 组件样式 */
-/* 如果需要特定样式，可以在这里添加 */
+
+/* Placeholder 颜色减淡 */
+.search-input::placeholder {
+  color: rgba(189, 189, 189, 0.75) !important; /* 更淡、更亮 */
+  opacity: 1; /* 确保透明度生效 */
+}
+
+/* 搜索等待时的呼吸感发光效果 */
+.search-bar {
+  position: relative;
+  overflow: visible; /* 允许发光效果溢出 */
+}
+
+/* 呼吸感发光动画 - 一圈一圈边缘发光 */
+@keyframes breathingGlow {
+  0%, 100% {
+    box-shadow: 
+      0 0 0px rgba(135, 206, 235, 0),
+      0 0 0px rgba(135, 206, 235, 0),
+      0 0 0px rgba(135, 206, 235, 0),
+      0 0 0px rgba(135, 206, 235, 0);
+  }
+  25% {
+    box-shadow: 
+      0 0 5px rgba(135, 206, 235, 0.8),
+      0 0 0px rgba(135, 206, 235, 0),
+      0 0 0px rgba(135, 206, 235, 0),
+      0 0 0px rgba(135, 206, 235, 0);
+  }
+  50% {
+    box-shadow: 
+      0 0 5px rgba(135, 206, 235, 0.6),
+      0 0 15px rgba(135, 206, 235, 0.6),
+      0 0 0px rgba(135, 206, 235, 0),
+      0 0 0px rgba(135, 206, 235, 0);
+  }
+  75% {
+    box-shadow: 
+      0 0 5px rgba(135, 206, 235, 0.4),
+      0 0 15px rgba(135, 206, 235, 0.4),
+      0 0 25px rgba(135, 206, 235, 0.4),
+      0 0 0px rgba(135, 206, 235, 0);
+  }
+  100% {
+    box-shadow: 
+      0 0 5px rgba(135, 206, 235, 0.2),
+      0 0 15px rgba(135, 206, 235, 0.2),
+      0 0 25px rgba(135, 206, 235, 0.2),
+      0 0 35px rgba(135, 206, 235, 0.1);
+  }
+}
+
+.search-bar.searching {
+  animation: breathingGlow 2s ease-in-out infinite;
+  border-radius: 54px; /* 确保圆角与搜索栏一致 */
+}
 
 
 
