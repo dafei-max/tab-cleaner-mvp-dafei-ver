@@ -1,0 +1,8 @@
+.gradual-blur {
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.gradual-blur-layer {
+  will-change: opacity, backdrop-filter;
+}

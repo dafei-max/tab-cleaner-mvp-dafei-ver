@@ -10,6 +10,7 @@
   user-select: none; /* 防止拖拽时选中文本 */
 }
 
+
 .personal-space .canvas {
   height: 1024px;
   left: 50%;
@@ -629,7 +630,7 @@
   gap: 12.1px;
   height: 34px;
   position: absolute;
-  right: max(39px, calc(50% - 720px + 39px));
+  right: max(-80px, calc(50% - 720px + -80px));
   top: 24px;
   width: 290px;
   z-index: 10;
@@ -710,7 +711,7 @@
   display: flex;
   gap: 8px;
   height: 56px;
-  left: max(32px, calc(50% - 720px + 32px));
+  left: max(-72px, calc(50% - 720px + -72px));
   overflow: hidden;
   padding: 6px 7px;
   position: absolute;
@@ -741,18 +742,18 @@
 .personal-space .search-bar-container {
   left: 50%;
   transform: translateX(calc(-50% + 40px));
-  position: absolute;
-  top: 80px;
-  z-index: 10;
+  position: fixed;
+  bottom: 40px;
+  z-index: 2000;
 }
 
 .personal-space .search-bar {
   align-items: center;
-  border-radius: 46px;
+  border-radius: 54px;
   display: flex;
   gap: 10px;
   height: 45px;
-  padding: 0px 12px;
+  padding: 0px 30px;
   position: relative;
   width: 420px;
   min-width: 420px;
@@ -762,12 +763,12 @@
 /* Session Masonry Grid 布局 */
 .personal-space .session-masonry-container {
   position: absolute;
-  top: 125px; /* 搜索栏下方 */
+  top: 60px; /* 搜索栏下方 */
   left: 0;
   right: 0;
   bottom: 0;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: visible;
   /* 隐藏滚动条但保留滚动功能 */
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE/Edge */
@@ -784,6 +785,11 @@
 
 .personal-space .session-section:last-child {
   margin-bottom: 20px;
+}
+
+.personal-space .session-header {
+  padding-left: 0px !important;
+  margin-left: -40px;
 }
 
 .personal-space .image-12 {
@@ -811,7 +817,7 @@
 .personal-space .view-buttons {
   height: auto;
   position: fixed !important;
-  right: 136px !important;
+  right: 80px !important;
   left: auto !important;
   top: 50%;
   transform: translateY(-50%);

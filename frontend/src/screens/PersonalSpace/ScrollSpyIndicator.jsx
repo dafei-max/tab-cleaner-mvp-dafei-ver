@@ -42,7 +42,7 @@ export const ScrollSpyIndicator = ({ sessions, containerRef }) => {
       className="scroll-spy-indicator"
       style={{
         position: 'fixed',
-        right: '20px',
+        right: '210px',
         top: '50%',
         transform: 'translateY(-50%)',
         zIndex: 100,

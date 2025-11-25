@@ -1,0 +1,55 @@
+.glare-hover {
+  --glare-width: 100%;
+  --glare-height: 100%;
+  --glare-background: transparent;
+  --glare-border-radius: 8px;
+  --glare-border: none;
+  --glare-color: rgba(255, 255, 255, 0.5);
+  --glare-angle: 0deg;
+  --glare-size: 225%;
+  --glare-transition-duration: 800ms;
+  --mouse-x: 50%;
+  --mouse-y: 50%;
+
+  position: relative;
+  width: var(--glare-width);
+  height: var(--glare-height);
+  background: var(--glare-background);
+  border-radius: var(--glare-border-radius);
+  border: var(--glare-border);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.glare-hover::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    var(--glare-angle),
+    transparent 0%,
+    transparent 40%,
+    var(--glare-color) 50%,
+    transparent 60%,
+    transparent 100%
+  );
+  background-size: var(--glare-size) var(--glare-size);
+  background-repeat: no-repeat;
+  background-position: -100% -100%;
+  opacity: 0;
+  transition: background-position var(--glare-transition-duration) ease-out, opacity var(--glare-transition-duration) ease-out;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.glare-hover:hover::before {
+  background-position: var(--mouse-x) var(--mouse-y);
+  opacity: 1;
+}
+
+.glare-hover--play-once::before {
+  transition: background-position var(--glare-transition-duration) ease-out, opacity var(--glare-transition-duration) ease-out;
+}

@@ -138,7 +138,7 @@ export const SessionMasonryGrid = ({
         margin: '0 auto',
         padding: '0 20px',
         overflowY: 'auto',
-        overflowX: 'hidden',
+        overflowX: 'visible',
         height: `${viewportHeight}px`,
       }}
     >

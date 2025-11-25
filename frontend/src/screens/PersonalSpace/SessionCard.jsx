@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { motion } from 'framer-motion';
 import { MASONRY_CONFIG } from '../../config/masonryConfig';
 import { getBestImageSource, handleImageError } from '../../utils/imagePlaceholder';
+import { getImageUrl } from '../../shared/utils';
 
 /**
  * 单个卡片组件（带悬浮功能）
@@ -17,6 +19,7 @@ export const SessionCard = ({
   hasSearchResults = false,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [hoveredButton, setHoveredButton] = useState(null);
 
   const handleCardClick = (e) => {
     // 如果点击的是按钮，不触发卡片点击
@@ -44,6 +47,54 @@ export const SessionCard = ({
     e.stopPropagation();
     if (onOpenLink) {
       onOpenLink(og.url);
+    }
+  };
+
+  const handleCopyLink = async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(og.url || '');
+      // 可以添加一个提示，比如显示 "已复制"
+      console.log('链接已复制到剪贴板');
+    } catch (err) {
+      console.error('复制失败:', err);
+      // 降级方案：使用传统方法
+      const textArea = document.createElement('textarea');
+      textArea.value = og.url || '';
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        console.log('链接已复制到剪贴板（降级方案）');
+      } catch (err) {
+        console.error('复制失败:', err);
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
+  const handleDownloadImage = async (e) => {
+    e.stopPropagation();
+    try {
+      const imageUrl = getBestImageSource(og, 'text', fixedCardWidth, fixedCardWidth * 0.75);
+      
+      // 使用 fetch 获取图片
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      
+      // 创建下载链接
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${og.title || 'image'}_${Date.now()}.${blob.type.split('/')[1] || 'png'}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      console.log('图片下载成功');
+    } catch (err) {
+      console.error('下载失败:', err);
     }
   };
 
@@ -81,6 +132,38 @@ export const SessionCard = ({
   // 计算发光效果强度（基于相似度）
   const glowIntensity = isSearchResult ? Math.min(similarity * 2, 1) : 0;
   const glowColor = `rgba(26, 115, 232, ${glowIntensity * 0.8})`; // 蓝色发光
+
+  // 获取 favicon URL
+  const getFaviconUrl = () => {
+    if (og.favicon) return og.favicon;
+    if (og.url) {
+      try {
+        const urlObj = new URL(og.url);
+        return `${urlObj.protocol}//${urlObj.host}/favicon.ico`;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  // 获取网页名称（优先使用 title，否则使用 site_name，最后使用 URL）
+  const getPageName = () => {
+    if (og.title) return og.title;
+    if (og.site_name) return og.site_name;
+    if (og.url) {
+      try {
+        const urlObj = new URL(og.url);
+        return urlObj.hostname.replace('www.', '');
+      } catch (e) {
+        return og.url;
+      }
+    }
+    return '未知网页';
+  };
+
+  const faviconUrl = getFaviconUrl();
+  const pageName = getPageName();
   
   return (
     <div
@@ -90,20 +173,97 @@ export const SessionCard = ({
         marginBottom: `${MASONRY_CONFIG.columns.gutter}px`,  // 使用配置中的 gutter
         breakInside: 'avoid',
         position: 'relative',
+        backgroundColor: '#fff',
+        borderRadius: '8px',
+        overflow: 'hidden',
         // 搜索结果发光效果
         boxShadow: isSearchResult 
           ? `0 0 ${8 + glowIntensity * 12}px ${glowColor}, 0 0 ${4 + glowIntensity * 8}px ${glowColor}, 0 2px 8px rgba(0,0,0,0.15)`
-          : undefined,
+          : '0 2px 8px rgba(0,0,0,0.15)',
         // 非搜索结果的模糊效果
         filter: hasSearchResults && !isSearchResult ? 'blur(3px)' : 'none',
         opacity: hasSearchResults && !isSearchResult ? 0.4 : 1,
         transition: 'all 0.3s ease',
         zIndex: isSearchResult ? 10 : 1,
+        border: isSelected ? '3px solid #1a73e8' : 'none',
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleCardClick}
     >
+
+      {/* 灰色圆角 Header */}
+      <div
+        style={{
+          backgroundColor: '#F0F0F0',
+          padding: '4px 10px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          borderTopLeftRadius: '8px',
+          borderTopRightRadius: '8px',
+          borderBottom: '1px solid #E0E0E0',
+        }}
+      >
+        {/* Favicon */}
+        {faviconUrl ? (
+          <img
+            src={faviconUrl}
+            alt=""
+            style={{
+              width: '16px',
+              height: '16px',
+              borderRadius: '2px',
+              objectFit: 'contain',
+              flexShrink: 0,
+            }}
+            onError={(e) => {
+              // 如果 favicon 加载失败，显示默认图标
+              e.target.style.display = 'none';
+              const placeholder = e.target.nextElementSibling;
+              if (placeholder) {
+                placeholder.style.display = 'flex';
+              }
+            }}
+          />
+        ) : null}
+        {/* 默认 Favicon 占位符 */}
+        <div
+          style={{
+            width: '16px',
+            height: '16px',
+            borderRadius: '2px',
+            backgroundColor: '#CCCCCC',
+            display: faviconUrl ? 'none' : 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            fontSize: '10px',
+            color: '#666',
+            fontWeight: 'bold',
+          }}
+        >
+          {pageName.charAt(0).toUpperCase()}
+        </div>
+        {/* 网页名称 */}
+        <div
+          style={{
+            fontSize: '11px',
+            color: '#333',
+            fontWeight: 400,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flex: 1,
+            minWidth: 0,
+          }}
+          title={pageName}
+        >
+          {pageName}
+        </div>
+      </div>
+
+      {/* 图片内容 */}
       <div style={{ position: 'relative' }}>
         <img
           src={getBestImageSource(og, 'text', fixedCardWidth, fixedCardWidth * 0.75)}
@@ -113,10 +273,7 @@ export const SessionCard = ({
             width: '100%',
             height: 'auto',
             display: 'block',
-            borderRadius: '8px',
-            boxShadow: isSelected 
-              ? '0 0 0 3px #1a73e8, 0 2px 8px rgba(0,0,0,0.15)' 
-              : '0 2px 8px rgba(0,0,0,0.15)',
+            borderRadius: '0 0 8px 8px',
             cursor: 'pointer',
             transition: 'box-shadow 0.2s ease',
             objectFit: 'contain',
@@ -125,109 +282,272 @@ export const SessionCard = ({
           onError={(e) => handleImageError(e, og, 'text')}
         />
         
-        {/* 悬浮按钮（底部左侧） */}
+        {/* 悬浮按钮（底部靠右） */}
         {isHovered && (
           <div
             style={{
               position: 'absolute',
-              bottom: '8px',
-              left: '8px',
+              bottom: '12px',
+              right: '12px',
               display: 'flex',
               gap: '8px',
               zIndex: 10,
+              alignItems: 'center',
             }}
           >
-            {/* 删除按钮 */}
-            <button
+            {/* 复制链接按钮 */}
+            <motion.button
               className="card-action-button"
-              onClick={handleDelete}
-              title="删除"
+              onClick={handleCopyLink}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              transition={{ duration: 0.2 }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
               style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '4px',
+                position: 'relative',
+                width: '24px',
+                height: '24px',
+                borderRadius: '6px',
                 border: 'none',
-                backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                color: 'white',
+                backgroundColor: '#F5F5F5',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 transition: 'background-color 0.2s ease',
-              }}
-              onMouseEnter={(e) => e.target.style.backgroundColor = 'rgba(220, 53, 69, 0.9)'}
-              onMouseLeave={(e) => e.target.style.backgroundColor = 'rgba(0, 0, 0, 0.7)'}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-            </button>
-
-            {/* 打开链接按钮 */}
-            <button
-              className="card-action-button"
-              onClick={handleOpenLink}
-              title="打开链接"
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '4px',
-                border: 'none',
-                backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                color: 'white',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background-color 0.2s ease',
-              }}
-              onMouseEnter={(e) => e.target.style.backgroundColor = 'rgba(26, 115, 232, 0.9)'}
-              onMouseLeave={(e) => e.target.style.backgroundColor = 'rgba(0, 0, 0, 0.7)'}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M6 4L12 10M12 4V10H6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-
-            {/* 单选按钮 */}
-            <button
-              className="card-action-button"
-              onClick={handleSelect}
-              title="选择（批量操作）"
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '4px',
-                border: 'none',
-                backgroundColor: isSelected ? 'rgba(26, 115, 232, 0.9)' : 'rgba(0, 0, 0, 0.7)',
-                color: 'white',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background-color 0.2s ease',
+                padding: 0,
               }}
               onMouseEnter={(e) => {
-                if (!isSelected) {
-                  e.target.style.backgroundColor = 'rgba(26, 115, 232, 0.9)';
-                }
+                e.currentTarget.style.backgroundColor = '#87CEEB';
+                setHoveredButton('copy');
               }}
               onMouseLeave={(e) => {
-                if (!isSelected) {
-                  e.target.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-                }
+                e.currentTarget.style.backgroundColor = '#F5F5F5';
+                setHoveredButton(null);
               }}
             >
-              {isSelected ? (
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M3 8L6 11L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="3" y="3" width="10" height="10" stroke="currentColor" strokeWidth="2" fill="none"/>
-                </svg>
+              <img
+                src={getImageUrl('copy icon.png')}
+                alt="复制链接"
+                style={{ width: '14px', height: '14px', objectFit: 'contain' }}
+              />
+              {/* 提示文字 */}
+              {hoveredButton === 'copy' && (
+                <div
+                  className="tooltip"
+                  style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    marginBottom: '8px',
+                    padding: '4px 8px',
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    color: 'white',
+                    fontSize: '12px',
+                    borderRadius: '4px',
+                    whiteSpace: 'nowrap',
+                    pointerEvents: 'none',
+                    zIndex: 1000,
+                  }}
+                >
+                  复制链接
+                </div>
               )}
-            </button>
+            </motion.button>
+
+            {/* 删除按钮 */}
+            <motion.button
+              className="card-action-button"
+              onClick={handleDelete}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              transition={{ duration: 0.2, delay: 0.05 }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
+              style={{
+                position: 'relative',
+                width: '24px',
+                height: '24px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: '#F5F5F5',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background-color 0.2s ease',
+                padding: 0,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#87CEEB';
+                const tooltip = e.currentTarget.querySelector('.tooltip');
+                if (tooltip) tooltip.style.opacity = '1';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#F5F5F5';
+                const tooltip = e.currentTarget.querySelector('.tooltip');
+                if (tooltip) tooltip.style.opacity = '0';
+              }}
+            >
+              <img
+                src={getImageUrl('delete icon.png')}
+                alt="删除此卡片"
+                style={{ width: '14px', height: '14px', objectFit: 'contain' }}
+              />
+              {/* 提示文字 */}
+              {hoveredButton === 'delete' && (
+                <div
+                  className="tooltip"
+                  style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    marginBottom: '8px',
+                    padding: '4px 8px',
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    color: 'white',
+                    fontSize: '12px',
+                    borderRadius: '4px',
+                    whiteSpace: 'nowrap',
+                    pointerEvents: 'none',
+                    zIndex: 1000,
+                  }}
+                >
+                  删除此卡片
+                </div>
+              )}
+            </motion.button>
+
+            {/* 下载图片按钮 */}
+            <motion.button
+              className="card-action-button"
+              onClick={handleDownloadImage}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              transition={{ duration: 0.2, delay: 0.1 }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
+              style={{
+                position: 'relative',
+                width: '24px',
+                height: '24px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: '#F5F5F5',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background-color 0.2s ease',
+                padding: 0,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#87CEEB';
+                setHoveredButton('download');
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#F5F5F5';
+                setHoveredButton(null);
+              }}
+            >
+              <img
+                src={getImageUrl('download icon.png')}
+                alt="下载此图"
+                style={{ width: '14px', height: '14px', objectFit: 'contain' }}
+              />
+              {/* 提示文字 */}
+              {hoveredButton === 'download' && (
+                <div
+                  className="tooltip"
+                  style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    marginBottom: '8px',
+                    padding: '4px 8px',
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    color: 'white',
+                    fontSize: '12px',
+                    borderRadius: '4px',
+                    whiteSpace: 'nowrap',
+                    pointerEvents: 'none',
+                    zIndex: 1000,
+                  }}
+                >
+                  下载此图
+                </div>
+              )}
+            </motion.button>
+
+            {/* 打开链接按钮 */}
+            <motion.button
+              className="card-action-button"
+              onClick={handleOpenLink}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              transition={{ duration: 0.2, delay: 0.15 }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
+              style={{
+                position: 'relative',
+                width: '24px',
+                height: '24px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: '#F5F5F5',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background-color 0.2s ease',
+                padding: 0,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#87CEEB';
+                setHoveredButton('redirect');
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#F5F5F5';
+                setHoveredButton(null);
+              }}
+            >
+              <img
+                src={getImageUrl('Redirect.png')}
+                alt="打开链接"
+                style={{ width: '14px', height: '14px', objectFit: 'contain' }}
+              />
+              {/* 提示文字 */}
+              {hoveredButton === 'redirect' && (
+                <div
+                  className="tooltip"
+                  style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    marginBottom: '8px',
+                    padding: '4px 8px',
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    color: 'white',
+                    fontSize: '12px',
+                    borderRadius: '4px',
+                    whiteSpace: 'nowrap',
+                    pointerEvents: 'none',
+                    zIndex: 1000,
+                  }}
+                >
+                  打开链接
+                </div>
+              )}
+            </motion.button>
           </div>
         )}
       </div>

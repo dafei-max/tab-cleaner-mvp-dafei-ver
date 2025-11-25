@@ -27,11 +27,11 @@ export const SessionHeader = ({
       }}
     >
       {/* 左侧：Session 名称和标签页数量 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: '42px' }}>
         <div
           style={{
             fontSize: '14px',
-            fontWeight: 500,
+            fontWeight: 400,
             color: '#ffffff',
           }}
         >

@@ -1,0 +1,8 @@
+.pixel-card {
+  overflow: hidden;
+}
+
+.pixel-border {
+  will-change: opacity;
+}
+

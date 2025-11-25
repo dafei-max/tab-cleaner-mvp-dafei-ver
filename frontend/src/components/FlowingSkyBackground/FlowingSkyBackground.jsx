@@ -13,9 +13,9 @@ const GradientMesh = () => {
     () => ({
       uTime: { value: 0 },
       uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-      uColor1: { value: new THREE.Color('#86BCE9') },
-      uColor2: { value: new THREE.Color('#E3EBF5') },
-      uColor3: { value: new THREE.Color('#B8D9F0') },
+      uColor1: { value: new THREE.Color('#E3EBF5') }, // 最浅最亮的颜色
+      uColor2: { value: new THREE.Color('#E3EBF5') }, // 中间色（保持最浅）
+      uColor3: { value: new THREE.Color('#C8DFF1') }, // 最深的混色
     }),
     []
   );
@@ -80,8 +80,8 @@ const GradientMesh = () => {
       
       // Wave warp with sin
       float frequency = 5.;
-      float amplitude = 30.;
-      float speed = uTime * 2.;
+      float amplitude = 40.;
+      float speed = uTime * 3.;
       tuv.x += sin(tuv.y*frequency+speed)/amplitude;
       tuv.y += sin(tuv.x*frequency*1.5+speed)/(amplitude*.5);
       
@@ -150,7 +150,7 @@ export default function FlowingSkyBackground({
         zIndex: 0,
         overflow: "hidden",
         pointerEvents: "none", // 确保背景不拦截鼠标事件
-        filter: 'blur(40px) contrast(1)',
+        filter: 'blur(30px) contrast(1)',
         ...style,
       }}
     >
@@ -166,7 +166,7 @@ export default function FlowingSkyBackground({
         dpr={[1, 2]}
         frameloop="always"
       >
-        <color attach="background" args={['#CCE1F4']} />
+        <color attach="background" args={['#E3EBF5']} />
         <GradientMesh />
       </Canvas>
       {/* Filter 遮罩层 */}

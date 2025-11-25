@@ -24,6 +24,7 @@ import { calculateStaggerDelay, CLUSTER_ANIMATION } from "../../motion";
 import { useClusterSpringAnimation } from "../../hooks/useClusterSpringAnimation";
 import { getBestImageSource } from "../../utils/imagePlaceholder";
 import FlowingSkyBackground from "../../components/FlowingSkyBackground";
+import { GradualBlur } from "../../components/GradualBlur";
 import "./style.css";
 
 export const PersonalSpace = () => {
@@ -1289,6 +1290,19 @@ export const PersonalSpace = () => {
           {/* 静态天空背景 - 使用 background-space.png */}
           <FlowingSkyBackground />
           <div className="personal-space" ref={containerRef} style={{ position: "relative", zIndex: 1 }}>
+          {/* 底部渐变模糊遮罩层 - 使用 reactbits.dev 风格的 GradualBlur */}
+          <GradualBlur 
+            position="bottom" 
+            strength={2}
+            height="12rem"
+            divCount={12}
+            exponential={true}
+            curve="bezier"
+            opacity={0.85}
+            animated={false}
+            target="page"
+            zIndex={100}
+          />
           {viewMode === 'masonry' ? (
             <div style={{ pointerEvents: hasActiveSearch ? 'none' : 'auto' }}>
               <SessionMasonryGrid
@@ -1297,7 +1311,7 @@ export const PersonalSpace = () => {
                 onCardClick={handleCardDoubleClick}
                 onSessionDelete={handleSessionDelete}
                 onSessionOpenAll={handleSessionOpenAll}
-                searchBarHeight={125} // 搜索栏高度 + 间距
+                searchBarHeight={200} // 搜索栏高度 + 间距
                 containerRef={sessionContainerRef}
               />
               {/* Scroll Spy Indicator */}

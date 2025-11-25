@@ -7,6 +7,11 @@ export default defineConfig({
   plugins: [react()],
   publicDir: "./public",
   base: "./",
+  resolve: {
+    alias: {
+      "@": resolve(__dirname, "./src"),
+    },
+  },
   build: {
     outDir: "dist",
     rollupOptions: {
