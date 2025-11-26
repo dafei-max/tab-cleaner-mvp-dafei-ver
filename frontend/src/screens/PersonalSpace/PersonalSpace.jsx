@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Component } from "../../components/Component";
 import { SearchBar } from "../../components/SearchBar";
 import { ToolSets } from "../../components/ToolSets";
@@ -9,25 +8,27 @@ import { initialImages } from "./imageData";
 import { OpenGraphCard } from "./OpenGraphCard";
 import { SelectionPanel } from "./SelectionPanel";
 import { ViewButtons } from "./ViewButtons";
-import { MasonryGrid } from "./MasonryGrid";
-import { SessionMasonryGrid } from "./SessionMasonryGrid";
-import { SessionCard } from "./SessionCard";
-import { RadialCanvas } from "./RadialCanvas";
 import { AIClusteringPanel } from "./AIClusteringPanel";
-import { ScrollSpyIndicator } from "./ScrollSpyIndicator";
 import { useSessionManager } from "../../hooks/useSessionManager";
 import { useHistory } from "../../hooks/useHistory";
 import { useSearch } from "../../hooks/useSearch";
 import { calculateRadialLayout } from "../../utils/radialLayout";
 import { handleLassoSelect as handleLassoSelectUtil } from "../../utils/selection";
-import { calculateMultipleClustersLayout } from "../../utils/clusterLayout";
-import { createManualCluster, classifyByLabels, discoverClusters } from "../../shared/api";
-import { calculateStaggerDelay, CLUSTER_ANIMATION } from "../../motion";
+import { createManualCluster } from "../../shared/api";
 import { useClusterSpringAnimation } from "../../hooks/useClusterSpringAnimation";
 import FlowingSkyBackground from "../../components/FlowingSkyBackground";
 import { GradualBlur } from "../../components/GradualBlur";
 import FluidGlassCursor from "../../components/FluidGlassCursor/FluidGlassCursor";
 import { UI_CONFIG } from "./uiConfig";
+import { PetSetting } from "./PetSetting";
+import { PetDisplay } from "../../components/PetDisplay/PetDisplay";
+// 新的 hooks 和组件
+import { useCanvasInteractions } from "./hooks/useCanvasInteractions";
+import { useHistoryHandlers } from "./hooks/useHistoryHandlers";
+import { useClustering } from "./hooks/useClustering";
+import { PersonalSpaceHeader } from "./components/PersonalSpaceHeader";
+import { SearchOverlay } from "./components/SearchOverlay";
+import { ViewContainer } from "./components/ViewContainer";
 import "./style.css";
 
 export const PersonalSpace = () => {
@@ -49,22 +50,22 @@ export const PersonalSpace = () => {
     }))
   );
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [showAddTooltip, setShowAddTooltip] = useState(false);
-  const addButtonRef = useRef(null);
+  
+  // 页面切换状态：'home' | 'petSetting'
+  const [currentPage, setCurrentPage] = useState('home');
   const [activeTool, setActiveTool] = useState(null); // 'draw' | 'lasso' | 'text' | null
-  const canvasRef = useRef(null);
   const containerRef = useRef(null);
   
-  // 画布缩放和平移状态
-  const [zoom, setZoom] = useState(1); // 缩放比例，1 = 100%
-  const [pan, setPan] = useState({ x: 0, y: 0 }); // 平移位置
-  
-  // 拖拽画布状态
-  const [isPanning, setIsPanning] = useState(false);
-  // 记录拖拽开始时的鼠标位置与初始 pan（避免因 transform 导致的 rect 变化抖动）
-  const [panStartMouse, setPanStartMouse] = useState({ x: 0, y: 0 });
-  const [panStartPan, setPanStartPan] = useState({ x: 0, y: 0 });
-  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  // 使用画布交互 hook
+  const {
+    canvasRef,
+    zoom,
+    pan,
+    isPanning,
+    isSpacePressed,
+    getCanvasCursor,
+    isBlankCanvasTarget,
+  } = useCanvasInteractions(activeTool, containerRef);
 
   // 画布工具状态（由父组件管理，支持撤销/重做）
   const [drawPaths, setDrawPaths] = useState([]);
@@ -72,6 +73,18 @@ export const PersonalSpace = () => {
   
   // 撤销/重做历史记录（使用 hook）
   const { history, historyIndex, addToHistory, canUndo, canRedo, setHistoryIndex } = useHistory(50);
+  
+  // 使用历史记录处理 hook
+  const { handleUndo, handleRedo } = useHistoryHandlers({
+    history,
+    historyIndex,
+    setHistoryIndex,
+    setDrawPaths,
+    setTextElements,
+    setSelectedIds,
+    setImages,
+    setOpengraphData,
+  });
 
   // AI 聚类面板显示状态
   const [showAIClusteringPanel, setShowAIClusteringPanel] = useState(false);
@@ -79,11 +92,27 @@ export const PersonalSpace = () => {
   // 选中分组名称
   const [selectedGroupName, setSelectedGroupName] = useState("未命名分组");
 
-  // 聚类相关状态
-  const [clusters, setClusters] = useState([]); // 所有聚类列表
-  const [isClustering, setIsClustering] = useState(false); // 是否正在聚类
-  const [aiLabels, setAiLabels] = useState(["设计", "工作文档"]); // AI 聚类标签（预设两个）
-  const clusterDragStartRef = useRef(new Map()); // 拖动开始时保存每个聚类的初始位置和卡片位置
+  // 使用聚类 hook
+  const {
+    clusters,
+    setClusters,
+    isClustering,
+    aiLabels,
+    clusterDragStartRef,
+    handleClusterRename,
+    handleClusterDrag,
+    handleAddLabel,
+    handleLabelRename,
+    handleLabelDelete,
+    handleClassify,
+    handleDiscover,
+  } = useClustering({
+    showOriginalImages,
+    images,
+    opengraphData,
+    setImages,
+    setOpengraphData,
+  });
 
   // 视图模式：'radial' 或 'masonry'
   const [viewMode, setViewMode] = useState('masonry'); // 默认使用 masonry 视图
@@ -509,12 +538,14 @@ export const PersonalSpace = () => {
   };
 
   // 处理宠物设定空间入口点击
-  const handlePetSettingsClick = () => {
-    // TODO: 实现宠物设定空间的导航逻辑
-    console.log('[PersonalSpace] Pet settings clicked - navigate to pet settings space');
-    // 这里可以添加路由跳转或打开宠物设定面板的逻辑
-    // 例如：navigate('/pet-settings') 或 setShowPetSettingsPanel(true)
-  };
+  const handlePetSettingsClick = useCallback(() => {
+    setCurrentPage('petSetting');
+  }, []);
+  
+  // 处理返回主页（点击洗衣房图标）
+  const handleBackToHome = useCallback(() => {
+    setCurrentPage('home');
+  }, []);
 
   // 处理选中
   const handleSelect = (id, isMultiSelect) => {
@@ -602,383 +633,27 @@ export const PersonalSpace = () => {
     addToHistory(action);
   };
 
-  // 撤销功能
-  const handleUndo = () => {
-    if (!history || history.length === 0 || historyIndex < 0) return;
-    
-    const action = history[historyIndex];
-    if (!action) return;
-    console.log('[Undo] Undoing action:', action);
-    
-    // 根据操作类型执行撤销
-    switch (action.type) {
-      case 'draw':
-        if (action.action === 'add') {
-          setDrawPaths(prev => {
-            if (!prev || !Array.isArray(prev)) return [];
-            return prev.slice(0, -1);
-          });
-        }
-        break;
-      case 'text':
-        if (action.action === 'add' && action.element) {
-          setTextElements(prev => {
-            if (!prev || !Array.isArray(prev)) return [];
-            return prev.filter(el => el.id !== action.element.id);
-          });
-        } else if (action.action === 'delete' && action.element) {
-          setTextElements(prev => {
-            if (!prev || !Array.isArray(prev)) return [action.element];
-            return [...prev, action.element];
-          });
-        }
-        break;
-      case 'lasso':
-        if (action.action === 'select') {
-          // 套索选择的撤销需要恢复之前的选中状态
-          // 注意：这里需要从历史记录中查找前一个选中状态
-          // 简化处理：如果历史记录中有前一个选中操作，恢复它
-          const prevAction = (historyIndex > 0 && history && history[historyIndex - 1]) ? history[historyIndex - 1] : null;
-          if (prevAction && prevAction.type === 'selection' && prevAction.prevSelectedIds) {
-            setSelectedIds(new Set(prevAction.prevSelectedIds));
-          } else {
-            // 如果没有前一个选中状态，清空选中
-            setSelectedIds(new Set());
-          }
-        }
-        break;
-      case 'selection':
-        if (action.prevSelectedIds) {
-          setSelectedIds(new Set(action.prevSelectedIds));
-        }
-        break;
-      case 'image-move':
-        // 恢复图片位置
-        if (action.prevImages && Array.isArray(action.prevImages)) {
-          setImages(action.prevImages);
-        }
-        break;
-          case 'opengraph-move':
-            // 恢复 OpenGraph 图片位置
-            if (action.ogId && action.prevX !== undefined && action.prevY !== undefined) {
-              setOpengraphData(prev =>
-                prev.map(og =>
-                  og.id === action.ogId ? { ...og, x: action.prevX, y: action.prevY } : og
-                )
-              );
-            }
-            break;
-          case 'image-delete':
-            // 恢复删除的图片
-            if (action.prevImages && Array.isArray(action.prevImages)) {
-              setImages(action.prevImages);
-            }
-            break;
-          case 'opengraph-delete':
-            // 恢复删除的 OpenGraph 图片
-            if (action.prevOG && Array.isArray(action.prevOG)) {
-              setOpengraphData(action.prevOG);
-            }
-            break;
+  // 处理点击空白处取消选择
+  const handleCanvasClick = (e) => {
+    if (activeTool) {
+      return;
     }
     
-    setHistoryIndex(prev => prev - 1);
-  };
-
-  // 重做功能
-  const handleRedo = () => {
-    if (!history || !Array.isArray(history) || history.length === 0) return;
-    if (historyIndex >= history.length - 1) return;
-    
-    const nextIndex = historyIndex + 1;
-    const action = history[nextIndex];
-    if (!action) return;
-    console.log('[Redo] Redoing action:', action);
-    
-    // 根据操作类型执行重做
-    switch (action.type) {
-      case 'draw':
-        if (action.action === 'add' && action.path) {
-          setDrawPaths(prev => {
-            if (!prev || !Array.isArray(prev)) return [action.path];
-            return [...prev, action.path];
-          });
-        }
-        break;
-      case 'text':
-        if (action.action === 'add' && action.element) {
-          setTextElements(prev => {
-            if (!prev || !Array.isArray(prev)) return [action.element];
-            return [...prev, action.element];
-          });
-        } else if (action.action === 'delete' && action.element) {
-          setTextElements(prev => {
-            if (!prev || !Array.isArray(prev)) return [];
-            return prev.filter(el => el.id !== action.element.id);
-          });
-        }
-        break;
-      case 'lasso':
-        if (action.action === 'select') {
-          setSelectedIds(new Set(action.selectedIds || []));
-        }
-        break;
-      case 'selection':
-        if (action.selectedIds) {
-          setSelectedIds(new Set(action.selectedIds));
-        }
-        break;
-      case 'image-move':
-        // 恢复图片位置
-        setImages(prev => prev.map(img =>
-          img.id === action.imageId ? { ...img, x: action.x, y: action.y } : img
-        ));
-        break;
-          case 'opengraph-move':
-            // 恢复 OpenGraph 图片位置
-            if (action.ogId && action.x !== undefined && action.y !== undefined) {
-              setOpengraphData(prev =>
-                prev.map(og =>
-                  og.id === action.ogId ? { ...og, x: action.x, y: action.y } : og
-                )
-              );
-            }
-            break;
-          case 'image-delete':
-            // 重做删除（再次删除）
-            if (action.deletedIds && Array.isArray(action.deletedIds)) {
-              setImages(prev => prev.filter(img => !action.deletedIds.includes(img.id)));
-            }
-            break;
-          case 'opengraph-delete':
-            // 重做删除（再次删除）
-            if (action.deletedIds && Array.isArray(action.deletedIds)) {
-              setOpengraphData(prev => prev.filter(og => !action.deletedIds.includes(og.id)));
-            }
-            break;
-    }
-    
-    setHistoryIndex(nextIndex);
-  };
-
-  // 根据工具设置光标样式（使用 SVG 图标）
-  const getCanvasCursor = () => {
-    switch (activeTool) {
-      case 'draw': {
-        const drawIconUrl = getImageUrl('draw-button-1.svg');
-        return `url(${drawIconUrl}) 8 8, crosshair`; // 8 8 是热点位置（图标中心）
+    if (
+      e.target === canvasRef.current || 
+      (e.target.classList && e.target.classList.contains('canvas')) ||
+      (e.target.tagName === 'DIV' && e.target.classList.contains('canvas'))
+    ) {
+      if (!e.target.closest('img') && 
+          !e.target.closest('.tool-button-wrapper') && 
+          !e.target.closest('.canvas-text-element') &&
+          !e.target.closest('input') &&
+          !e.target.closest('svg') &&
+          !e.target.closest('path')) {
+        setSelectedIds(new Set());
       }
-      case 'lasso': {
-        const lassoIconUrl = getImageUrl('lasso-button-1.svg');
-        return `url(${lassoIconUrl}) 10 10, crosshair`; // 10 10 是热点位置
-      }
-      case 'text':
-        return 'text';
-      default:
-        return 'default';
     }
   };
-
-  // 判断是否点击在画布空白区域（而非图片/控件等）
-  const isBlankCanvasTarget = (e) => {
-    const target = e.target;
-    if (!target) return false;
-    const canvas = canvasRef.current;
-    if (!canvas) return false;
-    const isCanvas = target === canvas || (target.classList && target.classList.contains('canvas'));
-    const inPersonalSpace = target.closest('.personal-space');
-    // 排除图片、工具按钮、文字元素、输入框、SVG 等
-    if (target.closest('img') ||
-        target.closest('.tool-button-wrapper') ||
-        target.closest('.canvas-text-element') ||
-        target.closest('input') ||
-        target.closest('svg') ||
-        target.closest('path')) {
-      return false;
-    }
-    // 允许：点击在 canvas 本身，或点击在个人空间背景（不在图片/控件上）
-    return isCanvas || !!inPersonalSpace;
-  };
-
-      // 处理点击空白处取消选择
-      const handleCanvasClick = (e) => {
-        // 如果有工具激活（套索、绘画、文字），不处理点击取消选择
-        // 因为工具需要处理自己的点击事件
-        if (activeTool) {
-          return;
-        }
-        
-        // 如果点击的是 canvas 本身（不是图片、工具按钮、文字元素等）
-        // 排除点击图片、工具按钮、文字元素、SVG 路径等
-        if (
-          e.target === canvasRef.current || 
-          (e.target.classList && e.target.classList.contains('canvas')) ||
-          (e.target.tagName === 'DIV' && e.target.classList.contains('canvas'))
-        ) {
-          // 确保不是点击了图片、按钮或其他元素
-          if (!e.target.closest('img') && 
-              !e.target.closest('.tool-button-wrapper') && 
-              !e.target.closest('.canvas-text-element') &&
-              !e.target.closest('input') &&
-              !e.target.closest('svg') &&
-              !e.target.closest('path')) {
-            setSelectedIds(new Set());
-          }
-        }
-      };
-
-      // 处理空格键按下/释放（用于拖拽画布）
-      useEffect(() => {
-        const handleKeyDown = (e) => {
-          if (e.code === 'Space' && !activeTool) {
-            e.preventDefault();
-            setIsSpacePressed(true);
-            // 改变光标为抓取手型
-            if (canvasRef.current) {
-              canvasRef.current.style.cursor = 'grab';
-            }
-          }
-        };
-
-        const handleKeyUp = (e) => {
-          if (e.code === 'Space') {
-            setIsSpacePressed(false);
-            setIsPanning(false);
-            // 恢复光标
-            if (canvasRef.current) {
-              canvasRef.current.style.cursor = getCanvasCursor();
-            }
-          }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
-
-        return () => {
-          window.removeEventListener('keydown', handleKeyDown);
-          window.removeEventListener('keyup', handleKeyUp);
-        };
-      }, [activeTool]);
-
-      // 处理鼠标拖拽画布（空格键 + 拖拽 或 中键拖拽）
-      useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
-
-        const handleMouseDown = (e) => {
-          // 左键点击画布空白处即可拖拽；中键拖拽；或空格+左键
-          const leftOnBlank = (e.button === 0) && isBlankCanvasTarget(e);
-          const shouldPan = leftOnBlank || e.button === 1 || (isSpacePressed && e.button === 0);
-          
-          if (shouldPan && !activeTool) {
-            e.preventDefault();
-            setIsPanning(true);
-            // 记录开始时的屏幕坐标与初始 pan
-            setPanStartMouse({ x: e.clientX, y: e.clientY });
-            setPanStartPan({ x: pan.x, y: pan.y });
-            canvas.style.cursor = 'grabbing';
-          }
-        };
-
-        const handleMouseMove = (e) => {
-          if (isPanning) {
-            e.preventDefault();
-            const dx = e.clientX - panStartMouse.x;
-            const dy = e.clientY - panStartMouse.y;
-            setPan({ x: panStartPan.x + dx, y: panStartPan.y + dy });
-          }
-        };
-
-        const handleMouseUp = (e) => {
-          if (isPanning) {
-            e.preventDefault();
-            setIsPanning(false);
-            canvas.style.cursor = isSpacePressed ? 'grab' : getCanvasCursor();
-          }
-        };
-
-        // 阻止中键默认行为（打开新标签页）
-        const handleAuxClick = (e) => {
-          if (e.button === 1 && !activeTool) {
-            e.preventDefault();
-          }
-        };
-
-        container.addEventListener('mousedown', handleMouseDown);
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
-        container.addEventListener('auxclick', handleAuxClick);
-
-        return () => {
-          container.removeEventListener('mousedown', handleMouseDown);
-          window.removeEventListener('mousemove', handleMouseMove);
-          window.removeEventListener('mouseup', handleMouseUp);
-          container.removeEventListener('auxclick', handleAuxClick);
-        };
-      }, [isPanning, panStartMouse, panStartPan, isSpacePressed, activeTool, pan]);
-
-      // 处理鼠标滚轮缩放（优化版，更平滑）
-      useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const handleWheel = (e) => {
-          // 如果正在使用工具或正在拖拽，不处理滚轮事件
-          if (activeTool || isPanning) {
-            return;
-          }
-          
-          // 检查鼠标是否在 canvas 内
-          const rect = canvas.getBoundingClientRect();
-          const mouseX = e.clientX;
-          const mouseY = e.clientY;
-          
-          if (
-            mouseX < rect.left ||
-            mouseX > rect.right ||
-            mouseY < rect.top ||
-            mouseY > rect.bottom
-          ) {
-            return; // 鼠标不在 canvas 内，不处理
-          }
-          
-          // 阻止默认滚动行为（仅在 canvas 内）
-          e.preventDefault();
-          
-          // 计算鼠标相对于视口中心的位置
-          const viewportCenterX = window.innerWidth / 2;
-          const viewportCenterY = window.innerHeight / 2;
-          
-          // 鼠标相对于视口中心的位置
-          const offsetX = mouseX - viewportCenterX;
-          const offsetY = mouseY - viewportCenterY;
-          
-          // 计算缩放前的鼠标在画布内容空间中的位置
-          const contentX = (offsetX - pan.x) / zoom;
-          const contentY = (offsetY - pan.y) / zoom;
-          
-          // 计算新的缩放比例（更平滑的缩放速度，支持 Ctrl/Cmd 键加速）
-          const isAccelerated = e.ctrlKey || e.metaKey;
-          const baseZoomSpeed = 0.05;
-          const zoomSpeed = isAccelerated ? baseZoomSpeed * 2 : baseZoomSpeed;
-          const zoomDelta = e.deltaY > 0 ? -zoomSpeed : zoomSpeed;
-          const newZoom = Math.max(0.05, Math.min(10, zoom + zoomDelta));
-          
-          // 计算新的平移位置，使鼠标指向的内容位置保持不变
-          const newPanX = offsetX - contentX * newZoom;
-          const newPanY = offsetY - contentY * newZoom;
-          
-          setZoom(newZoom);
-          setPan({ x: newPanX, y: newPanY });
-        };
-
-        // 添加非被动事件监听器
-        canvas.addEventListener('wheel', handleWheel, { passive: false });
-
-        return () => {
-          canvas.removeEventListener('wheel', handleWheel);
-        };
-      }, [activeTool, zoom, pan, isPanning]);
 
       // 处理卡片双击
       const handleCardDoubleClick = useCallback((og) => {
@@ -991,244 +666,6 @@ export const PersonalSpace = () => {
         }
       }, []);
 
-      // 处理聚类重命名
-      const handleClusterRename = useCallback((clusterId, newName) => {
-        setClusters(prev => prev.map(c => 
-          c.id === clusterId ? { ...c, name: newName } : c
-        ));
-      }, []);
-
-      // 处理聚类拖拽
-      const handleClusterDrag = useCallback((clusterId, newCenter, isDragEnd) => {
-        // 如果是拖动开始（第一次调用），保存初始位置
-        if (!clusterDragStartRef.current.has(clusterId)) {
-          const cluster = clusters.find(c => c.id === clusterId);
-          if (cluster) {
-            const initialCenter = cluster.center || { x: 720, y: 512 };
-            const initialItems = (cluster.items || []).map(item => ({
-              id: item.id,
-              x: item.x || initialCenter.x,
-              y: item.y || initialCenter.y,
-            }));
-            clusterDragStartRef.current.set(clusterId, {
-              center: initialCenter,
-              items: initialItems,
-            });
-          }
-        }
-
-        const dragStart = clusterDragStartRef.current.get(clusterId);
-        if (!dragStart) return;
-
-        // 计算偏移量（基于拖动开始时的初始位置）
-        const offsetX = newCenter.x - dragStart.center.x;
-        const offsetY = newCenter.y - dragStart.center.y;
-
-        // 更新聚类的中心位置
-        setClusters(prev => prev.map(c => {
-          if (c.id === clusterId) {
-            // 更新聚类中的 items 位置（保持相对位置不变）
-            const updatedItems = (c.items || []).map(item => {
-              const initialItem = dragStart.items.find(init => init.id === item.id);
-              if (initialItem) {
-                return {
-                  ...item,
-                  x: initialItem.x + offsetX,
-                  y: initialItem.y + offsetY,
-                };
-              }
-              return item;
-            });
-
-            return {
-              ...c,
-              center: newCenter,
-              items: updatedItems,
-            };
-          }
-          return c;
-        }));
-
-        // 实时更新画布中的卡片位置（拖动过程中和拖动结束时都更新）
-        if (showOriginalImages) {
-          setImages(prevImages => prevImages.map(img => {
-            const initialItem = dragStart.items.find(init => init.id === img.id);
-            if (initialItem) {
-              return {
-                ...img,
-                x: initialItem.x + offsetX,
-                y: initialItem.y + offsetY,
-              };
-            }
-            return img;
-          }));
-        } else {
-          setOpengraphData(prevOG => prevOG.map(og => {
-            const initialItem = dragStart.items.find(init => init.id === og.id);
-            if (initialItem) {
-              return {
-                ...og,
-                x: initialItem.x + offsetX,
-                y: initialItem.y + offsetY,
-              };
-            }
-            return og;
-          }));
-        }
-
-        // 拖动结束时，清除保存的初始位置
-        if (isDragEnd) {
-          clusterDragStartRef.current.delete(clusterId);
-        }
-      }, [clusters, showOriginalImages]);
-
-      // AI 聚类处理函数
-      const handleAddLabel = useCallback(() => {
-        const newLabel = prompt('请输入新标签名称（最多3个标签）：');
-        if (newLabel && newLabel.trim() && aiLabels.length < 3) {
-          setAiLabels(prev => [...prev, newLabel.trim()]);
-        }
-      }, [aiLabels.length]);
-
-      const handleLabelRename = useCallback((idx, newLabel) => {
-        setAiLabels(prev => prev.map((l, i) => i === idx ? newLabel : l));
-      }, []);
-
-      const handleLabelDelete = useCallback((idx) => {
-        if (window.confirm(`删除标签 "${aiLabels[idx]}"？`)) {
-          setAiLabels(prev => prev.filter((_, i) => i !== idx));
-        }
-      }, [aiLabels]);
-
-      const handleClassify = useCallback(async () => {
-        if (isClustering || aiLabels.length === 0) return;
-        
-        try {
-          setIsClustering(true);
-          let allItems = showOriginalImages ? images : opengraphData;
-          
-          // ✅ 已移除：opengraphWithEmbeddings 逻辑
-          // 聚类功能现在直接使用 opengraphData，embedding 数据应该已经在数据中
-          // 如果需要 embedding，应该从数据库获取或确保数据已经包含 embedding
-          
-          const clusteredItemIds = clusters
-            .filter(c => c.type === 'manual')
-            .flatMap(c => (c.items || []).map(item => item.id))
-            .filter(Boolean);
-          
-          const itemsWithEmbedding = allItems.filter(item => 
-            item.text_embedding || item.image_embedding
-          );
-          
-          if (itemsWithEmbedding.length === 0) {
-            alert('请先为卡片生成 embedding（可以通过搜索功能自动生成）');
-            return;
-          }
-          
-          const result = await classifyByLabels(
-            aiLabels,
-            itemsWithEmbedding,
-            clusteredItemIds.length > 0 ? clusteredItemIds : null
-          );
-          
-          if (result && result.ok && result.clusters) {
-            const updatedClusters = [...clusters, ...result.clusters];
-            const repositionedClusters = calculateMultipleClustersLayout(updatedClusters, {
-              canvasWidth: 1440,
-              canvasHeight: 1024,
-              clusterSpacing: 500,
-              clusterCenterRadius: 250,
-            });
-            setClusters(repositionedClusters);
-            
-            const classifiedItemIds = new Set(
-              result.clusters.flatMap(c => (c.items || []).map(item => item.id))
-            );
-            
-            if (showOriginalImages) {
-              setImages(prev => {
-                const remaining = prev.filter(img => !classifiedItemIds.has(img.id));
-                return calculateRadialLayout(remaining);
-              });
-            } else {
-              setOpengraphData(prev => {
-                const remaining = prev.filter(og => !classifiedItemIds.has(og.id));
-                return calculateRadialLayout(remaining);
-              });
-            }
-          }
-        } catch (error) {
-          console.error('[Clustering] Failed to classify by labels:', error);
-          alert('AI 分类失败：' + (error.message || '未知错误'));
-        } finally {
-          setIsClustering(false);
-        }
-      }, [isClustering, aiLabels, showOriginalImages, images, opengraphData, clusters]);
-
-      const handleDiscover = useCallback(async () => {
-        if (isClustering) return;
-        
-        try {
-          setIsClustering(true);
-          let allItems = showOriginalImages ? images : opengraphData;
-          
-          // ✅ 已移除：opengraphWithEmbeddings 逻辑
-          // 聚类功能现在直接使用 opengraphData，embedding 数据应该已经在数据中
-          // 如果需要 embedding，应该从数据库获取或确保数据已经包含 embedding
-          
-          const clusteredItemIds = clusters
-            .filter(c => c.type === 'manual')
-            .flatMap(c => (c.items || []).map(item => item.id))
-            .filter(Boolean);
-          
-          const itemsWithEmbedding = allItems.filter(item => 
-            item.text_embedding || item.image_embedding
-          );
-          
-          if (itemsWithEmbedding.length < 3) {
-            alert('至少需要3个有 embedding 的卡片才能进行自动聚类');
-            return;
-          }
-          
-          const result = await discoverClusters(
-            itemsWithEmbedding,
-            clusteredItemIds.length > 0 ? clusteredItemIds : null,
-            null
-          );
-          
-          if (result && result.ok && result.clusters) {
-            const updatedClusters = [...clusters, ...result.clusters];
-            const repositionedClusters = calculateMultipleClustersLayout(updatedClusters, {
-              canvasWidth: 1440,
-              canvasHeight: 1024,
-              clusterSpacing: 500,
-              clusterCenterRadius: 250,
-            });
-            setClusters(repositionedClusters);
-            
-            const clusteredItemIds = new Set(
-              result.clusters.flatMap(c => (c.items || []).map(item => item.id))
-            );
-            
-            if (showOriginalImages) {
-              setImages(prev => {
-                const remaining = prev.filter(img => !clusteredItemIds.has(img.id));
-                return calculateRadialLayout(remaining);
-              });
-            } else {
-              setOpengraphData(prev => {
-                const remaining = prev.filter(og => !clusteredItemIds.has(og.id));
-                return calculateRadialLayout(remaining);
-              });
-            }
-          }
-        } catch (error) {
-          console.error('[Clustering] Failed to discover clusters:', error);
-          alert('AI 发现聚类失败：' + (error.message || '未知错误'));
-        } finally {
-          setIsClustering(false);
-        }
-      }, [isClustering, showOriginalImages, images, opengraphData, clusters]);
 
       // Session 容器 ref（用于 ScrollSpy）
       const sessionContainerRef = useRef(null);
@@ -1298,322 +735,160 @@ export const PersonalSpace = () => {
           {/* 静态天空背景 - 使用 background-space.png */}
           <FluidGlassCursor />
           <FlowingSkyBackground />
-    <div className={`personal-space ${isSearching ? 'searching-active' : ''}`} ref={containerRef} style={{ position: "relative", zIndex: 1 }}>
-      <div 
-        className={`search-blur-overlay ${isSearching ? 'active' : ''}`}
-        style={{
-          '--blur-amount': `${UI_CONFIG.searchBar.blurOverlay.blurAmount}px`,
-          '--transition-duration': `${UI_CONFIG.searchBar.blurOverlay.transitionDuration}s`,
-        }}
-      />
-          {/* 底部渐变模糊遮罩层 - 使用 reactbits.dev 风格的 GradualBlur */}
-          <GradualBlur 
-            position="bottom" 
-            strength={2}
-            height="12rem"
-            divCount={12}
-            exponential={true}
-            curve="bezier"
-            opacity={0.85}
-            animated={false}
-            target="page"
-            zIndex={100}
-          />
-          <AnimatePresence mode="wait">
-            {viewMode === 'masonry' ? (
-              <motion.div
-                key="masonry"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.3, ease: "easeInOut" }}
-                style={{ pointerEvents: hasActiveSearch ? 'none' : 'auto' }}
-              >
-                <SessionMasonryGrid
-                  sessions={sessions}
-                  searchQuery={searchQuery}
-                  onCardClick={handleCardDoubleClick}
-                  onSessionDelete={handleSessionDelete}
-                  onSessionOpenAll={handleSessionOpenAll}
-                  searchBarHeight={200} // 搜索栏高度 + 间距
-                  containerRef={sessionContainerRef}
-                />
-                {/* Scroll Spy Indicator */}
-                {sessions.length > 1 && (
-                  <ScrollSpyIndicator 
-                    sessions={sessions} 
-                    containerRef={sessionContainerRef}
-                  />
-                )}
-              </motion.div>
-            ) : (
-              <motion.div
-                key="radial"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.3, ease: "easeInOut" }}
-                style={{ pointerEvents: hasActiveSearch ? 'none' : 'auto' }}
-              >
-                <RadialCanvas
-                canvasRef={canvasRef}
-                containerRef={containerRef}
-                showOriginalImages={showOriginalImages}
-                images={images}
-                opengraphData={opengraphData} // 使用已计算位置的 opengraphData（在 radial 视图时已通过 calculateRadialLayout 处理）
-                searchQuery={searchQuery}
-                selectedIds={selectedIds}
-                clusters={clusters}
-                clusterDragStartRef={clusterDragStartRef}
-                zoom={zoom}
-                pan={pan}
-                isPanning={isPanning}
-                isSpacePressed={isSpacePressed}
-                activeTool={activeTool}
-                drawPaths={drawPaths}
-                setDrawPaths={setDrawPaths}
-                textElements={textElements}
-                setTextElements={setTextElements}
-                onSelect={handleSelect}
-                onDragEnd={handleDragEnd}
-                onCanvasClick={handleCanvasClick}
-                onCardDoubleClick={handleCardDoubleClick}
-                onDelete={(ogId) => {
-                  // 从画布移除 OpenGraph 图片
-                  setOpengraphData(prev => {
-                    const prevOG = [...prev];
-                    const newOG = prev.filter(og => og.id !== ogId);
-                    addToHistory({ 
-                      type: 'opengraph-delete', 
-                      action: 'delete', 
-                      deletedIds: [ogId],
-                      prevOG: prevOG
-                    });
-                    return newOG;
-                  });
-                  // 如果被删除的卡片是选中的，从选中列表中移除
-                  if (selectedIds.has(ogId)) {
-                    const newSelectedIds = new Set(selectedIds);
-                    newSelectedIds.delete(ogId);
-                    setSelectedIds(newSelectedIds);
-                  }
-                }}
-                onOpenLink={(url) => {
-                  if (url) {
-                    window.open(url, '_blank');
-                  }
-                }}
-                onClusterRename={handleClusterRename}
-                onClusterDrag={handleClusterDrag}
-                onLassoSelect={handleLassoSelect}
-                onHistoryChange={handleHistoryChange}
-                getCanvasCursor={getCanvasCursor}
-              />              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* 搜索模式：全屏遮罩层 + 搜索结果行 */}
-          {hasActiveSearch && (
-            <>
-              {/* 模糊背景遮罩层 */}
-              <div
-                style={{
-                  position: 'fixed',
-                  inset: 0,
-                  backdropFilter: `blur(${searchOverlayConfig.backdropBlur ?? 12}px)`,
-                  backgroundColor: searchOverlayConfig.backdropColor ?? 'rgba(0, 0, 0, 0.3)',
-                  zIndex: 1500,
-                  pointerEvents: 'auto', // 阻止背景交互
-                }}
-                onClick={(e) => {
-                  // 点击遮罩层时清空搜索
-                  if (e.target === e.currentTarget) {
-                    clearSearch();
-                  }
-                }}
-              />
-              
-              {/* 搜索结果水平行 */}
-              <div
-                style={{
-                  position: 'fixed',
-                  top: `${searchOverlayConfig.positionYPercent ?? 50}%`,
-                  left: `${searchOverlayConfig.positionXPercent ?? 50}%`,
-                  transform: 'translate(-50%, -50%)',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  gap: `${searchOverlayConfig.gap ?? 16}px`,
-                  zIndex: 1501,
-                  pointerEvents: 'auto',
-                  maxWidth: `${searchOverlayConfig.maxWidthPercent ?? 90}vw`,
-                  flexWrap: 'wrap',
-                  padding: `0 ${searchOverlayConfig.paddingX ?? 0}px`,
-                  overflow: 'visible', // 确保 tooltip 不被裁剪
-                }}
-              >
-                {topSearchResults.map((result, index) => {
-                  const normalizedResult = result.id
-                    ? result
-                    : { ...result, id: result.url || `search-result-${index}` };
-                  
-                  const animationConfig = searchOverlayConfig.animation || {};
-                  const staggerDelay = animationConfig.staggerDelay ?? 0.08;
-                  const appearDelay = index * staggerDelay;
-                  
-                  return (
-                    <SessionCard
-                      key={normalizedResult.id}
-                      og={normalizedResult}
-                      isSelected={false}
-                      onSelect={undefined}
-                      onDelete={undefined}
-                      onOpenLink={(url) => {
-                        if (normalizedResult.url) {
-                          window.open(normalizedResult.url, '_blank');
-                        } else if (url) {
-                          window.open(url, '_blank');
-                        }
-                      }}
-                      onCardClick={() => handleCardDoubleClick(normalizedResult)}
-                      isSearchResult
-                      similarity={normalizedResult.similarity ?? 0}
-                      hasSearchResults={true}
-                      appearDelay={appearDelay}
-                      variant="searchOverlay"
-                      cardWidthOverride={searchOverlayConfig.cardWidth}
-                      style={{ flex: '0 0 auto' }}
-                    />
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-      <div 
-        className="space-function"
-        style={{
-          right: `max(${UI_CONFIG.addSessionButton.rightOffset}px, calc(50% - 720px + ${UI_CONFIG.addSessionButton.rightOffset}px))`,
-          top: `${UI_CONFIG.addSessionButton.top}px`,
-        }}
-      >
-        <motion.div 
-          ref={addButtonRef}
-          className="add-new-session"
-          onMouseEnter={() => setShowAddTooltip(true)}
-          onMouseLeave={() => setShowAddTooltip(false)}
-          onClick={() => {
-            // 创建新的空 session
-            const newSession = createSession([]);
-            setCurrentSessionId(newSession.id);
-            // 切换到 masonry 视图
-            setViewMode('masonry');
-          }}
-          style={{ cursor: 'pointer', position: 'relative' }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.95 }}
-          transition={{ type: "spring", stiffness: 400, damping: 17 }}
-        >
-          <img 
-            className="image-10" 
-            alt="Add button" 
-            src={getImageUrl("add-button.png")} 
-            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-          />
-          {showAddTooltip && addButtonRef.current && createPortal(
-            <div
-              className="tooltip"
+          {/* 右下角宠物显示 */}
+          <PetDisplay />
+          <div className={`personal-space ${isSearching ? 'searching-active' : ''}`} ref={containerRef} style={{ position: "relative", zIndex: 1 }}>
+            <div 
+              className={`search-blur-overlay ${isSearching ? 'active' : ''}`}
               style={{
-                position: 'fixed',
-                top: `${addButtonRef.current.getBoundingClientRect().bottom + 8}px`,
-                left: `${addButtonRef.current.getBoundingClientRect().left + addButtonRef.current.getBoundingClientRect().width / 2}px`,
-                transform: 'translateX(-50%)',
-                padding: '4px 8px',
-                backgroundColor: 'rgba(0,0,0,0.9)',
-                color: '#fff',
-                fontSize: '11px',
-                borderRadius: '4px',
-                whiteSpace: 'nowrap',
-                pointerEvents: 'none',
-                zIndex: 99999,
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+                '--blur-amount': `${UI_CONFIG.searchBar.blurOverlay.blurAmount}px`,
+                '--transition-duration': `${UI_CONFIG.searchBar.blurOverlay.transitionDuration}s`,
               }}
-            >
-              新增 Session
-            </div>,
-            document.body
-          )}
-        </motion.div>
+            />
+            {/* 底部渐变模糊遮罩层 - 使用 reactbits.dev 风格的 GradualBlur */}
+            <GradualBlur 
+              position="bottom" 
+              strength={2}
+              height="12rem"
+              divCount={12}
+              exponential={true}
+              curve="bezier"
+              opacity={0.85}
+              animated={false}
+              target="page"
+              zIndex={100}
+            />
+            
+            {/* 根据当前页面显示不同内容 */}
+            {currentPage === 'home' ? (
+              <>
+          {/* 视图容器 */}
+          <ViewContainer
+            viewMode={viewMode}
+            sessions={sessions}
+            searchQuery={searchQuery}
+            hasActiveSearch={hasActiveSearch}
+            onCardClick={handleCardDoubleClick}
+            onSessionDelete={handleSessionDelete}
+            onSessionOpenAll={handleSessionOpenAll}
+            sessionContainerRef={sessionContainerRef}
+            canvasRef={canvasRef}
+            containerRef={containerRef}
+            showOriginalImages={showOriginalImages}
+            images={images}
+            opengraphData={opengraphData}
+            selectedIds={selectedIds}
+            clusters={clusters}
+            clusterDragStartRef={clusterDragStartRef}
+            zoom={zoom}
+            pan={pan}
+            isPanning={isPanning}
+            isSpacePressed={isSpacePressed}
+            activeTool={activeTool}
+            drawPaths={drawPaths}
+            setDrawPaths={setDrawPaths}
+            textElements={textElements}
+            setTextElements={setTextElements}
+            onSelect={handleSelect}
+            onDragEnd={handleDragEnd}
+            onCanvasClick={handleCanvasClick}
+            onCardDoubleClick={handleCardDoubleClick}
+            onDelete={(ogId) => {
+              setOpengraphData(prev => {
+                const prevOG = [...prev];
+                const newOG = prev.filter(og => og.id !== ogId);
+                addToHistory({ 
+                  type: 'opengraph-delete', 
+                  action: 'delete', 
+                  deletedIds: [ogId],
+                  prevOG: prevOG
+                });
+                return newOG;
+              });
+              if (selectedIds.has(ogId)) {
+                const newSelectedIds = new Set(selectedIds);
+                newSelectedIds.delete(ogId);
+                setSelectedIds(newSelectedIds);
+              }
+            }}
+            onOpenLink={(url) => {
+              if (url) {
+                window.open(url, '_blank');
+              }
+            }}
+            onClusterRename={handleClusterRename}
+            onClusterDrag={handleClusterDrag}
+            onLassoSelect={handleLassoSelect}
+            onHistoryChange={handleHistoryChange}
+            getCanvasCursor={getCanvasCursor}
+          />
 
-        <div className="share">
-          <img className="image-11" alt="Image" src={getImageUrl("4.svg")} />
+          {/* 搜索遮罩层 */}
+          <SearchOverlay
+            searchResults={searchResults}
+            onCardClick={handleCardDoubleClick}
+            onClearSearch={clearSearch}
+          />
 
-          <div className="text-wrapper-17">分享</div>
-        </div>
-      </div>
+          {/* 头部组件 */}
+          <PersonalSpaceHeader
+            currentPage={currentPage}
+            onBackToHome={handleBackToHome}
+            onCreateSession={() => {
+              const newSession = createSession([]);
+              setCurrentSessionId(newSession.id);
+            }}
+            onViewModeChange={setViewMode}
+          />
 
-      <div className="space-title">
-        <motion.img
-          className="basket-icon"
-          alt="Space name icon"
-          src={getImageUrl("space-name-icon.png")}
-          whileHover={{ scale: 1.1, rotate: 5 }}
-          whileTap={{ scale: 0.95 }}
-          transition={{ type: "spring", stiffness: 400, damping: 17 }}
-        />
-
-        <div className="text-wrapper-18">洗衣房</div>
-      </div>
-
-      <SearchBar
+                <SearchBar
         searchQuery={searchQuery}
         onSearchQueryChange={handleSearchChange}
         onSearch={handleSearch}
         onClear={handleClearSearch}
         isSearching={isSearching}
         onPetSettingsClick={handlePetSettingsClick}
-      />
+                />
 
-      <ViewButtons 
-        viewMode={viewMode} 
-        onViewModeChange={setViewMode} 
-      />
+                    <ViewButtons 
+                  viewMode={viewMode} 
+                  onViewModeChange={setViewMode} 
+                />
 
-      <Component className="side-panel" property1="one" />
-      
-      <AIClusteringPanel
-        show={showAIClusteringPanel}
-        aiLabels={aiLabels}
-        onClose={() => setShowAIClusteringPanel(false)}
-        onLabelRename={handleLabelRename}
-        onLabelDelete={handleLabelDelete}
-        onAddLabel={handleAddLabel}
-        onClassify={handleClassify}
-        onDiscover={handleDiscover}
-        isClustering={isClustering}
-      />
+                    <Component className="side-panel" property1="one" />
+                    
+                    <AIClusteringPanel
+                      show={showAIClusteringPanel}
+            aiLabels={aiLabels}
+            onClose={() => setShowAIClusteringPanel(false)}
+            onLabelRename={handleLabelRename}
+            onLabelDelete={handleLabelDelete}
+            onAddLabel={handleAddLabel}
+            onClassify={handleClassify}
+                      onDiscover={handleDiscover}
+                      isClustering={isClustering}
+                    />
 
-
-      <ToolSets
-        activeTool={activeTool}
+                    <ToolSets
+                      activeTool={activeTool}
         onToolChange={setActiveTool}
         onUndo={handleUndo}
         onRedo={handleRedo}
         canUndo={canUndo}
-        canRedo={canRedo}
-        onAIClusteringClick={() => setShowAIClusteringPanel(!showAIClusteringPanel)}
-      />
+                      canRedo={canRedo}
+                      onAIClusteringClick={() => setShowAIClusteringPanel(!showAIClusteringPanel)}
+                    />
 
-          {/* OpenGraph 卡片（点击图片后显示） */}
-          {selectedOG && (
+                    {/* OpenGraph 卡片（点击图片后显示） */}
+                    {selectedOG && (
             <OpenGraphCard
               data={selectedOG}
               onClose={() => setSelectedOG(null)}
             />
-          )}
+                    )}
 
-          {/* 选中面板（有图片被选中时显示） */}
-          {selectedIds && selectedIds.size > 0 && (
+                    {/* 选中面板（有图片被选中时显示） */}
+                    {selectedIds && selectedIds.size > 0 && (
             <SelectionPanel
               selectedCount={selectedIds.size}
               groupName={selectedGroupName}
@@ -1782,6 +1057,8 @@ export const PersonalSpace = () => {
                   } catch (error) {
                     console.error('[Clustering] Failed to create manual cluster:', error);
                     alert('创建聚类失败：' + (error.message || '未知错误'));
+                  } finally {
+                    setIsClustering(false);
                   }
                 }
               }}
@@ -1915,8 +1192,12 @@ export const PersonalSpace = () => {
                   alert('AI 洞察请求失败：' + errorMessage);
                 }
               }}
-            />
-          )}
+                    />
+                  )}
+              </>
+            ) : (
+              <PetSetting onBackToHome={handleBackToHome} />
+            )}
           </div>
         </>
       );

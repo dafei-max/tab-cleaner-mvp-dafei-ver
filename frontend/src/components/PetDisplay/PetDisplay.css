@@ -1,0 +1,55 @@
+.pet-display {
+  position: fixed;
+  width: 120px;
+  height: 120px;
+  z-index: 1000;
+  cursor: grab;
+  user-select: none;
+  pointer-events: auto;
+}
+
+.pet-display:active {
+  cursor: grabbing;
+}
+
+.pet-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.pet-display.hovered .pet-glow {
+  opacity: 1;
+  animation: breathingGlow 2s ease-in-out infinite;
+}
+
+@keyframes breathingGlow {
+  0%, 100% {
+    box-shadow: 
+      0 0 10px rgba(255, 255, 255, 0.6),
+      0 0 20px rgba(255, 255, 255, 0.4),
+      0 0 30px rgba(255, 255, 255, 0.2);
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    box-shadow: 
+      0 0 20px rgba(255, 255, 255, 0.9),
+      0 0 40px rgba(255, 255, 255, 0.6),
+      0 0 60px rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%) scale(1.1);
+  }
+}
+
+.pet-display img {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.1));
+}
+
