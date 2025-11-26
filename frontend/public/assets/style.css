@@ -1,3 +1,8 @@
+:root,
+:host {
+  --tc-card-scale: 0.55;
+}
+
 .card {
   position: relative;
   width: 320px;
@@ -5,8 +10,11 @@
   background-image: url(../static/img/background-2.png);
   background-size: 100% 100%;
   border-radius: 20px;
-  box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.15);
+  background-color: #f6fbff;
+  box-shadow: 0px 10px 30px rgba(0, 0, 0, 0.25);
   overflow: hidden;
+  transform: scale(var(--tc-card-scale));
+  transform-origin: top left;
 }
 
 .card .div {
@@ -52,7 +60,7 @@
   height: 100%;
   left: 0;
   min-width: 100%;
-  opacity: 0.5;
+  opacity: 1;
   position: absolute;
   top: 0;
 }
@@ -67,8 +75,8 @@
   background-image: url(../static/img/vector-8.svg);
   background-size: 100% 100%;
   flex: 1;
-  mix-blend-mode: screen;
-  opacity: 0.45;
+  mix-blend-mode: normal;
+  opacity: 0.9;
   width: 268.24px;
 }
 
@@ -107,6 +115,52 @@
   left: 50%;
   transform: translateX(-50%);
   width: 240px;
+}
+
+.card .button-wrapper {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.25s ease, filter 0.25s ease;
+  cursor: pointer;
+}
+
+.card .button-wrapper:hover {
+  transform: translateY(-6px) scale(1.05);
+  filter: drop-shadow(0 6px 14px rgba(85, 160, 255, 0.45));
+}
+
+.card .button-wrapper:active {
+  transform: translateY(-2px) scale(0.96);
+  filter: drop-shadow(0 2px 6px rgba(35, 64, 126, 0.35));
+}
+
+.card .window-button-wrapper {
+  position: relative;
+  display: inline-flex;
+  transition: transform 0.25s ease, filter 0.25s ease;
+  cursor: pointer;
+}
+
+.card .window-button-wrapper:hover {
+  transform: translateY(-6px) scale(1.03);
+  filter: drop-shadow(0 8px 18px rgba(96, 168, 255, 0.45));
+}
+
+.card .window-button-wrapper:active {
+  transform: translateY(-2px) scale(0.97);
+  filter: drop-shadow(0 3px 8px rgba(35, 64, 126, 0.35));
+}
+
+#tc-close {
+  transform: scale(var(--tc-card-scale)) !important;
+  transform-origin: top right !important;
+  transition: transform 0.2s ease;
+}
+
+#tc-close:hover {
+  transform: scale(calc(var(--tc-card-scale) * 1.1)) !important;
 }
 
 .card .home-button {

@@ -32,12 +32,113 @@
   let petContainer = null;
   let isPetVisible = false;
   let isButtonsVisible = false;
+  let petMainEl = null;
+  let choiceOverlayEl = null;
   
   // ✅ 初始化状态标志：标记容器是否真正添加到 DOM
   let petInitialized = false;
   
   // ✅ 全局状态同步：从 Chrome Storage 读取宠物状态
   let petStateLoaded = false;
+
+  function getPetAsset(petId) {
+    return PET_IMAGE_MAP[petId] || PET_IMAGE_MAP[DEFAULT_PET_ID];
+  }
+
+  async function getSelectedPetFromStorage() {
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
+      return DEFAULT_PET_ID;
+    }
+    try {
+      const result = await new Promise((resolve) => {
+        chrome.storage.local.get(['selectedPet'], resolve);
+      });
+      return result && result.selectedPet ? result.selectedPet : DEFAULT_PET_ID;
+    } catch (err) {
+      console.warn('[Tab Cleaner Pet] Failed to load selected pet from storage:', err);
+      return DEFAULT_PET_ID;
+    }
+  }
+
+  async function syncPetSkinFromStorage() {
+    const storedPet = await getSelectedPetFromStorage();
+    applyPetSkin(storedPet);
+  }
+
+  function applyPetSkin(petId) {
+    currentPetId = petId || DEFAULT_PET_ID;
+    if (!petContainer) return;
+    const shadow = petContainer.shadowRoot;
+    if (!shadow) return;
+    const avatar = shadow.querySelector('.avatar');
+    if (avatar) {
+      avatar.style.backgroundImage = `url("${asset(getPetAsset(currentPetId))}")`;
+    }
+  }
+
+  function setButtonsVisible(visible) {
+    isButtonsVisible = visible;
+    if (choiceOverlayEl) {
+      choiceOverlayEl.classList.toggle('visible', visible);
+    }
+  }
+
+  function triggerCleaningEffect(duration = 2200) {
+    if (!petMainEl) return () => {};
+    petMainEl.classList.add('pet-cleaning');
+    let cleared = false;
+    const clear = () => {
+      if (cleared) return;
+      cleared = true;
+      petMainEl.classList.remove('pet-cleaning');
+    };
+    const timeout = setTimeout(clear, duration);
+    return () => {
+      if (cleared) return;
+      clearTimeout(timeout);
+      clear();
+    };
+  }
+
+  function handlePetAction(action) {
+    if (!action) return;
+    if (action === 'pet-setting') {
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({ action: "pet-setting" });
+      }
+      return;
+    }
+
+    const actionMap = {
+      'clean-current': 'clean-current-tab',
+      'clean-all': 'clean-all',
+    };
+    const runtimeAction = actionMap[action];
+    if (!runtimeAction) return;
+
+    const stopEffect = triggerCleaningEffect(2500);
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      try {
+        chrome.runtime.sendMessage({ action: runtimeAction }, () => {
+          stopEffect();
+        });
+        setTimeout(stopEffect, 5000);
+      } catch (err) {
+        console.warn('[Tab Cleaner Pet] Failed to send action message:', err);
+        stopEffect();
+      }
+    } else {
+      setTimeout(stopEffect, 1500);
+    }
+  }
+
+  const DEFAULT_PET_ID = 'elephant';
+  const PET_IMAGE_MAP = {
+    turtle: 'static/img/turtle.svg',
+    elephant: 'static/img/elephant.svg',
+    squirrel: 'static/img/squrrial.svg',
+  };
+  let currentPetId = DEFAULT_PET_ID;
   
   /**
    * 从 Chrome Storage 加载宠物状态
@@ -180,6 +281,12 @@
           console.log('[Tab Cleaner Pet] Position updated from storage:', newPosition);
         }
       }
+
+      if (changes.selectedPet) {
+        const newPet = changes.selectedPet.newValue || DEFAULT_PET_ID;
+        console.log('[Tab Cleaner Pet] Selected pet changed via storage:', newPet);
+        applyPetSkin(newPet);
+      }
     });
     
     console.log('[Tab Cleaner Pet] Storage sync listener setup complete');
@@ -282,14 +389,39 @@
         }
 
         .desktop-pet-main .avatar {
-          background-image: url("${asset('static/img/avatar.png')}");
-          background-size: 100% 100%;
+          background-image: url("${asset(getPetAsset(DEFAULT_PET_ID))}");
+          background-size: contain;
+          background-repeat: no-repeat;
           height: 124px;
           left: 70px;
           position: absolute;
           top: 64px;
           width: 129px;
           cursor: pointer;
+          border-radius: 60px;
+          transition: transform 0.25s ease, box-shadow 0.25s ease;
+          box-shadow: 0 0 0 rgba(98, 179, 255, 0);
+        }
+
+        .desktop-pet-main .avatar::after {
+          content: "";
+          position: absolute;
+          inset: -18px;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(130,199,255,0.2) 60%, rgba(255,255,255,0) 100%);
+          opacity: 0;
+          transition: opacity 0.25s ease;
+          filter: blur(4px);
+          pointer-events: none;
+        }
+
+        .desktop-pet-main .avatar:hover {
+          transform: translateY(-6px) scale(1.03);
+          box-shadow: 0 10px 18px rgba(82, 160, 255, 0.35);
+        }
+
+        .desktop-pet-main .avatar:hover::after {
+          opacity: 0.9;
         }
 
         .desktop-pet-main .chat-bubble {
@@ -343,252 +475,94 @@
         }
 
         .desktop-pet-main .choice-overlay {
-          height: 62.20%;
-          left: 38.73%;
           position: absolute;
-          top: 37.80%;
-          width: 61.27%;
-          display: none;
+          left: 50%;
+          bottom: -2px;
+          transform: translate(-50%, 25px);
+          display: flex;
+          gap: 12px;
+          padding: 12px 18px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.96);
+          box-shadow: 0 12px 28px rgba(10, 120, 255, 0.25);
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.25s ease, transform 0.25s ease;
         }
 
         .desktop-pet-main .choice-overlay.visible {
-          display: block;
+          opacity: 1;
+          pointer-events: auto;
+          transform: translate(-50%, 0);
         }
 
-        .desktop-pet-main .hide-button {
-          height: 68px;
-          left: 2px;
-          position: absolute;
-          top: 104px;
-          width: 48px;
-          cursor: pointer;
-        }
-
-        .desktop-pet-main .text-wrapper {
-          color: #ffffff;
-          font-family: "FZLanTingYuanS-R-GB-Regular", Helvetica;
-          font-size: 8px;
-          font-weight: 400;
-          height: 23.53%;
-          left: 33.53%;
-          letter-spacing: 0;
-          line-height: normal;
-          position: absolute;
-          text-align: center;
-          top: 76.47%;
-          width: 58.32%;
-          pointer-events: none;
-        }
-
-        .desktop-pet-main .ellipse {
-          background-color: #0a78ff;
-          border-radius: 22.63px / 13.69px;
-          height: 27px;
-          left: 1px;
-          position: absolute;
-          top: 13px;
-          transform: rotate(56.00deg);
-          width: 45px;
-        }
-
-        .desktop-pet-main .text-wrapper-2 {
-          color: #ffffff;
-          font-family: "Material Icons", Helvetica;
-          font-size: 16px;
-          font-weight: 400;
-          left: 16px;
-          letter-spacing: 0;
-          line-height: normal;
-          position: absolute;
-          top: 18px;
-          white-space: nowrap;
-          pointer-events: none;
-        }
-
-        .desktop-pet-main .vector {
-          height: 18px;
-          left: 20px;
-          position: absolute;
-          top: 17px;
-          width: 10px;
-          pointer-events: none;
-        }
-
-        .desktop-pet-main .setting-button {
-          height: 60px;
-          left: 41px;
-          position: absolute;
-          top: 94px;
-          width: 66px;
-          cursor: pointer;
-        }
-
-        .desktop-pet-main .text-wrapper-3 {
-          color: #ffffff;
-          font-family: "FZLanTingYuanS-R-GB-Regular", Helvetica;
-          font-size: 8px;
-          font-weight: 400;
-          height: 20.00%;
-          left: 15.15%;
-          letter-spacing: 0;
-          line-height: normal;
-          position: absolute;
-          text-align: center;
-          top: 80.00%;
-          width: 84.85%;
-          pointer-events: none;
-        }
-
-        .desktop-pet-main .ellipse-2 {
-          background-color: #0a78ff;
-          border-radius: 22.63px / 13.69px;
-          height: 27px;
-          left: 3px;
-          position: absolute;
-          top: 12px;
-          transform: rotate(42.81deg);
-          width: 45px;
-        }
-
-        .desktop-pet-main .text-wrapper-4 {
-          color: #ffffff;
-          font-family: "Material Icons", Helvetica;
-          font-size: 20px;
-          font-weight: 400;
-          left: 16px;
-          letter-spacing: 0;
-          line-height: normal;
-          position: absolute;
-          top: 15px;
-          white-space: nowrap;
-          pointer-events: none;
-        }
-
-        .desktop-pet-main .clean-current-button {
-          height: 81px;
-          left: 88px;
-          position: absolute;
-          top: 0;
-          width: 135px;
-          cursor: pointer;
-        }
-
-        .desktop-pet-main .ellipse-3 {
-          background-color: #0a78ff;
-          border-radius: 52.5px / 29.5px;
-          height: 59px;
-          left: 0;
-          position: absolute;
-          top: 0;
-          width: 105px;
-        }
-
-        .desktop-pet-main .text-wrapper-5 {
-          color: #ffffff;
+        .desktop-pet-main .action-button {
+          border: none;
+          background: #f4f6f8;
+          color: #5a6c82;
           font-family: "FZLanTingYuanS-R-GB-Regular", Helvetica;
           font-size: 12px;
-          font-weight: 400;
-          height: 19.75%;
-          left: 29.63%;
-          letter-spacing: 0;
-          line-height: normal;
-          position: absolute;
-          text-align: center;
-          top: 80.25%;
-          width: 70.37%;
-          pointer-events: none;
-        }
-
-        .desktop-pet-main .text-wrapper-6 {
-          color: #ffffff;
-          font-family: "Material Icons", Helvetica;
-          font-size: 40px;
-          font-weight: 400;
-          left: 33px;
-          letter-spacing: 0;
-          line-height: normal;
-          position: absolute;
-          top: 5px;
-          white-space: nowrap;
-          pointer-events: none;
-        }
-
-        .desktop-pet-main .clean-inoneclick {
-          height: 75px;
-          left: 65px;
-          position: absolute;
-          top: 59px;
-          width: 111px;
+          border-radius: 16px;
+          padding: 10px 14px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
           cursor: pointer;
+          transition: background 0.25s ease, color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
+          position: relative;
         }
 
-        .desktop-pet-main .ellipse-4 {
-          background-color: #0a78ff;
-          border-radius: 32.59px / 19.71px;
-          height: 39px;
-          left: 5px;
+        .desktop-pet-main .action-button img.icon {
+          width: 20px;
+          height: 20px;
+          object-fit: contain;
+        }
+
+        .desktop-pet-main .action-button .tooltip {
           position: absolute;
-          top: 12px;
-          transform: rotate(25.46deg);
-          width: 65px;
-        }
-
-        .desktop-pet-main .text-wrapper-7 {
+          bottom: calc(100% + 6px);
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(0, 0, 0, 0.8);
           color: #ffffff;
-          font-family: "FZLanTingYuanS-R-GB-Regular", Helvetica;
+          border-radius: 999px;
+          padding: 4px 8px;
           font-size: 10px;
-          font-weight: 400;
-          height: 22.18%;
-          left: 5.11%;
-          letter-spacing: 0;
-          line-height: normal;
-          position: absolute;
-          text-align: center;
-          top: 77.82%;
-          width: 94.89%;
+          opacity: 0;
           pointer-events: none;
-        }
-
-        .desktop-pet-main .text-wrapper-8 {
-          color: #9d9d9d;
-          font-family: "Material Icons", Helvetica;
-          font-size: 24px;
-          font-weight: 400;
-          left: 12px;
-          letter-spacing: 0;
-          line-height: normal;
-          position: absolute;
-          top: 15px;
+          transition: opacity 0.2s ease;
           white-space: nowrap;
-          pointer-events: none;
         }
 
-        .desktop-pet-main .text-wrapper-9 {
-          color: #cccccc;
-          font-family: "Material Icons", Helvetica;
-          font-size: 32px;
-          font-weight: 400;
-          left: 18px;
-          letter-spacing: 0;
-          line-height: normal;
-          position: absolute;
-          top: 12px;
-          white-space: nowrap;
-          pointer-events: none;
-        }
-
-        .desktop-pet-main .text-wrapper-10 {
+        .desktop-pet-main .action-button:hover {
+          background: linear-gradient(135deg, #62b3ff, #5c7bff);
           color: #ffffff;
-          font-family: "Material Icons", Helvetica;
-          font-size: 36px;
-          font-weight: 400;
-          left: 27px;
-          letter-spacing: 0;
-          line-height: normal;
-          position: absolute;
-          top: 12px;
-          white-space: nowrap;
-          pointer-events: none;
+          box-shadow: 0 10px 18px rgba(98, 179, 255, 0.4);
+          transform: translateY(-4px);
+        }
+
+        .desktop-pet-main .action-button:hover .tooltip {
+          opacity: 1;
+        }
+
+        .desktop-pet-main .action-button:active {
+          transform: translateY(-1px) scale(0.98);
+        }
+
+        .desktop-pet-main.pet-cleaning .avatar::after {
+          opacity: 1;
+          animation: pet-bubble 1.6s infinite ease-out;
+        }
+
+        @keyframes pet-bubble {
+          0% {
+            transform: scale(1);
+            opacity: 0.9;
+          }
+          100% {
+            transform: scale(1.6);
+            opacity: 0;
+          }
         }
       </style>
     `;
@@ -610,29 +584,21 @@
           </div>
         </div>
         <div class="choice-overlay">
-          <div class="hide-button">
-            <div class="text-wrapper">隐藏</div>
-            <div class="ellipse"></div>
-            <div class="text-wrapper-2"></div>
-            <img class="vector" alt="Vector" src="${asset('static/img/vector-665.svg')}" />
-          </div>
-          <div class="setting-button">
-            <div class="text-wrapper-3">桌宠设置</div>
-            <div class="ellipse-2"></div>
-            <div class="text-wrapper-4"></div>
-          </div>
-          <div class="clean-current-button">
-            <div class="ellipse-3"></div>
-            <div class="text-wrapper-5">清理当前页Tab</div>
-            <div class="text-wrapper-6"></div>
-          </div>
-          <div class="clean-inoneclick">
-            <div class="ellipse-4"></div>
-            <div class="text-wrapper-7">一键清理</div>
-            <div class="text-wrapper-8"></div>
-            <div class="text-wrapper-9"></div>
-            <div class="text-wrapper-10"></div>
-          </div>
+          <button class="action-button" data-action="clean-current">
+            <img class="icon" alt="Clean current tab" src="${asset('static/img/clean-one-tab.svg')}" />
+            <span class="label">清理当前页</span>
+            <span class="tooltip">清理当前页 Tab</span>
+          </button>
+          <button class="action-button" data-action="clean-all">
+            <img class="icon" alt="Clean all tabs" src="${asset('static/img/clean-all-tab.svg')}" />
+            <span class="label">清理所有页</span>
+            <span class="tooltip">一键清理全部 Tab</span>
+          </button>
+          <button class="action-button" data-action="pet-setting">
+            <img class="icon" alt="Pet settings" src="${asset('static/img/pet-setting.svg')}" />
+            <span class="label">宠物设置</span>
+            <span class="tooltip">打开宠物设置</span>
+          </button>
         </div>
       </div>
     `;
@@ -716,11 +682,11 @@
 
       // 绑定事件
       const avatar = shadow.querySelector('.avatar');
-      const hideBtn = shadow.querySelector('.hide-button');
-      const settingBtn = shadow.querySelector('.setting-button');
-      const cleanCurrentBtn = shadow.querySelector('.clean-current-button');
-      const cleanInOneClickBtn = shadow.querySelector('.clean-inoneclick');
       const choiceOverlay = shadow.querySelector('.choice-overlay');
+      const actionButtons = shadow.querySelectorAll('.action-button');
+      petMainEl = shadow.querySelector('.desktop-pet-main');
+      choiceOverlayEl = choiceOverlay;
+      applyPetSkin(currentPetId);
 
       // ✅ 添加拖动功能 - 让整个 petContainer 可以拖动
       let isDragging = false;
@@ -733,10 +699,7 @@
       const handleMouseDown = (e) => {
         // 只允许通过 avatar 或 petContainer 拖动，避免按钮点击时触发
         const target = e.target;
-        if (target.closest('.hide-button') || 
-            target.closest('.setting-button') || 
-            target.closest('.clean-current-button') || 
-            target.closest('.clean-inoneclick') ||
+        if (target.closest('.action-button') || 
             target.closest('.choice-overlay')) {
           return; // 按钮区域不拖动
         }
@@ -800,38 +763,18 @@
           if (isDragging) {
             return;
           }
-          isButtonsVisible = !isButtonsVisible;
-          if (choiceOverlay) {
-            choiceOverlay.classList.toggle('visible', isButtonsVisible);
-          }
+          setButtonsVisible(!isButtonsVisible);
         });
       }
 
-      // 隐藏按钮
-      if (hideBtn) {
-        hideBtn.addEventListener('click', () => {
-          hidePet();
-        });
-      }
-
-      // 设置按钮
-      if (settingBtn) {
-        settingBtn.addEventListener('click', () => {
-          chrome.runtime.sendMessage({ action: "pet-setting" });
-        });
-      }
-
-      // 清理当前页 Tab
-      if (cleanCurrentBtn) {
-        cleanCurrentBtn.addEventListener('click', () => {
-          chrome.runtime.sendMessage({ action: "clean-current-tab" });
-        });
-      }
-
-      // 一键清理
-      if (cleanInOneClickBtn) {
-        cleanInOneClickBtn.addEventListener('click', () => {
-          chrome.runtime.sendMessage({ action: "clean-all" });
+      if (actionButtons && actionButtons.length > 0) {
+        actionButtons.forEach((btn) => {
+          btn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const action = btn.getAttribute('data-action');
+            handlePetAction(action);
+            setButtonsVisible(false);
+          });
         });
       }
 
@@ -886,14 +829,7 @@
           if (petContainer) {
             petContainer.style.display = "block";
             isPetVisible = true;
-            isButtonsVisible = false; // 默认隐藏按钮
-            const shadow = petContainer.shadowRoot;
-            if (shadow) {
-              const choiceOverlay = shadow.querySelector('.choice-overlay');
-              if (choiceOverlay) {
-                choiceOverlay.classList.remove('visible');
-              }
-            }
+            setButtonsVisible(false);
             console.log("[Tab Cleaner Pet] Pet shown successfully", {
               containerExists: !!petContainer,
               display: petContainer.style.display,
@@ -940,14 +876,7 @@
     if (!petContainer) return;
     petContainer.style.display = "none";
     isPetVisible = false;
-    isButtonsVisible = false;
-    const shadow = petContainer.shadowRoot;
-    if (shadow) {
-      const choiceOverlay = shadow.querySelector('.choice-overlay');
-      if (choiceOverlay) {
-        choiceOverlay.classList.remove('visible');
-      }
-    }
+    setButtonsVisible(false);
     
     // ✅ 保存状态到存储（同步到所有标签页）
     savePetState();
@@ -1003,6 +932,7 @@
     
     // ✅ v2.3: 加载宠物状态（从存储中读取，自动显示/隐藏）
     loadPetState();
+    syncPetSkinFromStorage();
     
     // 触发加载完成事件，通知监听器（如果有的话）
     const event = new CustomEvent('__TAB_CLEANER_PET_LOADED', {
