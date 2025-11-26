@@ -45,11 +45,12 @@
 
 /* 主要按钮：选一只陪伴你的小宠物吧 - 使用 bar-pet.svg */
 .pet-choose-button {
-  position: relative;
+  position: absolute;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 24px;
+  left: 50%;
+  top: 50%;
 }
 
 .pet-choose-button-bg {
@@ -77,14 +78,15 @@
 
 /* 英文说明文字 */
 .pet-description {
+  position: absolute;
   text-align: center;
   color: #B3B3B3;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   font-size: 14px;
   line-height: 1.6;
   max-width: 600px;
-  margin-top: 8px;
-  margin-bottom: 40px;
+  left: 50%;
+  top: 50%;
   z-index: 3;
 }
 
@@ -94,12 +96,14 @@
 
 /* 宠物选择卡片区域 */
 .pet-selection-container {
-  position: relative;
+  position: absolute;
   width: 100%;
   max-width: 1200px;
   display: flex;
   align-items: center;
   justify-content: center;
+  left: 50%;
+  top: 50%;
   z-index: 10;
 }
 
@@ -121,17 +125,6 @@
   align-items: center;
   justify-content: center;
   transition: all 0.3s ease;
-}
-
-/* 左侧和右侧的宠物（较小） */
-.pet-option-left,
-.pet-option-right {
-  /* 尺寸通过内联样式从 UI_CONFIG 设置 */
-}
-
-/* 中间的宠物（较大，选中的） */
-.pet-option-center {
-  /* 尺寸通过内联样式从 UI_CONFIG 设置 */
 }
 
 .pet-option-card.selected {
@@ -185,17 +178,6 @@
   height: auto;
   z-index: 11;
   pointer-events: none;
-}
-
-/* 选中按钮（chosen.svg）较大 */
-.pet-option-center .pet-status-button {
-  /* 尺寸通过内联样式从 UI_CONFIG 设置 */
-}
-
-/* 未选中按钮（unchosen-btn.svg）较小 */
-.pet-option-left .pet-status-button,
-.pet-option-right .pet-status-button {
-  /* 尺寸通过内联样式从 UI_CONFIG 设置 */
 }
 
 .pet-option-card:hover .pet-option-bubble {

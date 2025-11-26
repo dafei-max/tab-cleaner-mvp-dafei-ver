@@ -150,6 +150,13 @@ export const UI_CONFIG = {
     bar: {
       width: 400,              // Bar 宽度（px）
       height: 74,              // Bar 高度（px）
+      offsetY: -300,              // Bar 垂直偏移（px，负值向上，正值向下）
+    },
+    description: {
+      offsetY: -200,              // 灰色英文描述垂直偏移（px，负值向上，正值向下）
+    },
+    petSelection: {
+      offsetY: 0,              // 宠物选择区域垂直偏移（px，负值向上，正值向下）
     },
     // Bubble 高度配置
     bubble: {

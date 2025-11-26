@@ -69,12 +69,13 @@ export const PetSetting = ({ onBackToHome }) => {
         {/* 主要按钮：选一只陪伴你的小宠物吧 - 使用 bar-pet.svg */}
         <motion.div
           className="pet-choose-button"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
           style={{
             width: `${UI_CONFIG.petSetting.bar.width}px`,
             height: `${UI_CONFIG.petSetting.bar.height}px`,
+            transform: `translate(-50%, calc(-50% + ${UI_CONFIG.petSetting.bar.offsetY}px))`,
           }}
         >
           <img 
@@ -90,13 +91,21 @@ export const PetSetting = ({ onBackToHome }) => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2, duration: 0.3 }}
+          style={{ 
+            transform: `translate(-50%, calc(-50% + ${UI_CONFIG.petSetting.description.offsetY}px))`,
+          }}
         >
           <p>choose a little pet to accompany you</p>
           <p>in cleaning up the tab bar of your web page</p>
         </motion.div>
 
         {/* 宠物选择卡片区域 - 直接显示 */}
-        <div className="pet-selection-container">
+        <div 
+          className="pet-selection-container"
+          style={{
+            transform: `translate(-50%, calc(-50% + ${UI_CONFIG.petSetting.petSelection.offsetY}px))`,
+          }}
+        >
           {/* 三个宠物选项：选中的在中间（大），未选中的在两侧（小） */}
           <div className="pet-options-layout">
             {/* 左侧未选中的宠物 */}
