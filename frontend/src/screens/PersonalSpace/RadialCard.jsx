@@ -270,23 +270,101 @@ export const RadialCard = ({
   const handleDownloadImage = async (e) => {
     e.stopPropagation();
     try {
-      const imageUrl = getBestImageSource(og, 'initials', width, height);
+      // 优先使用 og.image（原始图片 URL），如果没有则使用卡片显示的图片
+      let imageUrl = og.image || og.og_image || og.image_url;
       
-      const response = await fetch(imageUrl);
-      const blob = await response.blob();
+      // 如果还是没有，使用卡片实际显示的图片源
+      if (!imageUrl) {
+        imageUrl = getBestImageSource(og, 'initials', width, height);
+      }
       
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${og.title || 'image'}_${Date.now()}.${blob.type.split('/')[1] || 'png'}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // 如果是 data URL 或 blob URL，直接下载
+      if (imageUrl.startsWith('data:') || imageUrl.startsWith('blob:')) {
+        const a = document.createElement('a');
+        a.href = imageUrl;
+        a.download = `${og.title || og.tab_title || 'image'}_${Date.now()}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        console.log('图片下载成功');
+        return;
+      }
       
-      console.log('图片下载成功');
+      // 方法1: 尝试使用 fetch（如果支持 CORS）
+      try {
+        const response = await fetch(imageUrl, { mode: 'cors' });
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          const extension = blob.type.split('/')[1] || imageUrl.split('.').pop()?.split('?')[0] || 'png';
+          a.download = `${og.title || og.tab_title || 'image'}_${Date.now()}.${extension}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          console.log('图片下载成功（fetch）');
+          return;
+        }
+      } catch (fetchErr) {
+        console.log('Fetch 失败，尝试使用 Canvas 方法:', fetchErr);
+      }
+      
+      // 方法2: 使用 Canvas 转换图片（绕过 CORS）
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // 尝试跨域
+      
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => {
+          // 如果跨域失败，尝试不使用 crossOrigin
+          const img2 = new Image();
+          img2.onload = resolve;
+          img2.onerror = reject;
+          img2.src = imageUrl;
+        };
+        img.src = imageUrl;
+      });
+      
+      // 创建 canvas 并绘制图片
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      
+      // 将 canvas 转换为 blob
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${og.title || og.tab_title || 'image'}_${Date.now()}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          console.log('图片下载成功（Canvas）');
+        } else {
+          throw new Error('Canvas 转换失败');
+        }
+      }, 'image/png');
+      
     } catch (err) {
       console.error('下载失败:', err);
+      // 最后的降级方案：直接打开图片链接
+      try {
+        const imageUrl = og.image || og.og_image || og.image_url || getBestImageSource(og, 'initials', width, height);
+        if (imageUrl && !imageUrl.startsWith('data:') && !imageUrl.startsWith('blob:')) {
+          // 尝试在新标签页打开，让用户手动保存
+          window.open(imageUrl, '_blank');
+          console.log('已在新标签页打开图片，请手动保存');
+        }
+      } catch (fallbackErr) {
+        console.error('所有下载方法都失败:', fallbackErr);
+        alert('下载失败，请检查图片链接是否有效');
+      }
     }
   };
 
@@ -335,8 +413,11 @@ export const RadialCard = ({
   const faviconUrl = getFaviconUrl();
   const pageName = getPageName();
 
+  const baseOpacity = hasSearchResults && !isSearchResult ? 0.4 : (isDragging ? 0.85 : 1);
+  const baseScale = isDragging ? 1.02 : 1;
+
   return (
-    <div
+    <motion.div
       ref={cardRef}
       className={`radial-card ${isSelected ? 'selected' : ''} ${isSearchResult ? 'search-result' : ''} ${hasSearchResults && !isSearchResult ? 'search-blur' : ''} ${isDragging ? 'dragging' : ''} ${isAnimating ? 'animating' : ''}`}
       style={{
@@ -351,13 +432,18 @@ export const RadialCard = ({
           ? `0 0 ${8 + glowIntensity * 12}px ${glowColor}, 0 0 ${4 + glowIntensity * 8}px ${glowColor}, 0 2px 8px rgba(0,0,0,0.15)`
           : '0 2px 8px rgba(0,0,0,0.15)',
         filter: hasSearchResults && !isSearchResult ? 'blur(3px)' : 'none',
-        opacity: hasSearchResults && !isSearchResult ? 0.4 : (isDragging ? 0.8 : 1),
         transition: isDragging ? 'none' : 'all 0.3s ease',
         zIndex: isDragging ? 200 : (isSearchResult ? 10 : 1),
         border: isSelected ? '3px solid #1a73e8' : 'none',
         cursor: isDragging ? 'grabbing' : 'grab',
         userSelect: 'none',
         ...getAnimationStyle(),
+      }}
+      initial={{ opacity: 0, scale: 0 }}
+      animate={{ opacity: baseOpacity, scale: baseScale }}
+      transition={{
+        opacity: { delay: animationDelay, duration: 0.01 },
+        scale: { delay: animationDelay, duration: 0.02 },
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -672,7 +758,7 @@ export const RadialCard = ({
           </div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 };
 

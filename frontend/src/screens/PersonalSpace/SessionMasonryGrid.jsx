@@ -35,6 +35,7 @@ export const SessionMasonryGrid = ({
   );
   
   // 如果有搜索结果，按相似度排序所有卡片（最相似的排前面）
+  // 如果没有搜索结果，按时间戳排序（最新加入的排在最前）
   const sortedSessions = hasSearchResults 
     ? sessions.map(session => ({
         ...session,
@@ -44,7 +45,18 @@ export const SessionMasonryGrid = ({
           return simB - simA; // 降序：相似度高的在前
         })
       }))
-    : sessions;
+    : sessions.map(session => ({
+        ...session,
+        opengraphData: [...(session.opengraphData || [])].sort((a, b) => {
+          // 按时间戳排序：最新加入的排在最前（降序）
+          const timeA = a.created_at || a.timestamp || a.createdAt || a.added_at || 0;
+          const timeB = b.created_at || b.timestamp || b.createdAt || b.added_at || 0;
+          // 如果时间戳是字符串，转换为数字
+          const numA = typeof timeA === 'string' ? new Date(timeA).getTime() : timeA;
+          const numB = typeof timeB === 'string' ? new Date(timeB).getTime() : timeB;
+          return numB - numA; // 降序：时间戳大的（新的）在前
+        })
+      }));
 
   // 处理卡片选择
   const handleCardSelect = (cardId) => {
@@ -283,6 +295,8 @@ const SessionMasonryGridContent = ({
               onSelect={onCardSelect}
               onDelete={onCardDelete}
               onOpenLink={onOpenLink}
+              onCardClick={onCardClick}
+              variant="masonry"
             />
           );
         })

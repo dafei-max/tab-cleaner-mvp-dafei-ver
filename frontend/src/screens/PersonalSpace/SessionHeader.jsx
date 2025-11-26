@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { getImageUrl } from '../../shared/utils';
 import { UI_CONFIG } from './uiConfig';
@@ -15,19 +16,43 @@ export const SessionHeader = ({
 }) => {
   const hasSelected = selectedCount > 0;
   const [hoveredAction, setHoveredAction] = useState(null);
-  const tooltipBaseStyle = {
-    position: 'absolute',
-    bottom: 'calc(100% + 6px)',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    color: '#fff',
-    padding: '3px 6px',
-    borderRadius: '4px',
-    fontSize: '10px',
-    whiteSpace: 'nowrap',
-    pointerEvents: 'none',
-    zIndex: 20000,
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
+  const buttonRefs = useRef({ open: null, delete: null });
+  
+  // 计算 tooltip 位置，始终显示在按钮下方
+  const calculateTooltipPosition = (buttonElement) => {
+    if (!buttonElement) return;
+    const rect = buttonElement.getBoundingClientRect();
+    const margin = 8;
+    
+    // 始终显示在按钮下方
+    const top = rect.bottom + margin;
+    const left = rect.left + rect.width / 2;
+    
+    setTooltipPosition({ top, left });
+  };
+  
+  const getTooltipStyle = () => {
+    // 只有在有 hoveredAction 时才显示 tooltip
+    if (!hoveredAction) {
+      return { display: 'none' };
+    }
+    
+    return {
+      position: 'fixed',
+      top: `${tooltipPosition.top}px`,
+      left: `${tooltipPosition.left}px`,
+      transform: 'translateX(-50%)',
+      backgroundColor: 'rgba(0,0,0,0.9)',
+      color: '#fff',
+      padding: '4px 8px',
+      borderRadius: '4px',
+      fontSize: '11px',
+      whiteSpace: 'nowrap',
+      pointerEvents: 'none',
+      zIndex: 99999,
+      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+    };
   };
 
   return (
@@ -64,7 +89,7 @@ export const SessionHeader = ({
         {hasSelected && (
           <div
             style={{
-              fontSize: '14px',
+              fontSize: '12px',
               color: '#1a73e8',
               fontWeight: 500,
             }}
@@ -78,8 +103,8 @@ export const SessionHeader = ({
       <div style={{ display: 'flex', gap: `${UI_CONFIG.sessionHeader.actionButtons.gap}px`, alignItems: 'center', marginRight: `${UI_CONFIG.sessionHeader.actionButtons.marginRight}px` }}>
         {/* 全部打开按钮 */}
         <motion.button
+          ref={(el) => { buttonRefs.current.open = el; }}
           onClick={onOpenAll}
-          title={hasSelected ? `打开选中的 ${selectedCount} 个标签页` : '打开所有标签页'}
           style={{
             padding: 0,
             borderRadius: '50%',
@@ -93,8 +118,14 @@ export const SessionHeader = ({
             justifyContent: 'center',
             position: 'relative',
           }}
-          onMouseEnter={() => setHoveredAction('open')}
-          onMouseLeave={() => setHoveredAction(null)}
+          onMouseEnter={(e) => {
+            calculateTooltipPosition(e.currentTarget);
+            setHoveredAction('open');
+          }}
+          onMouseLeave={() => {
+            setHoveredAction(null);
+            setTooltipPosition({ top: 0, left: 0 });
+          }}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.95 }}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
@@ -104,17 +135,18 @@ export const SessionHeader = ({
             alt="Open all"
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
-          {hoveredAction === 'open' && (
-            <div className="tooltip" style={tooltipBaseStyle}>
+          {hoveredAction === 'open' && createPortal(
+            <div className="tooltip" style={getTooltipStyle()}>
               {hasSelected ? '打开选中标签页' : '打开全部标签页'}
-            </div>
+            </div>,
+            document.body
           )}
         </motion.button>
 
         {/* 删除按钮 */}
         <motion.button
+          ref={(el) => { buttonRefs.current.delete = el; }}
           onClick={onDelete}
-          title={hasSelected ? `删除选中的 ${selectedCount} 个标签页` : '删除整个 Session'}
           style={{
             padding: 0,
             borderRadius: '50%',
@@ -128,8 +160,14 @@ export const SessionHeader = ({
             justifyContent: 'center',
             position: 'relative',
           }}
-          onMouseEnter={() => setHoveredAction('delete')}
-          onMouseLeave={() => setHoveredAction(null)}
+          onMouseEnter={(e) => {
+            calculateTooltipPosition(e.currentTarget);
+            setHoveredAction('delete');
+          }}
+          onMouseLeave={() => {
+            setHoveredAction(null);
+            setTooltipPosition({ top: 0, left: 0 });
+          }}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.95 }}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
@@ -139,10 +177,11 @@ export const SessionHeader = ({
             alt="Delete"
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
-          {hoveredAction === 'delete' && (
-            <div className="tooltip" style={tooltipBaseStyle}>
+          {hoveredAction === 'delete' && createPortal(
+            <div className="tooltip" style={getTooltipStyle()}>
               {hasSelected ? '删除选中标签页' : '删除整个 Session'}
-            </div>
+            </div>,
+            document.body
           )}
         </motion.button>
       </div>

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Component } from "../../components/Component";
 import { SearchBar } from "../../components/SearchBar";
@@ -10,6 +11,7 @@ import { SelectionPanel } from "./SelectionPanel";
 import { ViewButtons } from "./ViewButtons";
 import { MasonryGrid } from "./MasonryGrid";
 import { SessionMasonryGrid } from "./SessionMasonryGrid";
+import { SessionCard } from "./SessionCard";
 import { RadialCanvas } from "./RadialCanvas";
 import { AIClusteringPanel } from "./AIClusteringPanel";
 import { ScrollSpyIndicator } from "./ScrollSpyIndicator";
@@ -22,7 +24,6 @@ import { calculateMultipleClustersLayout } from "../../utils/clusterLayout";
 import { createManualCluster, classifyByLabels, discoverClusters } from "../../shared/api";
 import { calculateStaggerDelay, CLUSTER_ANIMATION } from "../../motion";
 import { useClusterSpringAnimation } from "../../hooks/useClusterSpringAnimation";
-import { getBestImageSource } from "../../utils/imagePlaceholder";
 import FlowingSkyBackground from "../../components/FlowingSkyBackground";
 import { GradualBlur } from "../../components/GradualBlur";
 import FluidGlassCursor from "../../components/FluidGlassCursor/FluidGlassCursor";
@@ -49,6 +50,7 @@ export const PersonalSpace = () => {
   );
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showAddTooltip, setShowAddTooltip] = useState(false);
+  const addButtonRef = useRef(null);
   const [activeTool, setActiveTool] = useState(null); // 'draw' | 'lasso' | 'text' | null
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
@@ -1285,15 +1287,25 @@ export const PersonalSpace = () => {
 
       // 检测是否处于搜索模式
       const hasActiveSearch = Array.isArray(searchResults) && searchResults.length > 0;
-      // 获取前3-5个搜索结果用于水平显示
-      const topSearchResults = hasActiveSearch ? searchResults.slice(0, 5) : [];
+      const searchOverlayConfig = UI_CONFIG.searchOverlay || {};
+      // 获取前 N 个搜索结果用于水平显示
+      const topSearchResults = hasActiveSearch 
+        ? searchResults.slice(0, searchOverlayConfig.maxResults ?? 5) 
+        : [];
 
       return (
         <>
           {/* 静态天空背景 - 使用 background-space.png */}
           <FluidGlassCursor />
           <FlowingSkyBackground />
-          <div className="personal-space" ref={containerRef} style={{ position: "relative", zIndex: 1 }}>
+    <div className={`personal-space ${isSearching ? 'searching-active' : ''}`} ref={containerRef} style={{ position: "relative", zIndex: 1 }}>
+      <div 
+        className={`search-blur-overlay ${isSearching ? 'active' : ''}`}
+        style={{
+          '--blur-amount': `${UI_CONFIG.searchBar.blurOverlay.blurAmount}px`,
+          '--transition-duration': `${UI_CONFIG.searchBar.blurOverlay.transitionDuration}s`,
+        }}
+      />
           {/* 底部渐变模糊遮罩层 - 使用 reactbits.dev 风格的 GradualBlur */}
           <GradualBlur 
             position="bottom" 
@@ -1408,8 +1420,8 @@ export const PersonalSpace = () => {
                 style={{
                   position: 'fixed',
                   inset: 0,
-                  backdropFilter: 'blur(12px)',
-                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                  backdropFilter: `blur(${searchOverlayConfig.backdropBlur ?? 12}px)`,
+                  backgroundColor: searchOverlayConfig.backdropColor ?? 'rgba(0, 0, 0, 0.3)',
                   zIndex: 1500,
                   pointerEvents: 'auto', // 阻止背景交互
                 }}
@@ -1425,165 +1437,53 @@ export const PersonalSpace = () => {
               <div
                 style={{
                   position: 'fixed',
-                  top: '50%',
-                  left: '50%',
+                  top: `${searchOverlayConfig.positionYPercent ?? 50}%`,
+                  left: `${searchOverlayConfig.positionXPercent ?? 50}%`,
                   transform: 'translate(-50%, -50%)',
                   display: 'flex',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  gap: '16px',
+                  gap: `${searchOverlayConfig.gap ?? 16}px`,
                   zIndex: 1501,
                   pointerEvents: 'auto',
-                  maxWidth: '90vw',
+                  maxWidth: `${searchOverlayConfig.maxWidthPercent ?? 90}vw`,
                   flexWrap: 'wrap',
+                  padding: `0 ${searchOverlayConfig.paddingX ?? 0}px`,
+                  overflow: 'visible', // 确保 tooltip 不被裁剪
                 }}
               >
                 {topSearchResults.map((result, index) => {
-                  const cardWidth = 200;
-                  const cardHeight = 280;
+                  const normalizedResult = result.id
+                    ? result
+                    : { ...result, id: result.url || `search-result-${index}` };
+                  
+                  const animationConfig = searchOverlayConfig.animation || {};
+                  const staggerDelay = animationConfig.staggerDelay ?? 0.08;
+                  const appearDelay = index * staggerDelay;
                   
                   return (
-                    <div
-                      key={result.id || `search-result-${index}`}
-                      style={{
-                        width: cardWidth,
-                        height: cardHeight,
-                        backgroundColor: '#fff',
-                        borderRadius: '12px',
-                        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
-                        overflow: 'hidden',
-                        cursor: 'pointer',
-                        transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                        position: 'relative',
+                    <SessionCard
+                      key={normalizedResult.id}
+                      og={normalizedResult}
+                      isSelected={false}
+                      onSelect={undefined}
+                      onDelete={undefined}
+                      onOpenLink={(url) => {
+                        if (normalizedResult.url) {
+                          window.open(normalizedResult.url, '_blank');
+                        } else if (url) {
+                          window.open(url, '_blank');
+                        }
                       }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.transform = 'translateY(-4px) scale(1.02)';
-                        e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.3)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.2)';
-                      }}
-                      onClick={() => {
-                        // 点击卡片时显示详情
-                        handleCardDoubleClick(result);
-                      }}
-                    >
-                      {/* 图片 */}
-                      <div
-                        style={{
-                          width: '100%',
-                          height: '180px',
-                          backgroundColor: '#f5f5f5',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {(() => {
-                          // 使用 getBestImageSource 获取最佳图片源（与现有卡片逻辑一致）
-                          const imageSrc = getBestImageSource(result, 'initials', cardWidth, cardHeight);
-                          return (
-                            <img
-                              src={imageSrc}
-                              alt={result.title || result.tab_title || ''}
-                              style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'cover',
-                              }}
-                              onError={(e) => {
-                                // 图片加载失败时显示占位符
-                                const placeholder = getBestImageSource(result, 'initials', cardWidth, cardHeight, true);
-                                if (placeholder && placeholder !== imageSrc) {
-                                  e.target.src = placeholder;
-                                } else {
-                                  e.target.style.display = 'none';
-                                  const container = e.target.parentElement;
-                                  if (container) {
-                                    container.innerHTML = `
-                                      <div style="
-                                        width: 100%;
-                                        height: 100%;
-                                        display: flex;
-                                        align-items: center;
-                                        justify-content: center;
-                                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                                        color: white;
-                                        font-size: 24px;
-                                        font-weight: bold;
-                                      ">
-                                        ${(result.title || result.tab_title || result.url || '?').charAt(0).toUpperCase()}
-                                      </div>
-                                    `;
-                                  }
-                                }
-                              }}
-                            />
-                          );
-                        })()}
-                      </div>
-                      
-                      {/* 文本内容 */}
-                      <div
-                        style={{
-                          padding: '12px',
-                          height: '100px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'space-between',
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            color: '#333',
-                            lineHeight: '1.4',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
-                            marginBottom: '4px',
-                          }}
-                          title={result.title || result.tab_title || ''}
-                        >
-                          {result.title || result.tab_title || 'Untitled'}
-                        </div>
-                        
-                        {result.description && (
-                          <div
-                            style={{
-                              fontSize: '12px',
-                              color: '#666',
-                              lineHeight: '1.3',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                            }}
-                            title={result.description}
-                          >
-                            {result.description}
-                          </div>
-                        )}
-                        
-                        {result.similarity !== undefined && (
-                          <div
-                            style={{
-                              fontSize: '11px',
-                              color: '#999',
-                              marginTop: '4px',
-                            }}
-                          >
-                            相似度: {(result.similarity * 100).toFixed(1)}%
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                      onCardClick={() => handleCardDoubleClick(normalizedResult)}
+                      isSearchResult
+                      similarity={normalizedResult.similarity ?? 0}
+                      hasSearchResults={true}
+                      appearDelay={appearDelay}
+                      variant="searchOverlay"
+                      cardWidthOverride={searchOverlayConfig.cardWidth}
+                      style={{ flex: '0 0 auto' }}
+                    />
                   );
                 })}
               </div>
@@ -1598,10 +1498,10 @@ export const PersonalSpace = () => {
         }}
       >
         <motion.div 
+          ref={addButtonRef}
           className="add-new-session"
           onMouseEnter={() => setShowAddTooltip(true)}
           onMouseLeave={() => setShowAddTooltip(false)}
-          title="添加新的 session"
           onClick={() => {
             // 创建新的空 session
             const newSession = createSession([]);
@@ -1620,26 +1520,28 @@ export const PersonalSpace = () => {
             src={getImageUrl("add-button.png")} 
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
-          {showAddTooltip && (
+          {showAddTooltip && addButtonRef.current && createPortal(
             <div
               className="tooltip"
               style={{
-                position: 'absolute',
-                bottom: 'calc(100% + 6px)',
-                left: '50%',
+                position: 'fixed',
+                top: `${addButtonRef.current.getBoundingClientRect().bottom + 8}px`,
+                left: `${addButtonRef.current.getBoundingClientRect().left + addButtonRef.current.getBoundingClientRect().width / 2}px`,
                 transform: 'translateX(-50%)',
-                padding: '3px 6px',
-                backgroundColor: 'rgba(0,0,0,0.85)',
+                padding: '4px 8px',
+                backgroundColor: 'rgba(0,0,0,0.9)',
                 color: '#fff',
-                fontSize: '10px',
+                fontSize: '11px',
                 borderRadius: '4px',
                 whiteSpace: 'nowrap',
                 pointerEvents: 'none',
-                zIndex: 20000,
+                zIndex: 99999,
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
               }}
             >
               新增 Session
-            </div>
+            </div>,
+            document.body
           )}
         </motion.div>
 

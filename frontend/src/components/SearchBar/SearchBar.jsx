@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { getImageUrl } from "../../shared/utils";
 import { UI_CONFIG } from "../../screens/PersonalSpace/uiConfig";
@@ -18,21 +19,54 @@ export const SearchBar = ({
   onPetSettingsClick, // 新增：宠物设定空间入口回调
 }) => {
   const [hoveredButton, setHoveredButton] = useState(null);
-
-  const tooltipBaseStyle = {
-    position: 'absolute',
-    bottom: '100%',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    marginBottom: '6px',
-    padding: '3px 6px',
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    color: '#fff',
-    fontSize: '10px',
-    borderRadius: '4px',
-    whiteSpace: 'nowrap',
-    pointerEvents: 'none',
-    zIndex: 20000,
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
+  
+  const calculateTooltipPosition = (buttonElement) => {
+    if (!buttonElement) return;
+    const rect = buttonElement.getBoundingClientRect();
+    const placement = UI_CONFIG.searchBar.tooltip?.placement || 'top';
+    const offset = UI_CONFIG.searchBar.tooltip?.offset || 8;
+    
+    let top, left, transform;
+    
+    if (placement === 'top') {
+      top = rect.top - offset;
+      left = rect.left + rect.width / 2;
+      transform = 'translateX(-50%) translateY(-100%)';
+    } else if (placement === 'bottom') {
+      top = rect.bottom + offset;
+      left = rect.left + rect.width / 2;
+      transform = 'translateX(-50%)';
+    } else if (placement === 'left') {
+      top = rect.top + rect.height / 2;
+      left = rect.left - offset;
+      transform = 'translateX(-100%) translateY(-50%)';
+    } else { // right
+      top = rect.top + rect.height / 2;
+      left = rect.right + offset;
+      transform = 'translateY(-50%)';
+    }
+    
+    setTooltipPosition({ top, left, transform });
+  };
+  
+  const getTooltipStyle = () => {
+    if (!hoveredButton) return { display: 'none' };
+    return {
+      position: 'fixed',
+      top: `${tooltipPosition.top}px`,
+      left: `${tooltipPosition.left}px`,
+      transform: tooltipPosition.transform || 'translateX(-50%)',
+      padding: '4px 8px',
+      backgroundColor: 'rgba(0, 0, 0, 0.9)',
+      color: '#fff',
+      fontSize: '11px',
+      borderRadius: '4px',
+      whiteSpace: 'nowrap',
+      pointerEvents: 'none',
+      zIndex: 99999,
+      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+    };
   };
 
   const handleKeyDown = (e) => {
@@ -64,6 +98,8 @@ export const SearchBar = ({
           alt="Search bar background"
           style={{
             position: 'absolute',
+            top: 0,
+            left: 0,
             width: '100%',
             height: '100%',
             objectFit: 'cover',
@@ -89,8 +125,14 @@ export const SearchBar = ({
             alignItems: 'center',
             justifyContent: 'center',
           }}
-          onMouseEnter={() => setHoveredButton('search')}
-          onMouseLeave={() => setHoveredButton(null)}
+          onMouseEnter={(e) => {
+            calculateTooltipPosition(e.currentTarget);
+            setHoveredButton('search');
+          }}
+          onMouseLeave={() => {
+            setHoveredButton(null);
+            setTooltipPosition({ top: 0, left: 0 });
+          }}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.95 }}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
@@ -104,10 +146,11 @@ export const SearchBar = ({
               objectFit: 'contain' 
             }}
           />
-          {hoveredButton === 'search' && (
-            <div className="tooltip" style={tooltipBaseStyle}>
+          {hoveredButton === 'search' && createPortal(
+            <div className="tooltip" style={getTooltipStyle()}>
               执行搜索
-            </div>
+            </div>,
+            document.body
           )}
         </motion.button>
         
@@ -134,7 +177,21 @@ export const SearchBar = ({
             "--search-placeholder-color": UI_CONFIG.searchBar.placeholderColor,
           }}
         />
-        
+        {/* 搜索中提示 */}
+        {isSearching && (
+          <div 
+            className="search-status" 
+            style={{ 
+              zIndex: 1,
+              fontSize: `${UI_CONFIG.searchBar.statusText.fontSize}px`,
+              color: UI_CONFIG.searchBar.statusText.color,
+              marginRight: `${UI_CONFIG.searchBar.statusText.marginRight}px`,
+            }}
+          >
+            搜索中...
+          </div>
+        )}
+
         {/* 提交按钮（右侧）- 使用 Send-btn.png */}
         <motion.button
           onClick={onSearch}
@@ -152,8 +209,14 @@ export const SearchBar = ({
             justifyContent: 'center',
             opacity: searchQuery ? 1 : 0.5, // 有输入时显示，无输入时半透明
           }}
-          onMouseEnter={() => setHoveredButton('submit')}
-          onMouseLeave={() => setHoveredButton(null)}
+          onMouseEnter={(e) => {
+            calculateTooltipPosition(e.currentTarget);
+            setHoveredButton('submit');
+          }}
+          onMouseLeave={() => {
+            setHoveredButton(null);
+            setTooltipPosition({ top: 0, left: 0 });
+          }}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.95 }}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
@@ -168,24 +231,14 @@ export const SearchBar = ({
               objectFit: 'contain' 
             }} 
           />
-          {hoveredButton === 'submit' && (
-            <div className="tooltip" style={tooltipBaseStyle}>
+          {hoveredButton === 'submit' && createPortal(
+            <div className="tooltip" style={getTooltipStyle()}>
               发送请求
-            </div>
+            </div>,
+            document.body
           )}
         </motion.button>
         
-        {isSearching && (
-          <div style={{ 
-            position: 'relative',
-            zIndex: 1,
-            fontSize: '12px', 
-            color: '#666', 
-            marginRight: '12px' 
-          }}>
-            搜索中...
-          </div>
-        )}
       </motion.div>
 
       {/* 大象图标入口（宠物设定空间） */}
@@ -204,8 +257,14 @@ export const SearchBar = ({
             marginLeft: `${UI_CONFIG.searchBar.elephantIcon.marginLeft}px`,
             position: 'relative',
           }}
-          onMouseEnter={() => setHoveredButton('pet')}
-          onMouseLeave={() => setHoveredButton(null)}
+          onMouseEnter={(e) => {
+            calculateTooltipPosition(e.currentTarget);
+            setHoveredButton('pet');
+          }}
+          onMouseLeave={() => {
+            setHoveredButton(null);
+            setTooltipPosition({ top: 0, left: 0 });
+          }}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.95 }}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
@@ -219,10 +278,11 @@ export const SearchBar = ({
               objectFit: 'contain' 
             }}
           />
-          {hoveredButton === 'pet' && (
-            <div className="tooltip" style={tooltipBaseStyle}>
+          {hoveredButton === 'pet' && createPortal(
+            <div className="tooltip" style={getTooltipStyle()}>
               宠物设定空间
-            </div>
+            </div>,
+            document.body
           )}
         </motion.button>
       )}

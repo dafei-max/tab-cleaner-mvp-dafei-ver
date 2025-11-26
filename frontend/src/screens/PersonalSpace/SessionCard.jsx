@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useLayoutEffect, useRef, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { MASONRY_CONFIG } from '../../config/masonryConfig';
 import { getBestImageSource, handleImageError } from '../../utils/imagePlaceholder';
@@ -19,28 +19,49 @@ export const SessionCard = ({
   similarity = 0,
   hasSearchResults = false,
   appearDelay = 0,
+  variant = 'masonry',
+  disableActions = false,
+  cardWidthOverride,
+  style: customStyle,
+  onCardClick,
+  searchIndex,        // 搜索结果中的索引（用于计算圆形分布位置）
+  searchTotal,        // 搜索结果总数
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [hoveredButton, setHoveredButton] = useState(null);
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
+  
+  // 计算 tooltip 位置的函数
+  const calculateTooltipPosition = (buttonElement) => {
+    if (!buttonElement) return;
+    const rect = buttonElement.getBoundingClientRect();
+    setTooltipPosition({
+      top: rect.top - 30, // 按钮上方 30px
+      left: rect.left + rect.width / 2, // 按钮水平中心
+    });
+  };
+  
   const tooltipBaseStyle = {
-    position: 'absolute',
-    bottom: '100%',
-    left: '50%',
+    position: 'fixed', // 使用 fixed 定位，避免被父容器裁剪
+    top: `${tooltipPosition.top}px`,
+    left: `${tooltipPosition.left}px`,
     transform: 'translateX(-50%)',
-    marginBottom: '6px',
-    padding: '3px 6px',
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    padding: '4px 8px', // 稍微增加内边距，确保文字显示完整
+    backgroundColor: 'rgba(0, 0, 0, 0.9)', // 稍微增加不透明度，确保文字清晰
     color: '#fff',
-    fontSize: '10px',
+    fontSize: '11px', // 稍微增大字体，确保可读性
     borderRadius: '4px',
     whiteSpace: 'nowrap',
     pointerEvents: 'none',
-    zIndex: 20000,
+    zIndex: 99999, // 使用更高的 z-index，确保在所有层级之上
     opacity: 1,
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)', // 添加阴影，增强可见性
   };
 
+  const isSelectable = typeof onSelect === 'function';
+
   const handleSelect = (e) => {
-    if (onSelect) {
+    if (isSelectable) {
       onSelect(og.id, e?.shiftKey);
     }
   };
@@ -50,8 +71,26 @@ export const SessionCard = ({
     if (e.target.closest('.card-action-button')) {
       return;
     }
-    handleSelect(e);
-    // 可以在这里添加双击打开链接的逻辑
+    
+    // 在 masonry 视图中，单次点击只触发选中
+    if (variant === 'masonry' && isSelectable) {
+      handleSelect(e);
+    } else if (onCardClick && variant !== 'masonry') {
+      // 在其他视图中，如果有 onCardClick，调用它
+      onCardClick(og);
+    }
+  };
+
+  const handleCardDoubleClick = (e) => {
+    // 如果点击的是按钮，不触发双击
+    if (e.target.closest('.card-action-button')) {
+      return;
+    }
+    
+    // 双击时触发 onCardClick（用于打开详情）
+    if (onCardClick) {
+      onCardClick(og);
+    }
   };
 
   const handleDelete = (e) => {
@@ -94,25 +133,101 @@ export const SessionCard = ({
   const handleDownloadImage = async (e) => {
     e.stopPropagation();
     try {
-      const imageUrl = getBestImageSource(og, 'text', fixedCardWidth, fixedCardWidth * 0.75);
+      // 优先使用 og.image（原始图片 URL），如果没有则使用卡片显示的图片
+      let imageUrl = og.image || og.og_image || og.image_url;
       
-      // 使用 fetch 获取图片
-      const response = await fetch(imageUrl);
-      const blob = await response.blob();
+      // 如果还是没有，使用卡片实际显示的图片源
+      if (!imageUrl) {
+        imageUrl = getBestImageSource(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75);
+      }
       
-      // 创建下载链接
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${og.title || 'image'}_${Date.now()}.${blob.type.split('/')[1] || 'png'}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // 如果是 data URL 或 blob URL，直接下载
+      if (imageUrl.startsWith('data:') || imageUrl.startsWith('blob:')) {
+        const a = document.createElement('a');
+        a.href = imageUrl;
+        a.download = `${og.title || og.tab_title || 'image'}_${Date.now()}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        console.log('图片下载成功');
+        return;
+      }
       
-      console.log('图片下载成功');
+      // 方法1: 尝试使用 fetch（如果支持 CORS）
+      try {
+        const response = await fetch(imageUrl, { mode: 'cors' });
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          const extension = blob.type.split('/')[1] || imageUrl.split('.').pop()?.split('?')[0] || 'png';
+          a.download = `${og.title || og.tab_title || 'image'}_${Date.now()}.${extension}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          console.log('图片下载成功（fetch）');
+          return;
+        }
+      } catch (fetchErr) {
+        console.log('Fetch 失败，尝试使用 Canvas 方法:', fetchErr);
+      }
+      
+      // 方法2: 使用 Canvas 转换图片（绕过 CORS）
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // 尝试跨域
+      
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => {
+          // 如果跨域失败，尝试不使用 crossOrigin
+          const img2 = new Image();
+          img2.onload = resolve;
+          img2.onerror = reject;
+          img2.src = imageUrl;
+        };
+        img.src = imageUrl;
+      });
+      
+      // 创建 canvas 并绘制图片
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      
+      // 将 canvas 转换为 blob
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${og.title || og.tab_title || 'image'}_${Date.now()}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          console.log('图片下载成功（Canvas）');
+        } else {
+          throw new Error('Canvas 转换失败');
+        }
+      }, 'image/png');
+      
     } catch (err) {
       console.error('下载失败:', err);
+      // 最后的降级方案：直接打开图片链接
+      try {
+        const imageUrl = og.image || og.og_image || og.image_url || getBestImageSource(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75);
+        if (imageUrl && !imageUrl.startsWith('data:') && !imageUrl.startsWith('blob:')) {
+          // 尝试在新标签页打开，让用户手动保存
+          window.open(imageUrl, '_blank');
+          console.log('已在新标签页打开图片，请手动保存');
+        }
+      } catch (fallbackErr) {
+        console.error('所有下载方法都失败:', fallbackErr);
+        alert('下载失败，请检查图片链接是否有效');
+      }
     }
   };
 
@@ -146,6 +261,7 @@ export const SessionCard = ({
   // 注意：不再使用动态计算的 displayWidth，而是使用配置中的固定 cardWidth
   // 这样可以确保 fitWidth 正常工作
   const fixedCardWidth = MASONRY_CONFIG.columns.getColumnWidth();
+  const resolvedCardWidth = cardWidthOverride ?? fixedCardWidth;
 
   // 计算发光效果强度（基于相似度）
   const glowIntensity = isSearchResult ? Math.min(similarity * 2, 1) : 0;
@@ -193,36 +309,107 @@ export const SessionCard = ({
   const [faviconSrc, setFaviconSrc] = useState(() => getFaviconUrl() || getFallbackFavicon());
   const pageName = getPageName();
   
-  const shouldAnimate = !(hasSearchResults && !isSearchResult);
+  const hasAnimatedRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!hasAnimatedRef.current) {
+      hasAnimatedRef.current = true;
+    }
+  }, []);
+  const shouldAnimate = variant === 'masonry' && !(hasSearchResults && !isSearchResult) && !hasAnimatedRef.current;
   const baseOpacity = hasSearchResults && !isSearchResult ? 0.4 : 1;
 
+  // 搜索结果动画配置
+  const searchAnimationConfig = variant === 'searchOverlay' && isSearchResult 
+    ? (UI_CONFIG.searchOverlay.animation || {})
+    : null;
+  
+  const baseBoxShadow = isSearchResult 
+    ? `0 0 ${8 + glowIntensity * 12}px ${glowColor}, 0 0 ${4 + glowIntensity * 8}px ${glowColor}, 0 2px 8px rgba(0,0,0,0.15)`
+    : '0 2px 8px rgba(0,0,0,0.15)';
+  const selectedBoxShadow = '0 0 18px rgba(79, 179, 255, 0.7), 0 0 32px rgba(79, 179, 255, 0.35)';
+
+  // 搜索结果动画配置 - 完全参考 card-explosion-demo.jsx 的方式
+  // 关键：使用状态驱动的条件样式，transition 在状态改变时自动触发
+  const isSearchOverlay = variant === 'searchOverlay' && isSearchResult;
+  const [hasAnimated, setHasAnimated] = useState(false);
+  
+  // 当搜索结果出现时，触发动画（类似 exploded 状态）
+  useEffect(() => {
+    if (isSearchOverlay && searchAnimationConfig) {
+      // 使用 setTimeout 确保初始状态先渲染，然后触发动画
+      const timer = setTimeout(() => {
+        setHasAnimated(true);
+      }, 10); // 很小的延迟，确保初始样式先应用
+      return () => clearTimeout(timer);
+    } else {
+      setHasAnimated(false);
+    }
+  }, [isSearchOverlay, searchAnimationConfig]);
+  
+  // 计算动画样式 - 完全参考示例的写法
+  const getSearchStyle = () => {
+    if (!isSearchOverlay || !searchAnimationConfig) {
+      return {};
+    }
+    
+    const baseDuration = searchAnimationConfig.baseDuration || 0.8;
+    const staggerDelay = searchAnimationConfig.staggerDelay || 0.05;
+    const delay = appearDelay || 0;
+    // 参考示例：0.8 + index * 0.05 - 这是总时长，不是 delay
+    // 但为了产生 stagger 效果，我们需要 delay
+    const totalDuration = baseDuration; // 基础时长
+    const easing = searchAnimationConfig.easing || 'cubic-bezier(0.34, 1.56, 0.64, 1)';
+    const scaleFrom = searchAnimationConfig.scaleFrom ?? 0;
+    const scaleTo = searchAnimationConfig.scaleTo ?? 1;
+    
+    // 参考示例的写法：根据状态设置不同的 transition 和 transform
+    return {
+      // transform 和 opacity 根据 hasAnimated 状态改变
+      transform: `scale(${hasAnimated ? scaleTo : scaleFrom})`,
+      opacity: hasAnimated ? 1 : 0,
+      // 关键：transition 在状态改变时自动触发
+      // 参考示例：exploded ? 'transform 0.3s ease, z-index 0s' : `all ${0.8 + index * 0.05}s cubic-bezier(...)`
+      // 注意：参考代码中 0.8 + index * 0.05 是 duration，但我们用 delay 来产生 stagger
+      transition: hasAnimated 
+        ? 'transform 0.3s ease, opacity 0.3s ease'  // 已动画完成，快速响应 hover
+        : `all ${totalDuration}s ${easing}`,         // 初始动画，带弹性效果
+      transitionDelay: hasAnimated ? '0s' : `${delay}s`, // stagger 延迟
+    };
+  };
+  
+  const searchStyle = getSearchStyle();
+  const CardWrapper = 'div';
+
   return (
-    <div
-      className={`masonry-item ${isSelected ? 'selected' : ''} ${isSearchResult ? 'search-result' : ''} ${hasSearchResults && !isSearchResult ? 'search-blur' : ''}`}
+    <CardWrapper
+      className={`masonry-item ${isSelected ? 'selected' : ''} ${isSearchResult ? 'search-result' : ''} ${hasSearchResults && !isSearchResult ? 'search-blur' : ''} ${variant === 'searchOverlay' ? 'search-overlay-card' : ''}`}
       style={{
-        width: `${fixedCardWidth}px`,  // 固定像素值，fitWidth 要求
-        marginBottom: `${MASONRY_CONFIG.columns.gutter}px`,  // 使用配置中的 gutter
-        breakInside: 'avoid',
+        width: `${resolvedCardWidth}px`,
+        marginBottom: variant === 'masonry' ? `${MASONRY_CONFIG.columns.gutter}px` : '0',
+        breakInside: variant === 'masonry' ? 'avoid' : 'initial',
         position: 'relative',
         backgroundColor: '#fff',
         borderRadius: '8px',
         overflow: 'visible',
-        // 搜索结果发光效果
-        boxShadow: isSearchResult 
-          ? `0 0 ${8 + glowIntensity * 12}px ${glowColor}, 0 0 ${4 + glowIntensity * 8}px ${glowColor}, 0 2px 8px rgba(0,0,0,0.15)`
-          : '0 2px 8px rgba(0,0,0,0.15)',
+        boxShadow: isSelected ? selectedBoxShadow : baseBoxShadow,
         filter: hasSearchResults && !isSearchResult ? 'blur(3px)' : 'none',
-        opacity: shouldAnimate ? 0 : baseOpacity,
-        transition: 'all 0.3s ease',
+        // 搜索结果动画 - 完全参考 card-explosion-demo.jsx 的写法
+        ...(isSearchOverlay ? searchStyle : {
+          opacity: shouldAnimate ? 0 : baseOpacity,
+          transition: 'all 0.3s ease',
+          transform: shouldAnimate && variant === 'masonry' ? 'translateY(12px)' : 'none',
+        }),
         zIndex: isSearchResult ? 10 : 1,
         border: isSelected ? '3px solid #1a73e8' : 'none',
-        animation: shouldAnimate ? `masonryFadeIn 0.6s ease forwards` : 'none',
-        animationDelay: shouldAnimate ? `${appearDelay}s` : '0s',
-        transform: shouldAnimate ? 'translateY(12px)' : 'none',
+        animation: isSelected ? 'selectedBlueGlow 2.2s ease-in-out infinite' : (variant === 'masonry' && shouldAnimate ? `masonryFadeIn 0.6s ease forwards` : (variant === 'searchOverlay' && isSearchResult ? 'searchResultGlow 2s ease-in-out infinite' : 'none')),
+        animationDelay: shouldAnimate && variant === 'masonry' ? `${appearDelay}s` : '0s',
+        cursor: onCardClick ? 'pointer' : 'default',
+        ...customStyle,
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleCardClick}
+      onDoubleClick={handleCardDoubleClick}
     >
 
       {/* 灰色圆角 Header */}
@@ -309,7 +496,7 @@ export const SessionCard = ({
       {/* 图片内容 */}
       <div style={{ position: 'relative' }}>
         <img
-          src={getBestImageSource(og, 'text', fixedCardWidth, fixedCardWidth * 0.75)}
+          src={getBestImageSource(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75)}
           alt={og.title || og.url}
           className={`opengraph-image ${isDocCard ? 'doc-card' : ''} ${isTopResult ? 'top-result' : ''} ${isSelected ? 'selected' : ''}`}
           style={{
@@ -326,7 +513,7 @@ export const SessionCard = ({
         />
         
         {/* 悬浮按钮（底部靠右） */}
-        {isHovered && (
+        {isHovered && !disableActions && (
           <div
             style={{
               position: 'absolute',
@@ -365,6 +552,7 @@ export const SessionCard = ({
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = '#87CEEB';
                 setHoveredButton('copy');
+                calculateTooltipPosition(e.currentTarget);
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = '#F5F5F5';
@@ -414,6 +602,7 @@ export const SessionCard = ({
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = '#87CEEB';
                 setHoveredButton('delete');
+                calculateTooltipPosition(e.currentTarget);
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = '#F5F5F5';
@@ -463,6 +652,7 @@ export const SessionCard = ({
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = '#87CEEB';
                 setHoveredButton('download');
+                calculateTooltipPosition(e.currentTarget);
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = '#F5F5F5';
@@ -512,6 +702,7 @@ export const SessionCard = ({
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = '#87CEEB';
                 setHoveredButton('redirect');
+                calculateTooltipPosition(e.currentTarget);
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = '#F5F5F5';
@@ -535,8 +726,14 @@ export const SessionCard = ({
             </motion.button>
           </div>
         )}
+
+        {isSearchResult && (
+          <div className="similarity-badge">
+            相似度 {(similarity * 100).toFixed(1)}%
+          </div>
+        )}
       </div>
-    </div>
+    </CardWrapper>
   );
 };
 

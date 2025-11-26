@@ -19,6 +19,21 @@
   user-select: none; /* 防止拖拽时选中文本 */
 }
 
+.personal-space .search-blur-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(232, 244, 255, 0.18);
+  backdrop-filter: blur(0px);
+  opacity: 0;
+  transition: opacity var(--transition-duration, 1.2s) ease, backdrop-filter var(--transition-duration, 1.2s) ease;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.personal-space .search-blur-overlay.active {
+  opacity: 1;
+  backdrop-filter: blur(var(--blur-amount, 12px));
+}
 
 .personal-space .canvas {
   height: 1024px;
@@ -888,6 +903,40 @@
   margin-bottom: 16px;
 }
 
+.personal-space .masonry-item.selected {
+  animation: selectedBlueGlow 2.2s ease-in-out infinite;
+}
+
+@keyframes selectedBlueGlow {
+  0% {
+    box-shadow: 0 0 10px rgba(79, 179, 255, 0.55), 0 0 22px rgba(79, 179, 255, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(79, 179, 255, 0.85), 0 0 36px rgba(79, 179, 255, 0.4);
+  }
+  100% {
+    box-shadow: 0 0 10px rgba(79, 179, 255, 0.55), 0 0 22px rgba(79, 179, 255, 0.3);
+  }
+}
+
+/* 搜索结果呼吸光效动画（蓝白光） */
+@keyframes searchResultGlow {
+  0%, 100% {
+    box-shadow: 
+      0 0 8px rgba(135, 206, 250, 0.6),
+      0 0 16px rgba(135, 206, 250, 0.4),
+      0 0 24px rgba(255, 255, 255, 0.3),
+      0 2px 8px rgba(0,0,0,0.15);
+  }
+  50% {
+    box-shadow: 
+      0 0 16px rgba(135, 206, 250, 0.9),
+      0 0 32px rgba(135, 206, 250, 0.6),
+      0 0 48px rgba(255, 255, 255, 0.5),
+      0 2px 8px rgba(0,0,0,0.15);
+  }
+}
+
 /* Packery 布局样式（Pinterest 风格：紧密排列，居中显示） */
 .personal-space .packery-grid {
   position: relative;
@@ -916,6 +965,19 @@
   height: auto;
   /* Pinterest 风格：图片填充整个卡片宽度，保持原始宽高比 */
   object-fit: cover;
+}
+
+.similarity-badge {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #0a2c4b;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 12px rgba(7, 41, 80, 0.2);
 }
 
 @keyframes masonryFadeIn {

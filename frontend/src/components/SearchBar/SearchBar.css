@@ -10,50 +10,44 @@
 .search-bar {
   position: relative;
   overflow: visible; /* 允许发光效果溢出 */
+  box-sizing: border-box; /* 确保 padding 不影响总尺寸 */
 }
 
-/* 呼吸感发光动画 - 一圈一圈边缘发光 */
-@keyframes breathingGlow {
-  0%, 100% {
-    box-shadow: 
-      0 0 0px rgba(135, 206, 235, 0),
-      0 0 0px rgba(135, 206, 235, 0),
-      0 0 0px rgba(135, 206, 235, 0),
-      0 0 0px rgba(135, 206, 235, 0);
-  }
-  25% {
-    box-shadow: 
-      0 0 5px rgba(135, 206, 235, 0.8),
-      0 0 0px rgba(135, 206, 235, 0),
-      0 0 0px rgba(135, 206, 235, 0),
-      0 0 0px rgba(135, 206, 235, 0);
+@keyframes searchBarGlow {
+  0% {
+    box-shadow: 0 0 8px rgba(105, 213, 255, 0.45), 0 0 24px rgba(105, 213, 255, 0.2);
   }
   50% {
-    box-shadow: 
-      0 0 5px rgba(135, 206, 235, 0.6),
-      0 0 15px rgba(135, 206, 235, 0.6),
-      0 0 0px rgba(135, 206, 235, 0),
-      0 0 0px rgba(135, 206, 235, 0);
-  }
-  75% {
-    box-shadow: 
-      0 0 5px rgba(135, 206, 235, 0.4),
-      0 0 15px rgba(135, 206, 235, 0.4),
-      0 0 25px rgba(135, 206, 235, 0.4),
-      0 0 0px rgba(135, 206, 235, 0);
+    box-shadow: 0 0 16px rgba(105, 213, 255, 0.9), 0 0 36px rgba(105, 213, 255, 0.5);
   }
   100% {
-    box-shadow: 
-      0 0 5px rgba(135, 206, 235, 0.2),
-      0 0 15px rgba(135, 206, 235, 0.2),
-      0 0 25px rgba(135, 206, 235, 0.2),
-      0 0 35px rgba(135, 206, 235, 0.1);
+    box-shadow: 0 0 8px rgba(105, 213, 255, 0.45), 0 0 24px rgba(105, 213, 255, 0.2);
   }
 }
 
 .search-bar.searching {
-  animation: breathingGlow 2s ease-in-out infinite;
-  border-radius: 54px; /* 确保圆角与搜索栏一致 */
+  position: relative;
+  transform: none; /* 确保没有 transform 导致偏移 */
+  animation: searchBarGlow 1.4s ease-in-out infinite;
+  border-radius: var(--search-bar-radius, 72px); /* 确保圆角与搜索栏一致 */
+  /* 移除 background，避免影响背景图片对齐 */
+}
+
+.search-status {
+  position: relative;
+  font-size: 12px;
+  color: #4da3ff;
+  margin-right: 8px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  animation: searchStatusPulse 1s ease-in-out infinite;
+}
+
+@keyframes searchStatusPulse {
+  0% { opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { opacity: 0.4; }
 }
 
 

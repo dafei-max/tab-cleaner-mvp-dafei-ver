@@ -7,7 +7,7 @@
 export const UI_CONFIG = {
   // ========== 顶部标题区域 ==========
   spaceTitle: {
-    fontSize: 16,              // 洗衣房字号（px）
+    fontSize: 14,              // 洗衣房字号（px）
     leftOffset: -120,          // 左边距偏移（px，负值表示更靠左）
     top: 13,                   // 距离顶部距离（px）
   },
@@ -60,20 +60,57 @@ export const UI_CONFIG = {
     width: 380,              // 搜索栏宽度（px）
     height: 60,              // 搜索栏高度（px）
     borderRadius: 72,        // 搜索栏圆角
-    placeholderColor: 'rgba(255, 255, 255, 0.75)', // Placeholder 颜色
+    placeholderColor: 'rgba(182, 182, 182, 0.75)', // Placeholder 颜色
     backgroundHeightPercent: 80,   // 背景图占比高度（%）
     inputPaddingLeft: 4,     // 输入框左边距
     searchButton: {
       size: 100,
-      marginLeft: -18,
+      marginLeft: -42,
     },
     submitButton: {
       size: 32,
-      marginRight: -38,
+      marginRight: -10,
     },
     elephantIcon: {
       size: 100,
-      marginLeft: 20,
+      marginLeft: -30, // 往左移
+    },
+    statusText: {
+      fontSize: 6,
+      color: '#9bd1e8',
+      marginRight: 10,
+    },
+    // ========== 搜索过程中的背景模糊 ==========
+    blurOverlay: {
+      blurAmount: 30,        // 模糊程度（px），值越大越模糊
+      transitionDuration: 5, // 模糊动画持续时间（秒），值越大越慢
+    },
+    // ========== Tooltip 位置配置 ==========
+    tooltip: {
+      placement: 'top',     // 'top' | 'bottom' | 'left' | 'right' - tooltip 显示位置
+      offset: 8,            // tooltip 距离按钮的间距（px）
+    },
+  },
+
+  // ========== 搜索状态 Overlay ==========
+  searchOverlay: {
+    maxResults: 5,
+    cardWidth: 220,
+    gap: 20,
+    maxWidthPercent: 90,
+    backdropBlur: 12,
+    backdropColor: 'rgba(202, 226, 237, 0.61)',
+    positionYPercent: 50,
+    positionXPercent: 50,
+    paddingX: 24,
+    // ========== 搜索结果动画配置 ==========
+    animation: {
+      baseDuration: 0.8,      // 基础动画时长（秒）- 参考示例
+      staggerDelay: 0.05,     // 每个卡片之间的延迟（秒）- 参考示例
+      scaleFrom: 0,           // 初始缩放比例 - 从0开始更有"炸开"感
+      scaleTo: 1,             // 最终缩放比例
+      glowDuration: 2,        // 呼吸光效持续时间（秒）
+      easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)',  // 弹性缓动函数 - 参考示例
     },
   },
 
@@ -87,6 +124,11 @@ export const UI_CONFIG = {
       bottom: -50,             // 距离底部的偏移（px，负值表示向下）
       left: 50,                // 水平位置（%，50表示居中）
       translateX: -190,        // 水平平移百分比（%，负值表示向左）
+    },
+    // ========== Tooltip 位置配置 ==========
+    tooltip: {
+      placement: 'top',        // 'top' | 'bottom' | 'left' | 'right' - tooltip 显示位置
+      offset: 8,               // tooltip 距离按钮的间距（px）
     },
   },
 

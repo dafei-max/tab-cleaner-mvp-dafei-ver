@@ -110,54 +110,68 @@ export const RadialCanvas = ({
       ))}
 
       {/* OpenGraph 图片 */}
-      {!showOriginalImages && opengraphData && Array.isArray(opengraphData) && opengraphData.length > 0 && opengraphData.map((og) => {
-        if (!og || typeof og !== 'object' || !og.id) {
-          return null;
-        }
-        
-        const x = og.x ?? 720;
-        const y = og.y ?? 512;
-        
-        // 调试：检查位置数据
-        if (og.id === opengraphData[0]?.id) {
-          console.log('[RadialCanvas] Rendering card:', {
-            id: og.id,
-            x: og.x,
-            y: og.y,
-            hasX: og.x !== undefined,
-            hasY: og.y !== undefined,
+      {!showOriginalImages && opengraphData && Array.isArray(opengraphData) && opengraphData.length > 0 && (() => {
+        const centerX = 720;
+        const centerY = 512;
+
+        const cardsWithMeta = opengraphData
+          .filter((og) => og && typeof og === 'object' && og.id)
+          .map((og) => {
+            const x = og.x ?? centerX;
+            const y = og.y ?? centerY;
+            const radius = Math.hypot(x - centerX, y - centerY);
+            const angleRaw = Math.atan2(y - centerY, x - centerX);
+            const angle = (angleRaw + Math.PI * 2) % (Math.PI * 2); // 0 -> 2π，顺时针排序
+            return { og, x, y, radius, angle };
           });
-        }
-        
-        const { cardWidth, cardHeight, isDocCard } = calculateCardSize(og);
-        const isTopResult = topResultId === og.id;
-        const isSearchResult = og.similarity !== undefined && og.similarity > 0;
-        const similarity = og.similarity || 0;
-        
-        return (
-          <RadialCard
-            key={og.id}
-            og={og}
-            initialX={x}
-            initialY={y}
-            width={cardWidth}
-            height={cardHeight}
-            animationDelay={og.animationDelay || 0}
-            isSelected={selectedIds.has(og.id)}
-            onSelect={onSelect}
-            onDelete={onDelete}
-            onOpenLink={onOpenLink}
-            onDragEnd={onDragEnd}
-            onClick={() => onCardDoubleClick(og)}
-            zoom={zoom}
-            pan={pan}
-            isTopResult={isTopResult}
-            isSearchResult={isSearchResult}
-            similarity={similarity}
-            hasSearchResults={hasSearchResults}
-          />
-        );
-      })}
+
+        const sortedByRadius = [...cardsWithMeta].sort((a, b) => {
+          const radiusDiff = a.radius - b.radius;
+          if (Math.abs(radiusDiff) < 0.001) {
+            return a.angle - b.angle; // 同一圈内按角度顺时针排序
+          }
+          return radiusDiff;
+        });
+        const delayMap = new Map();
+        const cardAnimationDuration = 0.06; // RadialCard scale/opacity duration
+        const totalCards = sortedByRadius.length;
+        sortedByRadius.forEach((item, index) => {
+          // 严格顺序：上一张动画结束后才进入下一张
+          delayMap.set(item.og.id, index * cardAnimationDuration);
+        });
+
+        return cardsWithMeta.map(({ og, x, y }) => {
+          const { cardWidth, cardHeight } = calculateCardSize(og);
+          const isTopResult = topResultId === og.id;
+          const isSearchResult = og.similarity !== undefined && og.similarity > 0;
+          const similarity = og.similarity || 0;
+          const animationDelay = delayMap.get(og.id) ?? 0;
+
+          return (
+            <RadialCard
+              key={og.id}
+              og={og}
+              initialX={x}
+              initialY={y}
+              width={cardWidth}
+              height={cardHeight}
+              animationDelay={animationDelay}
+              isSelected={selectedIds.has(og.id)}
+              onSelect={onSelect}
+              onDelete={onDelete}
+              onOpenLink={onOpenLink}
+              onDragEnd={onDragEnd}
+              onClick={() => onCardDoubleClick(og)}
+              zoom={zoom}
+              pan={pan}
+              isTopResult={isTopResult}
+              isSearchResult={isSearchResult}
+              similarity={similarity}
+              hasSearchResults={hasSearchResults}
+            />
+          );
+        });
+      })()}
 
       {/* 聚类中心标签 - 隐藏"未分类"标签 */}
       {clusters
