@@ -81,3 +81,4 @@ const radiusGap = 350;    // 每层间距350px
 - 如果卡片数量很多，可能需要增大 `radiusGap` 以避免重叠
 - `imageSize` 参数也会影响间距计算（当前默认120px）
 
+

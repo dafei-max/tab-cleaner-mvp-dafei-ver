@@ -759,6 +759,17 @@ export const PersonalSpace = () => {
               zIndex={100}
             />
             
+          {/* 头部组件 - 始终显示，位置不变 */}
+          <PersonalSpaceHeader
+            currentPage={currentPage}
+            onBackToHome={handleBackToHome}
+            onCreateSession={() => {
+              const newSession = createSession([]);
+              setCurrentSessionId(newSession.id);
+            }}
+            onViewModeChange={setViewMode}
+          />
+
             {/* 根据当前页面显示不同内容 */}
             {currentPage === 'home' ? (
               <>
@@ -828,17 +839,6 @@ export const PersonalSpace = () => {
             searchResults={searchResults}
             onCardClick={handleCardDoubleClick}
             onClearSearch={clearSearch}
-          />
-
-          {/* 头部组件 */}
-          <PersonalSpaceHeader
-            currentPage={currentPage}
-            onBackToHome={handleBackToHome}
-            onCreateSession={() => {
-              const newSession = createSession([]);
-              setCurrentSessionId(newSession.id);
-            }}
-            onViewModeChange={setViewMode}
           />
 
                 <SearchBar

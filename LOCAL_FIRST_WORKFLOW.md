@@ -163,3 +163,4 @@ Background Script → Backend API → Embedding → 更新 Session
 4. **智能重试**：自动重试失败的 embedding
 
 
+

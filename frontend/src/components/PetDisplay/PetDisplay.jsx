@@ -3,6 +3,13 @@ import { motion, useMotionValue, useSpring } from 'framer-motion';
 import { getImageUrl } from '../../shared/utils';
 import './PetDisplay.css';
 
+// 宠物选项映射
+const PET_IMAGES = {
+  turtle: 'turtle.svg',
+  elephant: 'elephant.svg',
+  squirrel: 'squrrial.svg',
+};
+
 /**
  * 宠物显示组件
  * 功能：
@@ -15,6 +22,7 @@ export const PetDisplay = () => {
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [selectedPet, setSelectedPet] = useState('elephant'); // 默认小象
   const petRef = useRef(null);
   const walkIntervalRef = useRef(null);
   
@@ -22,6 +30,30 @@ export const PetDisplay = () => {
   const y = useMotionValue(0);
   const xSpring = useSpring(x, { damping: 20, stiffness: 100 });
   const ySpring = useSpring(y, { damping: 20, stiffness: 100 });
+
+  // 从 storage 加载选中的宠物
+  useEffect(() => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['selectedPet'], (result) => {
+        if (result.selectedPet && PET_IMAGES[result.selectedPet]) {
+          setSelectedPet(result.selectedPet);
+        }
+      });
+    }
+
+    // 监听宠物切换事件
+    const handlePetChange = (event) => {
+      const { petId } = event.detail;
+      if (PET_IMAGES[petId]) {
+        setSelectedPet(petId);
+      }
+    };
+
+    window.addEventListener('petChanged', handlePetChange);
+    return () => {
+      window.removeEventListener('petChanged', handlePetChange);
+    };
+  }, []);
 
   // 初始化位置：右下角
   useEffect(() => {
@@ -148,7 +180,7 @@ export const PetDisplay = () => {
     >
       <div className="pet-glow" />
       <img 
-        src={getImageUrl("pet (1).svg")} 
+        src={getImageUrl(PET_IMAGES[selectedPet] || PET_IMAGES.elephant)} 
         alt="Pet"
         style={{
           width: '100%',

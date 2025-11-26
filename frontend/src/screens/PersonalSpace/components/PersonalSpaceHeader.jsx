@@ -19,14 +19,15 @@ export const PersonalSpaceHeader = ({
 
   return (
     <>
-      {/* 添加 Session 按钮 */}
-      <div 
-        className="space-function"
-        style={{
-          right: `max(${UI_CONFIG.addSessionButton.rightOffset}px, calc(50% - 720px + ${UI_CONFIG.addSessionButton.rightOffset}px))`,
-          top: `${UI_CONFIG.addSessionButton.top}px`,
-        }}
-      >
+      {/* 添加 Session 按钮 - 只在主页显示 */}
+      {currentPage === 'home' && (
+        <div 
+          className="space-function"
+          style={{
+            right: `max(${UI_CONFIG.addSessionButton.rightOffset}px, calc(50% - 720px + ${UI_CONFIG.addSessionButton.rightOffset}px))`,
+            top: `${UI_CONFIG.addSessionButton.top}px`,
+          }}
+        >
         <motion.div 
           ref={addButtonRef}
           className="add-new-session"
@@ -77,22 +78,34 @@ export const PersonalSpaceHeader = ({
           <div className="text-wrapper-17">分享</div>
         </div>
       </div>
+      )}
 
-      {/* 标题 */}
+      {/* 标题 - 在宠物设定页时，图标可点击返回 */}
       <div className="space-title" style={{
         left: `max(${UI_CONFIG.spaceTitle.leftOffset}px, calc(50% - 720px + ${UI_CONFIG.spaceTitle.leftOffset}px))`,
         top: `${UI_CONFIG.spaceTitle.top}px`,
         width: 'auto',
+        zIndex: 1000, // 确保在宠物设定页也在最上层
       }}>
         <motion.img
           className="basket-icon"
           alt="Space name icon"
           src={getImageUrl("space-name-icon.png")}
-          onClick={currentPage === 'petSetting' ? onBackToHome : undefined}
+          onClick={currentPage === 'petSetting' ? (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('[PersonalSpaceHeader] Icon clicked, going back to home');
+            if (onBackToHome) {
+              onBackToHome();
+            }
+          } : undefined}
           style={{ 
             cursor: currentPage === 'petSetting' ? 'pointer' : 'default',
+            pointerEvents: 'auto',
+            position: 'relative',
+            zIndex: currentPage === 'petSetting' ? 1001 : 'auto',
           }}
-          whileHover={{ scale: 1.1, rotate: 5 }}
+          whileHover={currentPage === 'petSetting' ? { scale: 1.15, rotate: 8 } : { scale: 1.1, rotate: 5 }}
           whileTap={{ scale: 0.95 }}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
         />

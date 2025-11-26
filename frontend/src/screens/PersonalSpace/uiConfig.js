@@ -143,5 +143,26 @@ export const UI_CONFIG = {
     baseRadius: 180,           // 第一层半径（px）
     radiusGap: 280,            // 层间距（px）
   },
+
+  // ========== 宠物设置页面 ==========
+  petSetting: {
+    // Bar 高度配置
+    bar: {
+      width: 400,              // Bar 宽度（px）
+      height: 74,              // Bar 高度（px）
+    },
+    // Bubble 高度配置
+    bubble: {
+      selectedSize: 260,        // 选中宠物的 bubble 大小（px）
+      unselectedSize: 220,      // 未选中宠物的 bubble 大小（px）
+    },
+    // 状态按钮高度配置
+    statusButton: {
+      chosenWidth: 91,          // 选中按钮宽度（px）
+      chosenHeight: 93,         // 选中按钮高度（px）
+      unchosenWidth: 39,        // 未选中按钮宽度（px）
+      unchosenHeight: 38,       // 未选中按钮高度（px）
+    },
+  },
 };
 

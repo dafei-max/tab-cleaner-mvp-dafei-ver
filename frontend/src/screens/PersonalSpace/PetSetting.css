@@ -1,63 +1,289 @@
+/* 加载字体 */
+@font-face {
+  font-family: 'FZLanTingYuanS';
+  src: url('../../../public/static/img/方正可变兰亭黑\ GBK.TTF') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
 .pet-setting {
   position: relative;
   width: 100%;
   height: 100vh;
   min-height: 100vh;
   overflow: hidden;
+  background-color: #80D2FF;
+  background-image: url('../../../public/static/img/vector.svg');
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
-.pet-setting-background {
-  background: linear-gradient(135deg, #E3EBF5 0%, #C8DFF1 100%);
+.pet-setting-rectangle {
+  background-color: #ffffff;
   filter: blur(121.25px);
   height: 98.22%;
-  left: 0;
+  left: 0.75%;
   position: absolute;
-  top: 0;
+  top: 1.74%;
   width: 98.49%;
-  opacity: 0.3;
+  opacity: 0.6;
+  z-index: 0;
 }
 
-.pet-selection-area {
+.pet-setting-content {
   position: relative;
   width: 100%;
   height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 1;
-}
-
-.pet-options {
-  display: flex;
-  gap: 40px;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  max-width: 1200px;
+  z-index: 2;
   padding: 40px;
 }
 
-.pet-option-card {
-  width: 260px;
-  height: 260px;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 20px;
+/* 主要按钮：选一只陪伴你的小宠物吧 - 使用 bar-pet.svg */
+.pet-choose-button {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  margin-bottom: 24px;
+}
+
+.pet-choose-button-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.pet-choose-text {
+  position: relative;
+  font-family: 'FZLanTingYuanS', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  color: #535353;
+  letter-spacing: 0.5px;
+  text-align: center;
+  z-index: 2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* 英文说明文字 */
+.pet-description {
+  text-align: center;
+  color: #B3B3B3;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 600px;
+  margin-top: 8px;
+  margin-bottom: 40px;
+  z-index: 3;
+}
+
+.pet-description p {
+  margin: 4px 0;
+}
+
+/* 宠物选择卡片区域 */
+.pet-selection-container {
+  position: relative;
+  width: 100%;
+  max-width: 1200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+/* 宠物选项布局：三个横向排列 */
+.pet-options-layout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  width: 100%;
+}
+
+/* 宠物选项卡片 */
+.pet-option-card {
+  position: relative;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   transition: all 0.3s ease;
 }
 
-.pet-option-card:hover {
-  transform: scale(1.05);
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
+/* 左侧和右侧的宠物（较小） */
+.pet-option-left,
+.pet-option-right {
+  /* 尺寸通过内联样式从 UI_CONFIG 设置 */
+}
+
+/* 中间的宠物（较大，选中的） */
+.pet-option-center {
+  /* 尺寸通过内联样式从 UI_CONFIG 设置 */
+}
+
+.pet-option-card.selected {
+  transform: scale(1);
+}
+
+.pet-option-card.selected .pet-option-bubble {
+  box-shadow: 0 0 20px rgba(128, 210, 255, 0.6);
+  border: 3px solid #80D2FF;
+}
+
+/* 宠物选项气泡 */
+.pet-option-bubble {
+  width: 100%;
+  height: 100%;
+  background: #E9EBEC;
+  border: 1.93px solid #EFEFEF;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.pet-option-bubble::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: white;
+  opacity: 0.55;
+  border-radius: 50%;
 }
 
 .pet-option-image {
+  position: relative;
   width: 80%;
   height: 80%;
   object-fit: contain;
+  z-index: 1;
 }
 
+/* 选中/未选中状态按钮 */
+.pet-status-button {
+  position: absolute;
+  bottom: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  height: auto;
+  z-index: 11;
+  pointer-events: none;
+}
+
+/* 选中按钮（chosen.svg）较大 */
+.pet-option-center .pet-status-button {
+  /* 尺寸通过内联样式从 UI_CONFIG 设置 */
+}
+
+/* 未选中按钮（unchosen-btn.svg）较小 */
+.pet-option-left .pet-status-button,
+.pet-option-right .pet-status-button {
+  /* 尺寸通过内联样式从 UI_CONFIG 设置 */
+}
+
+.pet-option-card:hover .pet-option-bubble {
+  filter: brightness(1.1);
+  transform: scale(1.05);
+}
+
+/* 响应式调整 */
+@media (max-width: 1440px) {
+  .pet-choose-button {
+    width: 360px;
+    height: 66px;
+  }
+  
+  .pet-choose-text {
+    font-size: 15px;
+  }
+
+  .pet-option-left,
+  .pet-option-right {
+    width: 180px;
+    height: 180px;
+  }
+
+  .pet-option-center {
+    width: 220px;
+    height: 220px;
+  }
+
+  .pet-options-layout {
+    gap: 30px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .pet-choose-button {
+    width: 320px;
+    height: 59px;
+  }
+
+  .pet-choose-text {
+    font-size: 14px;
+  }
+
+  .pet-option-left,
+  .pet-option-right {
+    width: 150px;
+    height: 150px;
+  }
+
+  .pet-option-center {
+    width: 180px;
+    height: 180px;
+  }
+
+  .pet-options-layout {
+    gap: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .pet-choose-button {
+    width: 90%;
+    max-width: 320px;
+    height: 55px;
+  }
+
+  .pet-choose-text {
+    font-size: 13px;
+  }
+
+  .pet-description {
+    font-size: 12px;
+    padding: 0 20px;
+  }
+
+  .pet-option-left,
+  .pet-option-right {
+    width: 120px;
+    height: 120px;
+  }
+
+  .pet-option-center {
+    width: 150px;
+    height: 150px;
+  }
+
+  .pet-options-layout {
+    gap: 15px;
+  }
+}

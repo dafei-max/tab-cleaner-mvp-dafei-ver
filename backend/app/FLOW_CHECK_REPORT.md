@@ -269,3 +269,4 @@ if items_to_process:
 - [ ] ⚠️ `/api/v1/search/embedding` API 存储 embedding（需要修复）
 
 
+

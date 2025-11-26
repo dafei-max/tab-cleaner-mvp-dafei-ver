@@ -129,3 +129,4 @@ window.__TAB_CLEANER_HIDE_PREVIEW();
 - 可以同时显示多个预览（如果需要）
 
 
+
