@@ -429,8 +429,8 @@ export const RadialCard = ({
         borderRadius: '8px',
         overflow: 'visible',
         boxShadow: isSearchResult 
-          ? `0 0 ${8 + glowIntensity * 12}px ${glowColor}, 0 0 ${4 + glowIntensity * 8}px ${glowColor}, 0 2px 8px rgba(0,0,0,0.15)`
-          : '0 2px 8px rgba(0,0,0,0.15)',
+          ? `0 0 ${8 + glowIntensity * 12}px ${glowColor}, 0 0 ${4 + glowIntensity * 8}px ${glowColor}, 0 2px 8px rgba(0,0,0,0.05)`
+          : '0 2px 8px rgba(48, 62, 70, 0.05)', // 阴影更淡
         filter: hasSearchResults && !isSearchResult ? 'blur(3px)' : 'none',
         transition: isDragging ? 'none' : 'all 0.3s ease',
         zIndex: isDragging ? 200 : (isSearchResult ? 10 : 1),

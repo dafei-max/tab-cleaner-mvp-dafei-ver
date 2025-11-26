@@ -57,22 +57,22 @@ export const UI_CONFIG = {
 
   // ========== 搜索栏（Search Bar） ==========
   searchBar: {
-    width: 380,              // 搜索栏宽度（px）
+    width: 360,              // 搜索栏宽度（px）
     height: 60,              // 搜索栏高度（px）
     borderRadius: 72,        // 搜索栏圆角
     placeholderColor: 'rgba(182, 182, 182, 0.75)', // Placeholder 颜色
     backgroundHeightPercent: 80,   // 背景图占比高度（%）
     inputPaddingLeft: 4,     // 输入框左边距
     searchButton: {
-      size: 100,
+      size: 90,  // 调小
       marginLeft: -42,
     },
     submitButton: {
-      size: 32,
+      size: 28,  // 调小
       marginRight: -10,
     },
     elephantIcon: {
-      size: 100,
+      size: 90,  // 调小
       marginLeft: -30, // 往左移
     },
     statusText: {
@@ -156,7 +156,9 @@ export const UI_CONFIG = {
       offsetY: -200,              // 灰色英文描述垂直偏移（px，负值向上，正值向下）
     },
     petSelection: {
-      offsetY: 0,              // 宠物选择区域垂直偏移（px，负值向上，正值向下）
+      offsetX: -130,            // 宠物选择区域水平偏移（px，负值向左，正值向右）
+      offsetY: -60,              // 宠物选择区域垂直偏移（px，负值向上，正值向下）
+      gap: 90,                  // 宠物之间的间距（px），值越大间距越大
     },
     // Bubble 高度配置
     bubble: {

@@ -53,7 +53,7 @@ export const MASONRY_CONFIG = {
     defaultAspectRatio: 16 / 9,  // 默认宽高比
     marginBottom: 8,       // 卡片底部间距（px）- 减小间距
     borderRadius: 8,       // 圆角（px）
-    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',  // 阴影
+    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',  // 阴影（调淡）
   },
 
   // Masonry 实例配置（Pinterest 风格：紧密排列）

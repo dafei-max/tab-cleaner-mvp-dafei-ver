@@ -114,6 +114,7 @@
   justify-content: center;
   gap: 40px;
   width: 100%;
+  margin: 0 auto; /* 确保水平居中 */
 }
 
 /* 宠物选项卡片 */

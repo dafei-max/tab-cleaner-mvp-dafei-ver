@@ -72,7 +72,15 @@
     if (!shadow) return;
     const avatar = shadow.querySelector('.avatar');
     if (avatar) {
-      avatar.style.backgroundImage = `url("${asset(getPetAsset(currentPetId))}")`;
+      // 添加淡出效果
+      avatar.style.opacity = '0';
+      avatar.style.transition = 'opacity 0.3s ease';
+      
+      // 延迟后切换图片并淡入
+      setTimeout(() => {
+        avatar.style.backgroundImage = `url("${asset(getPetAsset(currentPetId))}")`;
+        avatar.style.opacity = '1';
+      }, 150); // 150ms 后切换，形成淡出-切换-淡入的效果
     }
   }
 
@@ -139,6 +147,32 @@
     squirrel: 'static/img/squrrial.svg',
   };
   let currentPetId = DEFAULT_PET_ID;
+
+  // ========== 按钮组配置 ==========
+  // 可以在这里调整按钮组的大小和位置
+  const BUTTON_GROUP_CONFIG = {
+    // 按钮组位置（相对于宠物头像）
+    overlayRight: 80,     // 按钮组距离右边的距离（px，负值表示在右侧，值越大越靠左）
+    overlayTop: 60,         // 按钮组距离顶部的距离（px）
+    
+    // 按钮尺寸
+    buttonWidth: 88/2,        // 单个按钮的宽度（px）
+    buttonHeight: 74/2,       // 单个按钮的高度（px）
+    
+    // 按钮间距
+    buttonGap: 8,          // 按钮之间的间距（px）
+    
+    // Tooltip 提示框样式
+    tooltipOffset: 6,       // Tooltip 距离按钮的间距（px）
+    tooltipPaddingX: 8,     // Tooltip 水平内边距（px）
+    tooltipPaddingY: 3,     // Tooltip 垂直内边距（px）
+    tooltipFontSize: 10,    // Tooltip 字体大小（px）
+    
+    // Hover 效果
+    hoverTranslateX: -2,    // Hover 时按钮向左移动的距离（px）
+    hoverScale: 1.02,       // Hover 时按钮的缩放比例
+  };
+  // ========== 配置结束 ==========
   
   /**
    * 从 Chrome Storage 加载宠物状态
@@ -392,21 +426,21 @@
           background-image: url("${asset(getPetAsset(DEFAULT_PET_ID))}");
           background-size: contain;
           background-repeat: no-repeat;
-          height: 124px;
+          height: 130px;
           left: 70px;
           position: absolute;
           top: 64px;
-          width: 129px;
+          width: 140px;
           cursor: pointer;
           border-radius: 60px;
-          transition: transform 0.25s ease, box-shadow 0.25s ease;
+          transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.3s ease;
           box-shadow: 0 0 0 rgba(98, 179, 255, 0);
         }
 
         .desktop-pet-main .avatar::after {
           content: "";
           position: absolute;
-          inset: -18px;
+          inset: -20px;
           border-radius: 50%;
           background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(130,199,255,0.2) 60%, rgba(255,255,255,0) 100%);
           opacity: 0;
@@ -425,7 +459,7 @@
         }
 
         .desktop-pet-main .chat-bubble {
-          display: flex;
+          display: none;
           height: 89px;
           left: 160px;
           position: absolute;
@@ -476,82 +510,129 @@
 
         .desktop-pet-main .choice-overlay {
           position: absolute;
-          left: 50%;
-          bottom: -2px;
-          transform: translate(-50%, 25px);
+          right: ${BUTTON_GROUP_CONFIG.overlayRight}px;
+          top: ${BUTTON_GROUP_CONFIG.overlayTop}px;
           display: flex;
-          gap: 12px;
-          padding: 12px 18px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.96);
-          box-shadow: 0 12px 28px rgba(10, 120, 255, 0.25);
+          flex-direction: column;
+          gap: ${BUTTON_GROUP_CONFIG.buttonGap}px;
           opacity: 0;
           pointer-events: none;
           transition: opacity 0.25s ease, transform 0.25s ease;
+          transform: translateX(20px);
         }
 
         .desktop-pet-main .choice-overlay.visible {
           opacity: 1;
           pointer-events: auto;
-          transform: translate(-50%, 0);
+          transform: translateX(0);
         }
 
         .desktop-pet-main .action-button {
+          width: ${BUTTON_GROUP_CONFIG.buttonWidth}px;
+          height: ${BUTTON_GROUP_CONFIG.buttonHeight}px;
           border: none;
-          background: #f4f6f8;
-          color: #5a6c82;
-          font-family: "FZLanTingYuanS-R-GB-Regular", Helvetica;
-          font-size: 12px;
-          border-radius: 16px;
-          padding: 10px 14px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
+          background: none;
+          padding: 0;
           cursor: pointer;
-          transition: background 0.25s ease, color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
           position: relative;
+          transition: transform 0.2s ease, filter 0.2s ease;
+        }
+
+        .desktop-pet-main .action-button .label {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          margin: -1px;
+          padding: 0;
+          overflow: hidden;
+          clip: rect(0 0 0 0);
+          border: 0;
         }
 
         .desktop-pet-main .action-button img.icon {
-          width: 20px;
-          height: 20px;
-          object-fit: contain;
+          width: 100%;
+          height: 100%;
+          display: block;
+          filter: grayscale(1) brightness(0.9);
+          transition: filter 0.25s ease, transform 0.25s ease;
         }
 
         .desktop-pet-main .action-button .tooltip {
           position: absolute;
-          bottom: calc(100% + 6px);
-          left: 50%;
-          transform: translateX(-50%);
-          background: rgba(0, 0, 0, 0.8);
+          right: calc(100% + ${BUTTON_GROUP_CONFIG.tooltipOffset}px);
+          top: 50%;
+          transform: translateY(-50%);
+          background: rgba(0, 0, 0, 0.85);
           color: #ffffff;
           border-radius: 999px;
-          padding: 4px 8px;
-          font-size: 10px;
+          padding: ${BUTTON_GROUP_CONFIG.tooltipPaddingY}px ${BUTTON_GROUP_CONFIG.tooltipPaddingX}px;
+          font-size: ${BUTTON_GROUP_CONFIG.tooltipFontSize}px;
           opacity: 0;
           pointer-events: none;
           transition: opacity 0.2s ease;
           white-space: nowrap;
         }
 
+        .desktop-pet-main .action-button:hover img.icon {
+          filter: none;
+        }
+
         .desktop-pet-main .action-button:hover {
-          background: linear-gradient(135deg, #62b3ff, #5c7bff);
-          color: #ffffff;
-          box-shadow: 0 10px 18px rgba(98, 179, 255, 0.4);
-          transform: translateY(-4px);
+          transform: translateX(${BUTTON_GROUP_CONFIG.hoverTranslateX}px) scale(${BUTTON_GROUP_CONFIG.hoverScale});
         }
 
         .desktop-pet-main .action-button:hover .tooltip {
           opacity: 1;
         }
 
-        .desktop-pet-main .action-button:active {
-          transform: translateY(-1px) scale(0.98);
-        }
-
         .desktop-pet-main.pet-cleaning .avatar::after {
           opacity: 1;
           animation: pet-bubble 1.6s infinite ease-out;
+        }
+
+        .desktop-pet-main .cleaning-bubbles {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          opacity: 0;
+        }
+
+        .desktop-pet-main.pet-cleaning .cleaning-bubbles {
+          opacity: 1;
+        }
+
+        .desktop-pet-main .cleaning-bubbles span {
+          position: absolute;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(130,199,255,0.2) 60%, rgba(255,255,255,0) 100%);
+          width: 24px;
+          height: 24px;
+          opacity: 0;
+          animation: bubble-rise 1.6s infinite ease-out;
+        }
+
+        .desktop-pet-main .cleaning-bubbles span:nth-child(1) {
+          left: 30%;
+          top: 60%;
+          animation-delay: 0s;
+        }
+
+        .desktop-pet-main .cleaning-bubbles span:nth-child(2) {
+          left: 50%;
+          top: 55%;
+          animation-delay: 0.2s;
+        }
+
+        .desktop-pet-main .cleaning-bubbles span:nth-child(3) {
+          left: 65%;
+          top: 62%;
+          animation-delay: 0.4s;
+        }
+
+        .desktop-pet-main .cleaning-bubbles span:nth-child(4) {
+          left: 40%;
+          top: 45%;
+          animation-delay: 0.6s;
         }
 
         @keyframes pet-bubble {
@@ -561,6 +642,17 @@
           }
           100% {
             transform: scale(1.6);
+            opacity: 0;
+          }
+        }
+
+        @keyframes bubble-rise {
+          0% {
+            transform: translateY(0) scale(0.6);
+            opacity: 0.6;
+          }
+          100% {
+            transform: translateY(-50px) scale(1.2);
             opacity: 0;
           }
         }
@@ -582,6 +674,12 @@
               <div class="emoji-status">💦</div>
             </div>
           </div>
+        </div>
+        <div class="cleaning-bubbles" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
         </div>
         <div class="choice-overlay">
           <button class="action-button" data-action="clean-current">

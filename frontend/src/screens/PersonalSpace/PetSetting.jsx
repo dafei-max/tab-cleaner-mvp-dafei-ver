@@ -55,9 +55,43 @@ export const PetSetting = ({ onBackToHome }) => {
     }
   }, []);
 
-  // 分离选中的和未选中的宠物
-  const selectedPetData = selectedPet ? petOptions.find(p => p.id === selectedPet) : null;
-  const unselectedPets = petOptions.filter(p => p.id !== selectedPet);
+  // 获取当前选中项的索引
+  const selectedIndex = petOptions.findIndex(p => p.id === selectedPet);
+  const currentSelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
+  
+  // 计算每个宠物的位置和样式（参考 CircleCarousel 逻辑）
+  const getPetStyle = (index) => {
+    // 计算相对于选中项的位置
+    let relativePosition = index - currentSelectedIndex;
+    
+    // 处理循环：如果距离超过数组长度的一半，说明从另一边绕更近
+    if (relativePosition > petOptions.length / 2) {
+      relativePosition -= petOptions.length;
+    } else if (relativePosition < -petOptions.length / 2) {
+      relativePosition += petOptions.length;
+    }
+    
+    const isSelected = index === currentSelectedIndex;
+    const gap = UI_CONFIG.petSetting.petSelection.gap; // 从配置中读取间距（边缘到边缘的间距）
+    const selectedSize = UI_CONFIG.petSetting.bubble.selectedSize;
+    const unselectedSize = UI_CONFIG.petSetting.bubble.unselectedSize;
+    
+    // 计算中心点之间的间距，考虑左右宠物大小差异
+    // 间距 = 边缘间距 + 选中宠物半径 + 未选中宠物半径
+    // 左右对称，所以计算方式相同
+    const centerGap = relativePosition === 0 
+      ? 0 
+      : gap + (selectedSize / 2) + (unselectedSize / 2);
+    
+    const translateX = relativePosition * centerGap;
+    
+    return {
+      translateX, // 直接返回数值，用于 framer-motion
+      scale: isSelected ? 1 : 0.7,
+      opacity: isSelected ? 1 : 0.6,
+      zIndex: isSelected ? 10 : 1,
+    };
+  };
 
   return (
     <div className="pet-setting">
@@ -103,156 +137,81 @@ export const PetSetting = ({ onBackToHome }) => {
         <div 
           className="pet-selection-container"
           style={{
-            transform: `translate(-50%, calc(-50% + ${UI_CONFIG.petSetting.petSelection.offsetY}px))`,
+            transform: `translate(calc(-50% + ${UI_CONFIG.petSetting.petSelection.offsetX}px), calc(-50% + ${UI_CONFIG.petSetting.petSelection.offsetY}px))`,
           }}
         >
           {/* 三个宠物选项：选中的在中间（大），未选中的在两侧（小） */}
-          <div className="pet-options-layout">
-            {/* 左侧未选中的宠物 */}
-            {unselectedPets.length > 0 && (
-              <motion.div
-                className="pet-option-card pet-option-left"
-                onClick={() => handlePetSelect(unselectedPets[0].id)}
-                initial={{ opacity: 0, x: -30 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.1 }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                style={{
-                  width: `${UI_CONFIG.petSetting.bubble.unselectedSize}px`,
-                  height: `${UI_CONFIG.petSetting.bubble.unselectedSize}px`,
-                }}
-              >
-                <div 
-                  className="pet-option-bubble"
-                >
-                  <img 
-                    className="pet-option-image" 
-                    alt={unselectedPets[0].name} 
-                    src={getImageUrl(unselectedPets[0].image)} 
-                  />
-                </div>
-                {/* 未选中按钮 */}
-                <img 
-                  src={getImageUrl("unchosen-btn.svg")} 
-                  alt="Unchosen" 
-                  className="pet-status-button"
-                  style={{
-                    width: `${UI_CONFIG.petSetting.statusButton.unchosenWidth}px`,
-                    height: `${UI_CONFIG.petSetting.statusButton.unchosenHeight}px`,
+          <div className="pet-options-layout" style={{ 
+            position: 'relative', 
+            width: '600px', // 固定宽度，确保居中
+            height: '400px', 
+            margin: '0 auto', // 水平居中
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center' 
+          }}>
+            {/* 渲染所有宠物，使用绝对定位和 translateX 实现轮播效果 */}
+            {petOptions.map((pet, index) => {
+              const isSelected = index === currentSelectedIndex;
+              const petStyle = getPetStyle(index);
+              
+              return (
+                <motion.div
+                  key={pet.id}
+                  className={`pet-option-card ${isSelected ? 'selected' : ''}`}
+                  onClick={() => handlePetSelect(pet.id)}
+                  initial={false}
+                  animate={{
+                    x: petStyle.translateX, // 相对于中心的水平偏移（像素值）
+                    y: 0, // 垂直居中
+                    scale: petStyle.scale,
+                    opacity: petStyle.opacity,
+                    zIndex: petStyle.zIndex,
                   }}
-                />
-              </motion.div>
-            )}
-
-            {/* 中间选中的宠物（最大） */}
-            {selectedPetData ? (
-              <motion.div
-                className="pet-option-card pet-option-center selected"
-                onClick={() => handlePetSelect(selectedPetData.id)}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.3 }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                style={{
-                  width: `${UI_CONFIG.petSetting.bubble.selectedSize}px`,
-                  height: `${UI_CONFIG.petSetting.bubble.selectedSize}px`,
-                }}
-              >
-                <div 
-                  className="pet-option-bubble"
-                >
-                  <img 
-                    className="pet-option-image" 
-                    alt={selectedPetData.name} 
-                    src={getImageUrl(selectedPetData.image)} 
-                  />
-                </div>
-                {/* 选中按钮 */}
-                <img 
-                  src={getImageUrl("chosen.svg")} 
-                  alt="Chosen" 
-                  className="pet-status-button"
-                  style={{
-                    width: `${UI_CONFIG.petSetting.statusButton.chosenWidth}px`,
-                    height: `${UI_CONFIG.petSetting.statusButton.chosenHeight}px`,
+                  transition={{ 
+                    duration: 0.5,
+                    ease: [0.34, 1.56, 0.64, 1], // cubic-bezier 缓动函数，带弹性效果
                   }}
-                />
-              </motion.div>
-            ) : (
-              // 如果没有选中，显示第一个宠物在中间
-              <motion.div
-                className="pet-option-card pet-option-center"
-                onClick={() => handlePetSelect(petOptions[0].id)}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.3 }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                style={{
-                  width: `${UI_CONFIG.petSetting.bubble.selectedSize}px`,
-                  height: `${UI_CONFIG.petSetting.bubble.selectedSize}px`,
-                }}
-              >
-                <div 
-                  className="pet-option-bubble"
-                >
-                  <img 
-                    className="pet-option-image" 
-                    alt={petOptions[0].name} 
-                    src={getImageUrl(petOptions[0].image)} 
-                  />
-                </div>
-                {/* 未选中按钮 */}
-                <img 
-                  src={getImageUrl("unchosen-btn.svg")} 
-                  alt="Unchosen" 
-                  className="pet-status-button"
+                  whileHover={{ scale: isSelected ? 1.05 : 0.75 }}
+                  whileTap={{ scale: isSelected ? 0.95 : 0.65 }}
                   style={{
-                    width: `${UI_CONFIG.petSetting.statusButton.unchosenWidth}px`,
-                    height: `${UI_CONFIG.petSetting.statusButton.unchosenHeight}px`,
+                    position: 'absolute',
+                    width: isSelected 
+                      ? `${UI_CONFIG.petSetting.bubble.selectedSize}px`
+                      : `${UI_CONFIG.petSetting.bubble.unselectedSize}px`,
+                    height: isSelected 
+                      ? `${UI_CONFIG.petSetting.bubble.selectedSize}px`
+                      : `${UI_CONFIG.petSetting.bubble.unselectedSize}px`,
+                    left: '50%',
+                    top: '50%',
+                    transform: 'translate(-50%, -50%)', // CSS 初始居中
+                    transformOrigin: 'center center', // 确保缩放从中心开始
                   }}
-                />
-              </motion.div>
-            )}
-
-            {/* 右侧未选中的宠物 */}
-            {unselectedPets.length > 1 && (
-              <motion.div
-                className="pet-option-card pet-option-right"
-                onClick={() => handlePetSelect(unselectedPets[1].id)}
-                initial={{ opacity: 0, x: 30 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.1 }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                style={{
-                  width: `${UI_CONFIG.petSetting.bubble.unselectedSize}px`,
-                  height: `${UI_CONFIG.petSetting.bubble.unselectedSize}px`,
-                }}
-              >
-                <div 
-                  className="pet-option-bubble"
                 >
+                  <div className="pet-option-bubble">
+                    <img 
+                      className="pet-option-image" 
+                      alt={pet.name} 
+                      src={getImageUrl(pet.image)} 
+                    />
+                  </div>
+                  {/* 选中/未选中按钮 */}
                   <img 
-                    className="pet-option-image" 
-                    alt={unselectedPets[1].name} 
-                    src={getImageUrl(unselectedPets[1].image)} 
+                    src={getImageUrl(isSelected ? "chosen.svg" : "unchosen-btn.svg")} 
+                    alt={isSelected ? "Chosen" : "Unchosen"} 
+                    className="pet-status-button"
+                    style={{
+                      width: isSelected 
+                        ? `${UI_CONFIG.petSetting.statusButton.chosenWidth}px`
+                        : `${UI_CONFIG.petSetting.statusButton.unchosenWidth}px`,
+                      height: isSelected 
+                        ? `${UI_CONFIG.petSetting.statusButton.chosenHeight}px`
+                        : `${UI_CONFIG.petSetting.statusButton.unchosenHeight}px`,
+                    }}
                   />
-                </div>
-                {/* 未选中按钮 */}
-                <img 
-                  src={getImageUrl("unchosen-btn.svg")} 
-                  alt="Unchosen" 
-                  className="pet-status-button"
-                  style={{
-                    width: `${UI_CONFIG.petSetting.statusButton.unchosenWidth}px`,
-                    height: `${UI_CONFIG.petSetting.statusButton.unchosenHeight}px`,
-                  }}
-                />
-              </motion.div>
-            )}
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       </div>

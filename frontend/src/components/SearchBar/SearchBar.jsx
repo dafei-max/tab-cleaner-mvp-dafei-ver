@@ -86,25 +86,28 @@ export const SearchBar = ({
           position: 'relative', 
           display: 'flex', 
           alignItems: 'center',
+          overflow: 'visible', // 确保背景图可以穿透
           "--search-bar-width": `${UI_CONFIG.searchBar.width}px`,
           "--search-bar-min-width": `${UI_CONFIG.searchBar.width}px`,
           "--search-bar-radius": `${UI_CONFIG.searchBar.borderRadius}px`,
           "--search-bar-height": `${UI_CONFIG.searchBar.height}px`,
         }}
       >
-        {/* 搜索栏背景 */}
+        {/* 搜索栏背景 - 穿透容器，不被裁剪 */}
         <img 
           src={getImageUrl("search-bar.png")} 
           alt="Search bar background"
           style={{
             position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%) scaleY(0.85)', // 只压缩垂直方向，让它变扁
+            width: `${UI_CONFIG.searchBar.width}px`, // 使用配置的宽度
+            height: `${UI_CONFIG.searchBar.height}px`, // 使用配置的高度
+            objectFit: 'contain', // 改为 contain，保持完整显示
             zIndex: 0,
-            borderRadius: 'inherit',
+            borderRadius: `${UI_CONFIG.searchBar.borderRadius}px`,
+            opacity: 0.7, // 降低透明度，让它变淡
             pointerEvents: 'none', // 让背景图片不拦截鼠标事件，只作为视觉装饰
           }}
         />

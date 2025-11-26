@@ -9,8 +9,13 @@
 /* 搜索等待时的呼吸感发光效果 */
 .search-bar {
   position: relative;
-  overflow: visible; /* 允许发光效果溢出 */
+  overflow: visible !important; /* 允许背景图和发光效果穿透，不被裁剪 */
   box-sizing: border-box; /* 确保 padding 不影响总尺寸 */
+}
+
+/* 确保搜索栏容器也不裁剪内容 */
+.search-bar-container {
+  overflow: visible !important;
 }
 
 @keyframes searchBarGlow {

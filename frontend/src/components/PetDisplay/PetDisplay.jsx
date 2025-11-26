@@ -15,7 +15,7 @@ const PET_IMAGES = {
  * 功能：
  * 1. 悬浮态显示
  * 2. 鼠标悬停时外边缘发呼吸白光
- * 3. 自动在视口内游走
+ * 3. 固定在右下角（不自动移动）
  * 4. 可拖拽到任意位置
  */
 export const PetDisplay = () => {
@@ -24,7 +24,6 @@ export const PetDisplay = () => {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [selectedPet, setSelectedPet] = useState('elephant'); // 默认小象
   const petRef = useRef(null);
-  const walkIntervalRef = useRef(null);
   
   const x = useMotionValue(0);
   const y = useMotionValue(0);
@@ -57,63 +56,19 @@ export const PetDisplay = () => {
 
   // 初始化位置：右下角
   useEffect(() => {
-    const initialX = window.innerWidth - 160; // 120px width + 40px margin
-    const initialY = window.innerHeight - 160; // 120px height + 40px margin
+    const petWidth = 120;
+    const petHeight = 120;
+    const margin = 40;
+    const initialX = window.innerWidth - petWidth - margin;
+    const initialY = window.innerHeight - petHeight - margin;
     setPosition({ x: initialX, y: initialY });
     x.set(initialX);
     y.set(initialY);
   }, [x, y]);
 
-  // 自动游走功能
-  useEffect(() => {
-    if (isDragging) return; // 拖拽时停止自动游走
-
-    const moveToRandomPosition = () => {
-      if (!petRef.current) return;
-      
-      const petWidth = 120;
-      const petHeight = 120;
-      const margin = 40;
-      
-      // 计算可移动范围（视口内）
-      const maxX = window.innerWidth - petWidth - margin;
-      const minX = margin;
-      const maxY = window.innerHeight - petHeight - margin;
-      const minY = margin;
-      
-      // 生成随机目标位置
-      const randomX = Math.random() * (maxX - minX) + minX;
-      const randomY = Math.random() * (maxY - minY) + minY;
-      
-      x.set(randomX);
-      y.set(randomY);
-      setPosition({ x: randomX, y: randomY });
-    };
-
-    // 初始延迟后开始游走
-    const initialDelay = setTimeout(() => {
-      moveToRandomPosition();
-      
-      // 每 3-6 秒随机游走一次
-      walkIntervalRef.current = setInterval(() => {
-        moveToRandomPosition();
-      }, 3000 + Math.random() * 3000);
-    }, 2000);
-
-    return () => {
-      clearTimeout(initialDelay);
-      if (walkIntervalRef.current) {
-        clearInterval(walkIntervalRef.current);
-      }
-    };
-  }, [isDragging, x, y]);
-
   // 处理拖拽
   const handleDragStart = () => {
     setIsDragging(true);
-    if (walkIntervalRef.current) {
-      clearInterval(walkIntervalRef.current);
-    }
   };
 
   const handleDrag = (event, info) => {
@@ -149,10 +104,7 @@ export const PetDisplay = () => {
     x.set(constrainedX);
     y.set(constrainedY);
     
-    // 延迟后恢复自动游走
-    setTimeout(() => {
-      setIsDragging(false);
-    }, 1000);
+    setIsDragging(false);
   };
 
   return (
@@ -179,9 +131,14 @@ export const PetDisplay = () => {
       transition={{ type: "spring", stiffness: 300, damping: 20 }}
     >
       <div className="pet-glow" />
-      <img 
+      <motion.img 
+        key={selectedPet} // 使用 key 触发重新渲染和动画
         src={getImageUrl(PET_IMAGES[selectedPet] || PET_IMAGES.elephant)} 
         alt="Pet"
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.8 }}
+        transition={{ duration: 0.3, ease: 'easeInOut' }}
         style={{
           width: '100%',
           height: '100%',
