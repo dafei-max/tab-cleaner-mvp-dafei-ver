@@ -29,7 +29,7 @@ export const UI_CONFIG = {
     },
     actionButtons: {
       size: 32,                // 按钮大小（px）
-      marginRight: 20,         // 右边距（px，右对齐 masonry 最右边）
+      marginRight: 40,         // 右边距（px，右对齐 masonry 最右边）
       gap: 12,                 // 按钮之间的间距（px）
     },
   },
@@ -141,8 +141,8 @@ export const UI_CONFIG = {
 
   // ========== Masonry 布局间距 ==========
   masonry: {
-    gutter: 12,                 // 列间距（px）
-    marginBottom: 8,           // 卡片底部间距（px）
+    gutter: 30,                 // 列间距（px）
+    marginBottom: 16,           // 卡片底部间距（px）
   },
 
   // ========== Radial 视图布局 ==========
