@@ -65,7 +65,7 @@ export const PersonalSpace = () => {
     isSpacePressed,
     getCanvasCursor,
     isBlankCanvasTarget,
-  } = useCanvasInteractions(activeTool, containerRef);
+  } = useCanvasInteractions(activeTool, containerRef, UI_CONFIG.radialCamera);
 
   // 画布工具状态（由父组件管理，支持撤销/重做）
   const [drawPaths, setDrawPaths] = useState([]);
@@ -669,6 +669,10 @@ export const PersonalSpace = () => {
 
       // Session 容器 ref（用于 ScrollSpy）
       const sessionContainerRef = useRef(null);
+      const handleSessionFocus = useCallback((sessionId) => {
+        if (!sessionId) return;
+        setCurrentSessionId(sessionId);
+      }, [setCurrentSessionId]);
 
       // 处理 Session 删除
       const handleSessionDelete = useCallback((sessionId, selectedCardIds = null) => {
@@ -777,12 +781,14 @@ export const PersonalSpace = () => {
           <ViewContainer
             viewMode={viewMode}
             sessions={sessions}
+            currentSessionId={currentSessionId}
             searchQuery={searchQuery}
             hasActiveSearch={hasActiveSearch}
             onCardClick={handleCardDoubleClick}
             onSessionDelete={handleSessionDelete}
             onSessionOpenAll={handleSessionOpenAll}
             sessionContainerRef={sessionContainerRef}
+            onSessionFocus={handleSessionFocus}
             canvasRef={canvasRef}
             containerRef={containerRef}
             showOriginalImages={showOriginalImages}

@@ -11,6 +11,7 @@ import { ScrollSpyIndicator } from '../ScrollSpyIndicator';
 export const ViewContainer = ({
   viewMode,
   sessions,
+  currentSessionId,
   searchQuery,
   hasActiveSearch,
   // Masonry props
@@ -18,6 +19,7 @@ export const ViewContainer = ({
   onSessionDelete,
   onSessionOpenAll,
   sessionContainerRef,
+  onSessionFocus,
   // Radial props
   canvasRef,
   containerRef,
@@ -67,12 +69,15 @@ export const ViewContainer = ({
             onSessionOpenAll={onSessionOpenAll}
             searchBarHeight={200}
             containerRef={sessionContainerRef}
+            onSessionFocus={onSessionFocus}
           />
           {/* Scroll Spy Indicator */}
           {sessions.length > 1 && (
             <ScrollSpyIndicator 
               sessions={sessions} 
               containerRef={sessionContainerRef}
+              activeSessionId={currentSessionId}
+              onActiveSessionChange={onSessionFocus}
             />
           )}
         </motion.div>

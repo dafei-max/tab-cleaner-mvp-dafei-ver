@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { getImageUrl } from "../../shared/utils";
 import { UI_CONFIG } from "../../screens/PersonalSpace/uiConfig";
+import searchBarBg from "./search-bar.svg";
 import "./SearchBar.css";
 
 /**
@@ -86,32 +87,27 @@ export const SearchBar = ({
           position: 'relative', 
           display: 'flex', 
           alignItems: 'center',
-          overflow: 'visible', // 确保背景图可以穿透
+          justifyContent: 'space-between',
+          gap: '12px',
+          overflow: 'visible',
           "--search-bar-width": `${UI_CONFIG.searchBar.width}px`,
           "--search-bar-min-width": `${UI_CONFIG.searchBar.width}px`,
           "--search-bar-radius": `${UI_CONFIG.searchBar.borderRadius}px`,
           "--search-bar-height": `${UI_CONFIG.searchBar.height}px`,
+          width: `${UI_CONFIG.searchBar.width}px`,
+          minWidth: `${UI_CONFIG.searchBar.width}px`,
+          maxWidth: `${UI_CONFIG.searchBar.width}px`,
+          height: `${UI_CONFIG.searchBar.height}px`,
+          padding: '0 24px',
+          backgroundImage: `url(${searchBarBg})`,
+          background: 'linear-gradient(90deg, #c3e8ff 0%, #fdfefe 100%)',
+          border: '1px solid rgba(164, 223, 255, 0.8)',
+          backgroundSize: '100% 100%',
+          backgroundRepeat: 'no-repeat',
+          backgroundPosition: 'center',
+          //border: 'none',
         }}
       >
-        {/* 搜索栏背景 - 穿透容器，不被裁剪 */}
-        <img 
-          src={getImageUrl("search-bar.png")} 
-          alt="Search bar background"
-          style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%) scaleY(0.85)', // 只压缩垂直方向，让它变扁
-            width: `${UI_CONFIG.searchBar.width}px`, // 使用配置的宽度
-            height: `${UI_CONFIG.searchBar.height}px`, // 使用配置的高度
-            objectFit: 'contain', // 改为 contain，保持完整显示
-            zIndex: 0,
-            borderRadius: `${UI_CONFIG.searchBar.borderRadius}px`,
-            opacity: 0.7, // 降低透明度，让它变淡
-            pointerEvents: 'none', // 让背景图片不拦截鼠标事件，只作为视觉装饰
-          }}
-        />
-        
         {/* 搜索按钮（左侧） */}
         <motion.button
           onClick={onSearch}
@@ -158,6 +154,11 @@ export const SearchBar = ({
         </motion.button>
         
         {/* 输入框 */}
+        {(() => {
+          const inputOffset = UI_CONFIG.searchBar.inputPaddingLeft ?? 0;
+          const paddingLeft = inputOffset >= 0 ? inputOffset : 0;
+          const marginLeft = inputOffset < 0 ? inputOffset : 0;
+          return (
         <input
           type="text"
           className="search-input"
@@ -175,26 +176,14 @@ export const SearchBar = ({
             fontSize: '16px',
             fontFamily: '"SF Pro Display-Regular", Helvetica',
             color: '#000000',
-            padding: `0 12px 0 ${UI_CONFIG.searchBar.inputPaddingLeft}px`,
+            padding: `0 12px 0 ${paddingLeft}px`,
+            marginLeft: `${marginLeft}px`,
             margin: 0,
             "--search-placeholder-color": UI_CONFIG.searchBar.placeholderColor,
           }}
         />
-        {/* 搜索中提示 */}
-        {isSearching && (
-          <div 
-            className="search-status" 
-            style={{ 
-              zIndex: 1,
-              fontSize: `${UI_CONFIG.searchBar.statusText.fontSize}px`,
-              color: UI_CONFIG.searchBar.statusText.color,
-              marginRight: `${UI_CONFIG.searchBar.statusText.marginRight}px`,
-            }}
-          >
-            搜索中...
-          </div>
-        )}
-
+          );
+        })()}
         {/* 提交按钮（右侧）- 使用 Send-btn.png */}
         <motion.button
           onClick={onSearch}

@@ -50,6 +50,9 @@ export const UI_CONFIG = {
     dotSize: 10,               // 小圆点大小（px）
     borderWidth: 1,            // 描边宽度（px）
     borderColor: 'rgba(135, 206, 235, 0.8)',  // 水蓝色描边
+    activeBorderColor: 'rgba(64, 158, 255, 1)',
+    activeColor: 'rgba(64, 158, 255, 0.9)',
+    inactiveColor: '#ffffff',
     innerShadow: 'inset 0 0 3px rgba(135, 206, 235, 0.3)',  // 内阴影
     gap: 8,                    // 圆点之间的间距（px）
     hoverColor: '#87CEEB',     // 悬浮时的颜色
@@ -57,32 +60,36 @@ export const UI_CONFIG = {
 
   // ========== 搜索栏（Search Bar） ==========
   searchBar: {
-    width: 360,              // 搜索栏宽度（px）
-    height: 60,              // 搜索栏高度（px）
-    borderRadius: 72,        // 搜索栏圆角
-    placeholderColor: 'rgba(182, 182, 182, 0.75)', // Placeholder 颜色
-    backgroundHeightPercent: 80,   // 背景图占比高度（%）
-    inputPaddingLeft: 4,     // 输入框左边距
+    width: 320,
+    height: 40,
+    borderRadius: 35,
+    placeholderColor: 'rgba(182, 182, 182, 0.75)',
+    backgroundHeightPercent: 80,
+    inputPaddingLeft: -210,
     searchButton: {
-      size: 90,  // 调小
-      marginLeft: -42,
+      size: 100,
+      marginLeft: -62,
     },
     submitButton: {
-      size: 28,  // 调小
+      size: 28,
       marginRight: -10,
     },
     elephantIcon: {
-      size: 90,  // 调小
-      marginLeft: -30, // 往左移
+      size: 90,
+      marginLeft: -30,
     },
     statusText: {
       fontSize: 6,
       color: '#9bd1e8',
-      marginRight: 10,
+      marginRight: 170,
+      background: 'rgba(255, 255, 255, 0.28)',
+      paddingX: 10,
+      paddingY: 4,
+      borderRadius: 999,
     },
     // ========== 搜索过程中的背景模糊 ==========
     blurOverlay: {
-      blurAmount: 30,        // 模糊程度（px），值越大越模糊
+      blurAmount: 40,        // 模糊程度（px），值越大越模糊
       transitionDuration: 5, // 模糊动画持续时间（秒），值越大越慢
     },
     // ========== Tooltip 位置配置 ==========
@@ -142,6 +149,12 @@ export const UI_CONFIG = {
   radial: {
     baseRadius: 180,           // 第一层半径（px）
     radiusGap: 280,            // 层间距（px）
+  },
+  radialCamera: {
+    defaultZoom: 0.7,
+    minZoom: 0.3,
+    maxZoom: 2.5,
+    zoomStep: 0.08,
   },
 
   // ========== 清理动画配置 ==========

@@ -16,6 +16,7 @@ export const SessionMasonryGrid = ({
   onSessionOpenAll,
   searchBarHeight = 80, // 搜索栏高度（包括间距）
   containerRef, // 从父组件传入
+  onSessionFocus,
 }) => {
   const [selectedCardIds, setSelectedCardIds] = useState(new Set());
   const [sessionSelectedCounts, setSessionSelectedCounts] = useState(new Map());
@@ -179,6 +180,7 @@ export const SessionMasonryGrid = ({
               style={{
                 marginBottom: '40px',
               }}
+            onMouseEnter={() => onSessionFocus && onSessionFocus(session.id)}
             >
               {/* Session 标题栏 */}
               <SessionHeader

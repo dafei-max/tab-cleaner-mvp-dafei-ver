@@ -5,11 +5,17 @@ import { getImageUrl } from '../../../shared/utils';
  * 管理画布交互逻辑的 Hook
  * 包括：缩放、平移、工具、光标样式、拖拽等
  */
-export const useCanvasInteractions = (activeTool, containerRef) => {
+export const useCanvasInteractions = (activeTool, containerRef, options = {}) => {
+  const {
+    defaultZoom = 1,
+    minZoom = 0.05,
+    maxZoom = 10,
+    zoomStep = 0.05,
+  } = options || {};
   const canvasRef = useRef(null);
   
   // 画布缩放和平移状态
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(defaultZoom);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   
   // 拖拽画布状态
@@ -181,10 +187,10 @@ export const useCanvasInteractions = (activeTool, containerRef) => {
       const contentY = (offsetY - pan.y) / zoom;
       
       const isAccelerated = e.ctrlKey || e.metaKey;
-      const baseZoomSpeed = 0.05;
+      const baseZoomSpeed = zoomStep;
       const zoomSpeed = isAccelerated ? baseZoomSpeed * 2 : baseZoomSpeed;
       const zoomDelta = e.deltaY > 0 ? -zoomSpeed : zoomSpeed;
-      const newZoom = Math.max(0.05, Math.min(10, zoom + zoomDelta));
+      const newZoom = Math.max(minZoom, Math.min(maxZoom, zoom + zoomDelta));
       
       const newPanX = offsetX - contentX * newZoom;
       const newPanY = offsetY - contentY * newZoom;
@@ -198,11 +204,12 @@ export const useCanvasInteractions = (activeTool, containerRef) => {
     return () => {
       canvas.removeEventListener('wheel', handleWheel);
     };
-  }, [activeTool, zoom, pan, isPanning]);
+  }, [activeTool, zoom, pan, isPanning, minZoom, maxZoom, zoomStep]);
 
   return {
     canvasRef,
     zoom,
+    setZoom,
     pan,
     isPanning,
     isSpacePressed,

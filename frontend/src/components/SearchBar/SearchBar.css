@@ -9,8 +9,12 @@
 /* 搜索等待时的呼吸感发光效果 */
 .search-bar {
   position: relative;
-  overflow: visible !important; /* 允许背景图和发光效果穿透，不被裁剪 */
-  box-sizing: border-box; /* 确保 padding 不影响总尺寸 */
+  overflow: visible !important;
+  box-sizing: border-box;
+}
+
+.search-bar.searching {
+  animation: searchBarGlow 1.4s ease-in-out infinite;
 }
 
 /* 确保搜索栏容器也不裁剪内容 */
@@ -28,14 +32,6 @@
   100% {
     box-shadow: 0 0 8px rgba(105, 213, 255, 0.45), 0 0 24px rgba(105, 213, 255, 0.2);
   }
-}
-
-.search-bar.searching {
-  position: relative;
-  transform: none; /* 确保没有 transform 导致偏移 */
-  animation: searchBarGlow 1.4s ease-in-out infinite;
-  border-radius: var(--search-bar-radius, 72px); /* 确保圆角与搜索栏一致 */
-  /* 移除 background，避免影响背景图片对齐 */
 }
 
 .search-status {
