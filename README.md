@@ -66,6 +66,13 @@
     - 图片自动归一化处理（缩放、压缩）以节省token成本
     - 支持批量处理，避免API过载
     - **数据持久化**：所有 OpenGraph 数据和 embedding 向量都保存到向量数据库，支持跨会话搜索
+    - **共享向量库**：搜索时忽略用户隔离，可以搜索所有用户的历史数据，实现知识共享
+  - 🗑️ **软删除机制**：
+    - 支持删除单个 tab 或整个 session（洗衣筐）
+    - 软删除：数据不会立即物理删除，只是标记为已删除
+    - 前端-后端同步：删除操作会同步更新数据库和本地存储
+    - 自动过滤：已删除的记录不会出现在搜索结果中
+    - 定时清理：30 天后自动清理或匿名化已删除的数据
 
 ## 数据流程
 
@@ -98,11 +105,29 @@
    ├─ 检查数据库是否已有 embedding
    ├─ 如果没有，生成新的 embedding（文本 + 图像）
    ├─ 保存到向量数据库（Alibaba Cloud AnalyticDB PostgreSQL）
+   │  ├─ 存储时包含 user_id 和 session_id（用于软删除）
+   │  ├─ status 默认为 'active'
+   │  └─ 支持共享向量库（搜索时忽略 user_id）
    └─ 返回 embedding 数据
    ↓
    background.js 更新 sessions 中的 embedding 数据
    ↓
    个人空间自动刷新显示（通过 storage.onChanged 监听）
+
+4. 删除操作（软删除）
+   ↓
+   用户在个人空间删除 tab 或 session
+   ↓
+   前端调用 DELETE API（/api/v1/tabs/{id} 或 /api/v1/sessions/{id}）
+   ↓
+   后端软删除：
+   ├─ 更新数据库：status = 'deleted', deleted_at = NOW()
+   ├─ 已删除的记录不会出现在搜索结果中
+   └─ 返回删除结果
+   ↓
+   前端同步更新 chrome.storage.local 中的 sessions 数据
+   ↓
+   30 天后定时任务清理（匿名化或物理删除）
 ```
 
 ### 数据存储位置

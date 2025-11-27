@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -210,7 +210,10 @@ class SearchRequest(BaseModel):
 
 
 @app.post("/api/v1/search/embedding")
-async def generate_embeddings(request: EmbeddingRequest):
+async def generate_embeddings(
+    request: EmbeddingRequest,
+    user_id: Optional[str] = Header(None, alias="X-User-ID")
+):
     """
     为OpenGraph数据生成Embedding向量并存储到数据库
     
@@ -220,6 +223,7 @@ async def generate_embeddings(request: EmbeddingRequest):
     3. 返回包含 saved 字段的响应
     """
     try:
+        normalized_user_id = (user_id or "anonymous").strip() or "anonymous"
         if not request.opengraph_items:
             print("[API] ⚠️ No opengraph_items provided in request")
             return {"ok": True, "saved": 0, "data": []}
@@ -248,13 +252,83 @@ async def generate_embeddings(request: EmbeddingRequest):
         normalized_items = normalize_opengraph_items(request.opengraph_items)
         print(f"[API] Normalized {len(normalized_items)} items from {len(request.opengraph_items)} input items")
         
-        # 1. 调用 process_opengraph_for_search() 生成 embedding
-        enriched_items = await process_opengraph_for_search(normalized_items)
-        print(f"[API] Generated embeddings for {len(enriched_items)} items")
+        # ✅ 步骤 0.5: 检查数据库中已有的 embedding（自动补全逻辑）
+        from vector_db import get_items_by_urls
+        items_already_done = []
+        items_to_process = []
         
-        # 2. 准备批量存储的数据（使用规范化后的数据）
+        db_host = os.getenv("ADBPG_HOST", "")
+        if db_host:
+            print(f"[API] Checking database for existing embeddings...")
+            
+            # 批量获取所有 URL 的数据
+            urls = [item.get("url") for item in normalized_items if item.get("url")]
+            existing_items_map = {}
+            if urls:
+                existing_items = await get_items_by_urls(normalized_user_id, urls)
+                existing_items_map = {item['url']: item for item in existing_items}
+                print(f"[API] Found {len(existing_items)} items in database")
+            
+            for item in normalized_items:
+                url = item.get("url")
+                if not url:
+                    items_to_process.append(item)
+                    continue
+                
+                # 检查数据库是否已有完整的 embedding
+                existing_item = existing_items_map.get(url)
+                if existing_item:
+                    has_text_emb = existing_item.get("text_embedding") and len(existing_item.get("text_embedding", [])) > 0
+                    has_image_emb = existing_item.get("image_embedding") and len(existing_item.get("image_embedding", [])) > 0
+                    
+                    # 如果已有完整的 embedding，直接使用
+                    if has_text_emb and has_image_emb:
+                        # 合并数据：使用数据库中的 embedding，但保留请求中的其他字段
+                        merged_item = {
+                            **item,
+                            "text_embedding": existing_item.get("text_embedding"),
+                            "image_embedding": existing_item.get("image_embedding"),
+                            "has_embedding": True,
+                        }
+                        items_already_done.append(merged_item)
+                        continue
+                    # 如果只有部分 embedding，也使用已有的，但标记需要补全
+                    elif has_text_emb or has_image_emb:
+                        merged_item = {
+                            **item,
+                            "text_embedding": existing_item.get("text_embedding") or item.get("text_embedding"),
+                            "image_embedding": existing_item.get("image_embedding") or item.get("image_embedding"),
+                            "has_embedding": has_text_emb or has_image_emb,
+                        }
+                        items_to_process.append(merged_item)  # 需要补全缺失的部分
+                        continue
+                
+                # 数据库中没有或没有 embedding，需要处理
+                items_to_process.append(item)
+            
+            print(f"[API] Embedding status: Total={len(normalized_items)}, "
+                  f"Already have={len(items_already_done)}, To process={len(items_to_process)}")
+        else:
+            # 没有配置数据库，全部需要处理
+            items_to_process = normalized_items
+            print(f"[API] ADBPG_HOST not configured, processing all {len(items_to_process)} items")
+        
+        # 1. 只为需要处理的项生成 embedding
+        enriched_items = []
+        if items_to_process:
+            print(f"[API] Generating embeddings for {len(items_to_process)} items...")
+            enriched_items = await process_opengraph_for_search(items_to_process)
+            print(f"[API] Generated embeddings for {len(enriched_items)} items")
+        else:
+            print(f"[API] All items already have embeddings, skipping generation")
+        
+        # 合并结果：已有的 + 新生成的
+        all_enriched_items = items_already_done + enriched_items
+        print(f"[API] Total enriched items: {len(all_enriched_items)}")
+        
+        # 2. 准备批量存储的数据（只存储新生成的 embedding）
         items_to_store = []
-        for item in enriched_items:
+        for item in enriched_items:  # 只处理新生成的，已有的不需要再存储
             # 只存储有 embedding 的项
             if item.get("text_embedding") or item.get("image_embedding"):
                 # 确保 metadata 包含所有必要字段
@@ -263,6 +337,7 @@ async def generate_embeddings(request: EmbeddingRequest):
                     metadata = {}
                 
                 items_to_store.append({
+                    "user_id": normalized_user_id,
                     "url": item.get("url"),
                     "title": item.get("title"),
                     "description": item.get("description"),
@@ -286,7 +361,7 @@ async def generate_embeddings(request: EmbeddingRequest):
         if db_host and items_to_store:
             try:
                 from vector_db import batch_upsert_items
-                saved_count = await batch_upsert_items(items_to_store)
+                saved_count = await batch_upsert_items(items_to_store, user_id=normalized_user_id)
                 if saved_count > 0:
                     print(f"[API] ✓ Stored {saved_count}/{len(items_to_store)} items to vector DB")
                 else:
@@ -300,9 +375,9 @@ async def generate_embeddings(request: EmbeddingRequest):
         elif not items_to_store:
             print(f"[API] ⚠ No items with embeddings to store")
         
-        # 4. 格式化返回数据
+        # 4. 格式化返回数据（包括已有的和新生成的）
         result_data = []
-        for item in enriched_items:
+        for item in all_enriched_items:
             has_text_emb = item.get("text_embedding") and len(item.get("text_embedding", [])) > 0
             has_image_emb = item.get("image_embedding") and len(item.get("image_embedding", [])) > 0
             has_emb_flag = item.get("has_embedding", False)
@@ -340,7 +415,10 @@ async def generate_embeddings(request: EmbeddingRequest):
 
 
 @app.post("/api/v1/search/query")
-async def search_content(request: SearchRequest):
+async def search_content(
+    request: SearchRequest,
+    user_id: Optional[str] = Header(None, alias="X-User-ID")
+):
     """
     搜索相关内容（从向量数据库检索）
     
@@ -367,10 +445,10 @@ async def search_content(request: SearchRequest):
             )
         
         # 1. 查询增强：优化查询文本，提高检索准确度
+        normalized_user_id = (user_id or "anonymous").strip() or "anonymous"
         from search.query_enhance import enhance_query
         from search.embed import embed_text
-        from vector_db import search_by_text_embedding
-        from search.rank import sort_by_vector_similarity
+        from vector_db import VectorDBClient
         
         # 增强查询文本（设计师找图场景，默认偏向视觉查询）
         enhanced_query = enhance_query(
@@ -389,51 +467,24 @@ async def search_content(request: SearchRequest):
         
         print(f"[API] Generated query embedding (dimension: {len(query_embedding)})")
         
-        # 2. 从数据库检索更多结果（包含 text_embedding 和 image_embedding）
-        # 设计师找图场景：同时检索文本和图像 embedding，扩大候选池
-        expanded_top_k = top_k * 3  # 获取 3 倍结果用于融合排序
-        
-        # 同时检索文本和图像 embedding（图像优先）
-        from vector_db import search_by_text_embedding, search_by_image_embedding
-        
-        # 文本检索
-        text_db_results = await search_by_text_embedding(query_embedding, top_k=expanded_top_k)
-        # 图像检索（设计师找图场景，图像更重要）
-        image_db_results = await search_by_image_embedding(query_embedding, top_k=expanded_top_k)
-        
-        # 合并并去重（图像结果优先）
-        all_results_map = {}
-        # 先添加图像结果（优先级更高）
-        for item in image_db_results:
-            all_results_map[item["url"]] = item
-        # 再添加文本结果（如果图像结果中没有）
-        for item in text_db_results:
-            if item["url"] not in all_results_map:
-                all_results_map[item["url"]] = item
-        
-        db_results = list(all_results_map.values())
-        
-        if not db_results:
-            print(f"[API] No results found in database for query: '{request.query}'")
-            return {
-                "ok": True,
-                "results": []
-            }
-        
-        print(f"[API] Found {len(db_results)} candidate results from vector DB (text embedding)")
-        
-        # 3. 使用 sort_by_vector_similarity 融合文本和图像相似度
-        # 这会同时考虑 text_embedding 和 image_embedding，并提高图像权重
-        ranked_results = sort_by_vector_similarity(
+        # 2. 根据用户维度检索（融合文本与图像相似度）
+        expanded_top_k = top_k * 3  # 获取更多候选项用于过滤
+        client = VectorDBClient()
+        db_results = await client.search_by_vector(
             query_vec=query_embedding,
-            docs=db_results,
-            weights=None  # 使用自适应权重（会根据内容类型选择，默认已提高图像权重）
+            user_id=normalized_user_id,
+            top_k=expanded_top_k,
+            min_similarity=0.25
         )
         
-        # 4. 取前 top_k 个结果
-        final_results = ranked_results[:top_k]
+        if not db_results:
+            print(f"[API] No results found in database for user={normalized_user_id}, query='{request.query}'")
+            return {"ok": True, "results": []}
         
-        print(f"[API] Ranked and selected top {len(final_results)} results (with image embedding fusion)")
+        print(f"[API] Found {len(db_results)} candidate results for user={normalized_user_id}")
+        
+        final_results = db_results[:top_k]
+        print(f"[API] Selected top {len(final_results)} results after user filtering")
         
         # 5. 格式化返回结果（保持与前端 useSearch 兼容）
         results = []
@@ -560,6 +611,86 @@ async def classify_by_labels_api(request: AIClassifyRequest):
         return {"ok": True, **result}
     except Exception as e:
         print(f"[API] ERROR in classify_by_labels: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/v1/tabs/{tab_id}")
+async def delete_tab(
+    tab_id: str,
+    user_id: Optional[str] = Header(None, alias="X-User-ID")
+):
+    """
+    软删除一个 tab
+    
+    Args:
+        tab_id: Tab ID（实际上是 URL）
+        user_id: 用户ID（从请求头获取）
+    
+    Returns:
+        删除结果
+    """
+    try:
+        normalized_user_id = (user_id or "anonymous").strip() or "anonymous"
+        
+        from vector_db import soft_delete_tab
+        
+        success = await soft_delete_tab(normalized_user_id, tab_id)
+        
+        if success:
+            return {"ok": True, "message": f"Tab {tab_id[:50]}... deleted successfully"}
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tab {tab_id[:50]}... not found or already deleted"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[API] Error deleting tab: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/v1/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    user_id: Optional[str] = Header(None, alias="X-User-ID")
+):
+    """
+    软删除一个 session 及其下的所有 tabs
+    
+    Args:
+        session_id: Session ID
+        user_id: 用户ID（从请求头获取）
+    
+    Returns:
+        删除结果
+    """
+    try:
+        normalized_user_id = (user_id or "anonymous").strip() or "anonymous"
+        
+        from vector_db import soft_delete_session_tabs
+        
+        deleted_count = await soft_delete_session_tabs(normalized_user_id, session_id)
+        
+        if deleted_count > 0:
+            return {
+                "ok": True,
+                "message": f"Session {session_id} deleted successfully",
+                "deleted_tabs": deleted_count
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session {session_id} not found or already deleted"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[API] Error deleting session: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

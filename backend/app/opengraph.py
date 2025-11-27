@@ -595,6 +595,7 @@ async def _prefetch_embedding(result: Dict) -> None:
         # 存储到向量数据库
         if text_emb or image_emb:
             success = await upsert_opengraph_item(
+                user_id=result.get("user_id") or "system",
                 url=url,
                 title=title,
                 description=description,

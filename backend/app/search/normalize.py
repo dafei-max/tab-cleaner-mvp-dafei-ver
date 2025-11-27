@@ -41,7 +41,11 @@ def normalize_opengraph_item(item: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("url is required")
     normalized["url"] = str(url).strip()
     
-    # 2. title (string | None)
+    # 2. user_id (string | None, 用于数据隔离)
+    user_id = item.get("user_id")
+    normalized["user_id"] = str(user_id).strip() if user_id else None
+    
+    # 3. title (string | None)
     title = item.get("title") or item.get("og:title") or item.get("tab_title")
     normalized["title"] = str(title).strip() if title else None
     

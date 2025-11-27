@@ -277,7 +277,7 @@ async def generate_embeddings(request: EmbeddingRequest):
                     
                     # 尝试从数据库读取
                     try:
-                        db_item = await get_opengraph_item(url)
+                        db_item = await get_opengraph_item("system", url)
                         if db_item:
                             has_text_emb = db_item.get("text_embedding") and len(db_item.get("text_embedding", [])) > 0
                             has_image_emb = db_item.get("image_embedding") and len(db_item.get("image_embedding", [])) > 0
@@ -330,6 +330,7 @@ async def generate_embeddings(request: EmbeddingRequest):
                     for item in processed_items:
                         if item.get("text_embedding") or item.get("image_embedding"):
                             success = await upsert_opengraph_item(
+                                user_id="system",
                                 url=item.get("url"),
                                 title=item.get("title"),
                                 description=item.get("description"),
@@ -454,7 +455,7 @@ async def search_content(request: SearchRequest):
                         query_emb = await embed_text(request.query_text)
                         if query_emb:
                             # 从数据库搜索
-                            db_results = await search_by_text_embedding(query_emb, top_k=20)
+                            db_results = await search_by_text_embedding("system", query_emb, top_k=20)
                             if db_results:
                                 print(f"[API] Found {len(db_results)} results from vector DB")
                                 results.extend(db_results)
@@ -473,7 +474,7 @@ async def search_content(request: SearchRequest):
                                 query_emb = await embed_image(img_b64)
                                 if query_emb:
                                     # 从数据库搜索
-                                    db_results = await search_by_image_embedding(query_emb, top_k=20)
+                                    db_results = await search_by_image_embedding("system", query_emb, top_k=20)
                                     if db_results:
                                         print(f"[API] Found {len(db_results)} image results from vector DB")
                                         results.extend(db_results)

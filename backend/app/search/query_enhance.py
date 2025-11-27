@@ -1,7 +1,7 @@
 """
 查询增强模块：在生成 embedding 前优化查询文本，提高检索准确度
 """
-from typing import Optional
+from typing import Optional, Dict, List
 
 
 # 视觉查询关键词（用于识别用户是否在找图片/设计类内容）
@@ -24,6 +24,30 @@ TECH_KEYWORDS = [
     "问题", "problem", "issue", "bug", "错误", "error",
     "实现", "implement", "implementation", "例子", "example",
 ]
+
+# 颜色映射（中英文 + 视觉描述）
+COLOR_MAP = {
+    "蓝色": ["blue", "azure", "navy", "cobalt", "sky blue", "blue color", "blue design"],
+    "红色": ["red", "crimson", "scarlet", "burgundy", "red color", "red design"],
+    "绿色": ["green", "emerald", "olive", "lime", "green color", "green design"],
+    "黄色": ["yellow", "gold", "amber", "lemon", "yellow color"],
+    "黑色": ["black", "dark", "ebony", "black color"],
+    "白色": ["white", "ivory", "snow", "white color"],
+    "灰色": ["gray", "grey", "silver", "charcoal"],
+    "紫色": ["purple", "violet", "lavender", "plum"],
+    "橙色": ["orange", "tangerine", "coral"],
+    "粉色": ["pink", "rose", "blush", "magenta"],
+}
+
+# 风格映射
+STYLE_MAP = {
+    "简约": ["minimalist", "simple", "clean", "minimal design"],
+    "现代": ["modern", "contemporary", "sleek"],
+    "复古": ["vintage", "retro", "classic"],
+    "工业": ["industrial", "loft", "rustic"],
+    "北欧": ["scandinavian", "nordic", "hygge"],
+    "日式": ["japanese", "zen", "muji style"],
+}
 
 # 中英文同义词映射（简单版本，可以根据需要扩展）
 SYNONYM_MAP = {
@@ -147,6 +171,61 @@ def enhance_query(query: str, enable_synonym_expansion: bool = True, default_to_
     print(f"[Query Enhance] Original: '{query}' → Enhanced: '{enhanced}' (type: {query_type})")
     
     return enhanced
+
+
+def enhance_visual_query(query: str) -> Dict[str, any]:
+    """
+    增强视觉查询，提取颜色、风格等属性
+    
+    Returns:
+        {
+            "original": "蓝色椅子",
+            "enhanced": "蓝色椅子 blue azure chair design",
+            "colors": ["blue", "azure"],
+            "styles": [],
+            "keywords": ["椅子", "chair"]
+        }
+    """
+    result = {
+        "original": query,
+        "enhanced": query,
+        "colors": [],
+        "styles": [],
+        "keywords": []
+    }
+    
+    if not query or not query.strip():
+        return result
+    
+    query = query.strip()
+    query_lower = query.lower()
+    enhanced_words = set(query.split())
+    
+    # 检测颜色
+    for color_cn, color_en_list in COLOR_MAP.items():
+        if color_cn in query:
+            result["colors"].extend(color_en_list[:3])  # 添加前3个英文同义词
+            enhanced_words.update(color_en_list[:3])
+    
+    # 检测风格
+    for style_cn, style_en_list in STYLE_MAP.items():
+        if style_cn in query:
+            result["styles"].extend(style_en_list)
+            enhanced_words.update(style_en_list)
+    
+    # 提取关键词（去掉颜色/风格词）
+    for word in query.split():
+        if word not in COLOR_MAP and word not in STYLE_MAP:
+            result["keywords"].append(word)
+    
+    result["enhanced"] = " ".join(enhanced_words)
+    
+    print(f"[Query Enhance] Original: '{query}'")
+    print(f"[Query Enhance] Enhanced: '{result['enhanced']}'")
+    print(f"[Query Enhance] Colors: {result['colors']}")
+    print(f"[Query Enhance] Styles: {result['styles']}")
+    
+    return result
 
 
 def enhance_query_simple(query: str) -> str:

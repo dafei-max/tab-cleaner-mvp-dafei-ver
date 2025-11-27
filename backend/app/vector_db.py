@@ -32,8 +32,38 @@ DB_USER = os.getenv("ADBPG_USER", "cleantab_db")
 DB_PASSWORD = os.getenv("ADBPG_PASSWORD", "CleanTabV5")
 NAMESPACE = os.getenv("ADBPG_NAMESPACE", "cleantab")
 
+# 表名（支持通过环境变量覆盖，默认使用 v2 表）
+ACTIVE_TABLE_NAME = os.getenv("VECTOR_DB_ACTIVE_TABLE", "opengraph_items_v2")
+LEGACY_TABLE_NAME = "opengraph_items"
+
+def _qualified(table_name: str) -> str:
+    return f"{NAMESPACE}.{table_name}"
+
+ACTIVE_TABLE = _qualified(ACTIVE_TABLE_NAME)
+LEGACY_TABLE = _qualified(LEGACY_TABLE_NAME)
+
 # 连接池
 _pool: Optional[asyncpg.Pool] = None
+
+def _normalize_user_id(user_id: Optional[str]) -> str:
+    value = (user_id or "anonymous").strip()
+    return value or "anonymous"
+
+def _row_to_dict(row: asyncpg.Record) -> Dict:
+    item = dict(row)
+    if item.get("text_embedding"):
+        item["text_embedding"] = list(item["text_embedding"])
+    if item.get("image_embedding"):
+        item["image_embedding"] = list(item["image_embedding"])
+    if item.get("metadata"):
+        item["metadata"] = json.loads(item["metadata"]) if isinstance(item["metadata"], str) else item["metadata"]
+    return item
+
+async def _create_index(conn, description: str, sql: str):
+    try:
+        await conn.execute(sql)
+    except Exception as e:
+        print(f"[VectorDB] Warning: could not create {description}: {e}")
 
 
 async def get_pool() -> asyncpg.Pool:
@@ -71,8 +101,8 @@ async def drop_table_if_exists():
     try:
         pool = await get_pool()
         async with pool.acquire() as conn:
-            await conn.execute(f"DROP TABLE IF EXISTS {NAMESPACE}.opengraph_items CASCADE;")
-            print(f"[VectorDB] ✓ Dropped table {NAMESPACE}.opengraph_items")
+            await conn.execute(f"DROP TABLE IF EXISTS {ACTIVE_TABLE} CASCADE;")
+            print(f"[VectorDB] ✓ Dropped table {ACTIVE_TABLE}")
             return True
     except Exception as e:
         print(f"[VectorDB] Error dropping table: {e}")
@@ -81,7 +111,7 @@ async def drop_table_if_exists():
         return False
 
 
-async def check_table_constraints(conn) -> Tuple[bool, Optional[str]]:
+async def check_table_constraints(conn, table_name: str = ACTIVE_TABLE_NAME) -> Tuple[bool, Optional[str]]:
     """
     检查表约束是否符合 Greenplum/ADBPG 要求
     返回: (is_valid, error_message)
@@ -92,7 +122,7 @@ async def check_table_constraints(conn) -> Tuple[bool, Optional[str]]:
             SELECT COUNT(*)
             FROM information_schema.table_constraints
             WHERE table_schema = '{NAMESPACE}'
-              AND table_name = 'opengraph_items'
+              AND table_name = '{table_name}'
               AND constraint_type = 'PRIMARY KEY';
         """)
         
@@ -101,7 +131,7 @@ async def check_table_constraints(conn) -> Tuple[bool, Optional[str]]:
             SELECT COUNT(*)
             FROM information_schema.table_constraints
             WHERE table_schema = '{NAMESPACE}'
-              AND table_name = 'opengraph_items'
+              AND table_name = '{table_name}'
               AND constraint_type = 'UNIQUE';
         """)
         
@@ -119,7 +149,7 @@ async def check_table_constraints(conn) -> Tuple[bool, Optional[str]]:
                     ON tc.constraint_name = kcu.constraint_name
                     AND tc.table_schema = kcu.table_schema
                 WHERE tc.table_schema = '{NAMESPACE}'
-                  AND tc.table_name = 'opengraph_items'
+                  AND tc.table_name = '{table_name}'
                   AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
                 GROUP BY tc.constraint_name, tc.constraint_type
                 ORDER BY tc.constraint_type, tc.constraint_name;
@@ -134,8 +164,8 @@ async def check_table_constraints(conn) -> Tuple[bool, Optional[str]]:
                 f"[VectorDB] ✗ Table has {total_constraints} PRIMARY KEY/UNIQUE constraints!\n"
                 f"[VectorDB] ✗ Greenplum/ADBPG requires all constraints to share at least one column.\n"
                 f"[VectorDB] ✗ Found constraints:\n{constraint_details}\n"
-                f"[VectorDB] ✗ Solution: Drop the table and recreate it with only one PRIMARY KEY on 'url'.\n"
-                f"[VectorDB] ✗ Run: DROP TABLE IF EXISTS {NAMESPACE}.opengraph_items;"
+                f"[VectorDB] ✗ Solution: Drop the table and recreate it with only one PRIMARY KEY on the same column set.\n"
+                f"[VectorDB] ✗ Run: DROP TABLE IF EXISTS {_qualified(table_name)};"
             )
             return False, error_msg
         
@@ -174,22 +204,20 @@ async def init_schema():
             
             print(f"[VectorDB] ✓ Schema '{NAMESPACE}' exists (Namespace created via API)")
             
-            # 检查表是否存在
+            # 检查 v2 表是否存在
             table_exists = await conn.fetchval(f"""
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
                     WHERE table_schema = '{NAMESPACE}' 
-                    AND table_name = 'opengraph_items'
+                      AND table_name = '{ACTIVE_TABLE_NAME}'
                 );
             """)
             
             if not table_exists:
-                # 表不存在，创建新表
-                # 注意：阿里云 ADB PostgreSQL 要求多个 PRIMARY KEY/UNIQUE 约束必须有共同列
-                # 因此使用 url 作为 PRIMARY KEY，不再需要额外的 UNIQUE 约束
                 await conn.execute(f"""
-                    CREATE TABLE {NAMESPACE}.opengraph_items (
-                        url TEXT PRIMARY KEY,
+                    CREATE TABLE {ACTIVE_TABLE} (
+                        user_id TEXT NOT NULL,
+                        url TEXT NOT NULL,
                         title TEXT,
                         description TEXT,
                         image TEXT,
@@ -200,113 +228,97 @@ async def init_schema():
                         text_embedding vector(1024),
                         image_embedding vector(1024),
                         metadata JSONB,
+                        status TEXT DEFAULT 'active' CHECK (status IN ('active', 'deleted')),
+                        deleted_at TIMESTAMP,
                         created_at TIMESTAMP DEFAULT NOW(),
-                        updated_at TIMESTAMP DEFAULT NOW()
+                        updated_at TIMESTAMP DEFAULT NOW(),
+                        PRIMARY KEY (user_id, url)
                     );
                 """)
-                print(f"[VectorDB] ✓ Created new table: {NAMESPACE}.opengraph_items")
+                print(f"[VectorDB] ✓ Created new table: {ACTIVE_TABLE}")
             else:
-                # 表已存在，检查约束是否符合要求
-                print(f"[VectorDB] ✓ Table {NAMESPACE}.opengraph_items already exists")
-                is_valid, error_msg = await check_table_constraints(conn)
-                
-                # 检查并添加 screenshot_image 字段（如果不存在）
-                column_exists = await conn.fetchval(f"""
+                print(f"[VectorDB] ✓ Table {ACTIVE_TABLE} already exists")
+                # 确保 user_id 列存在
+                user_column_exists = await conn.fetchval(f"""
                     SELECT EXISTS (
                         SELECT FROM information_schema.columns 
-                        WHERE table_schema = '{NAMESPACE}' 
-                        AND table_name = 'opengraph_items'
-                        AND column_name = 'screenshot_image'
+                        WHERE table_schema = '{NAMESPACE}'
+                          AND table_name = '{ACTIVE_TABLE_NAME}'
+                          AND column_name = 'user_id'
                     );
                 """)
-                if not column_exists:
-                    await conn.execute(f"""
-                        ALTER TABLE {NAMESPACE}.opengraph_items 
-                        ADD COLUMN screenshot_image TEXT;
-                    """)
-                    print(f"[VectorDB] ✓ Added screenshot_image column to {NAMESPACE}.opengraph_items")
+                if not user_column_exists:
+                    raise ValueError(f"[VectorDB] ✗ Table {ACTIVE_TABLE} exists but missing user_id column. Please recreate table manually.")
                 
-                if not is_valid:
-                    # 检查是否设置了强制重建标志
-                    force_recreate = os.getenv("VECTOR_DB_FORCE_RECREATE", "false").lower() == "true"
-                    
-                    if force_recreate:
-                        print(f"[VectorDB] ⚠ Force recreate enabled, dropping existing table...")
-                        await conn.execute(f"DROP TABLE IF EXISTS {NAMESPACE}.opengraph_items CASCADE;")
-                        print(f"[VectorDB] ✓ Dropped existing table")
-                        
-                        # 重新创建表
-                        await conn.execute(f"""
-                            CREATE TABLE {NAMESPACE}.opengraph_items (
-                                url TEXT PRIMARY KEY,
-                                title TEXT,
-                                description TEXT,
-                                image TEXT,
-                                screenshot_image TEXT,
-                                site_name TEXT,
-                                tab_id INTEGER,
-                                tab_title TEXT,
-                                text_embedding vector(1024),
-                                image_embedding vector(1024),
-                                metadata JSONB,
-                                created_at TIMESTAMP DEFAULT NOW(),
-                                updated_at TIMESTAMP DEFAULT NOW()
-                            );
-                        """)
-                        print(f"[VectorDB] ✓ Recreated table: {NAMESPACE}.opengraph_items")
-                    else:
-                        # 打印错误信息并抛出异常
-                        print(error_msg)
-                        raise ValueError(
-                            f"Table {NAMESPACE}.opengraph_items has incompatible constraints. "
-                            f"Set VECTOR_DB_FORCE_RECREATE=true to automatically drop and recreate, "
-                            f"or manually run: DROP TABLE IF EXISTS {NAMESPACE}.opengraph_items;"
-                        )
-                else:
-                    print(f"[VectorDB] ✓ Table constraints are valid (single PRIMARY KEY on 'url')")
-            
-            # 创建索引（无论表是新创建还是已存在）
-            try:
-                await conn.execute(f"""
-                    CREATE INDEX idx_opengraph_url 
-                    ON {NAMESPACE}.opengraph_items(url);
-                """)
-            except Exception as e:
-                # 比如已经存在就会报错，这里直接打印 warning 然后继续
-                print(f"[VectorDB] Warning: could not create idx_opengraph_url: {e}")
-            
-            # 创建向量索引（用于相似度搜索）
-            # 注意：如果表中有数据，索引创建可能需要一些时间
-            # 使用阿里云 AnalyticDB 的 FastANN 索引（HNSW，关闭 PQ）
-            try:
-                await conn.execute(f"""
-                    CREATE INDEX idx_text_embedding_cosine
-                    ON {NAMESPACE}.opengraph_items
-                    USING ann(text_embedding)
-                    WITH (
-                        distancemeasure = cosine,
-                        hnsw_m           = 64,
-                        pq_enable        = 0      -- ✨ 关闭 PQ
+                # 添加软删除字段（如果不存在）
+                status_column_exists = await conn.fetchval(f"""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.columns 
+                        WHERE table_schema = '{NAMESPACE}'
+                          AND table_name = '{ACTIVE_TABLE_NAME}'
+                          AND column_name = 'status'
                     );
                 """)
-            except Exception as e:
-                print(f"[VectorDB] Warning: Could not create text_embedding index: {e}")
-            
-            try:
-                await conn.execute(f"""
-                    CREATE INDEX idx_image_embedding_cosine
-                    ON {NAMESPACE}.opengraph_items
-                    USING ann(image_embedding)
-                    WITH (
-                        distancemeasure = cosine,
-                        hnsw_m           = 64,
-                        pq_enable        = 0      -- ✨ 关闭 PQ
+                if not status_column_exists:
+                    await conn.execute(f"""
+                        ALTER TABLE {ACTIVE_TABLE}
+                        ADD COLUMN status TEXT DEFAULT 'active' CHECK (status IN ('active', 'deleted'));
+                    """)
+                    print(f"[VectorDB] ✓ Added status column to {ACTIVE_TABLE}")
+                
+                deleted_at_column_exists = await conn.fetchval(f"""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.columns 
+                        WHERE table_schema = '{NAMESPACE}'
+                          AND table_name = '{ACTIVE_TABLE_NAME}'
+                          AND column_name = 'deleted_at'
                     );
                 """)
-            except Exception as e:
-                print(f"[VectorDB] Warning: Could not create image_embedding index: {e}")
+                if not deleted_at_column_exists:
+                    await conn.execute(f"""
+                        ALTER TABLE {ACTIVE_TABLE}
+                        ADD COLUMN deleted_at TIMESTAMP;
+                    """)
+                    print(f"[VectorDB] ✓ Added deleted_at column to {ACTIVE_TABLE}")
             
-            print(f"[VectorDB] ✓ Schema initialized for namespace: {NAMESPACE}")
+            # 创建必要索引（忽略已存在的错误）
+            await _create_index(
+                conn,
+                "user_id index",
+                f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_user_id ON {ACTIVE_TABLE}(user_id);"
+            )
+            
+            await _create_index(
+                conn,
+                "text embedding index",
+                f"""
+                CREATE INDEX idx_{ACTIVE_TABLE_NAME}_text_embedding
+                ON {ACTIVE_TABLE}
+                USING ann(text_embedding)
+                WITH (
+                    distancemeasure = cosine,
+                    hnsw_m           = 64,
+                    pq_enable        = 0
+                );
+                """
+            )
+            
+            await _create_index(
+                conn,
+                "image embedding index",
+                f"""
+                CREATE INDEX idx_{ACTIVE_TABLE_NAME}_image_embedding
+                ON {ACTIVE_TABLE}
+                USING ann(image_embedding)
+                WITH (
+                    distancemeasure = cosine,
+                    hnsw_m           = 64,
+                    pq_enable        = 0
+                );
+                """
+            )
+            
+            print(f"[VectorDB] ✓ Schema initialized for namespace: {NAMESPACE} (table={ACTIVE_TABLE})")
     except Exception as e:
         print(f"[VectorDB] Error initializing schema: {e}")
         import traceback
@@ -315,6 +327,7 @@ async def init_schema():
 
 
 async def upsert_opengraph_item(
+    user_id: Optional[str],
     url: str,
     title: Optional[str] = None,
     description: Optional[str] = None,
@@ -372,6 +385,7 @@ async def upsert_opengraph_item(
             except (ValueError, TypeError):
                 tab_id = None
         
+        user_id = _normalize_user_id(user_id)
         pool = await get_pool()
         
         async with pool.acquire() as conn:
@@ -383,12 +397,14 @@ async def upsert_opengraph_item(
             image_vec = to_vector_str(image_embedding)
             
             # 使用 INSERT ... ON CONFLICT 实现 upsert
+            # 如果记录已存在且被软删除，恢复为 active
             await conn.execute(f"""
-                INSERT INTO {NAMESPACE}.opengraph_items (
-                    url, title, description, image, site_name,
-                    tab_id, tab_title, text_embedding, image_embedding, metadata, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector(1024), $9::vector(1024), $10::jsonb, NOW())
-                ON CONFLICT (url) DO UPDATE SET
+                INSERT INTO {ACTIVE_TABLE} (
+                    user_id, url, title, description, image, site_name,
+                    tab_id, tab_title, text_embedding, image_embedding, metadata, 
+                    status, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector(1024), $10::vector(1024), $11::jsonb, 'active', NOW())
+                ON CONFLICT (user_id, url) DO UPDATE SET
                     title = EXCLUDED.title,
                     description = EXCLUDED.description,
                     image = EXCLUDED.image,
@@ -398,8 +414,10 @@ async def upsert_opengraph_item(
                     text_embedding = EXCLUDED.text_embedding,
                     image_embedding = EXCLUDED.image_embedding,
                     metadata = EXCLUDED.metadata,
+                    status = 'active',
+                    deleted_at = NULL,
                     updated_at = NOW();
-            """, url, title, description, image, site_name,
+            """, user_id, url, title, description, image, site_name,
                 tab_id, tab_title, text_vec, image_vec, metadata_json)
             
             return True
@@ -410,7 +428,7 @@ async def upsert_opengraph_item(
         return False
 
 
-async def update_opengraph_item_screenshot(url: str, screenshot_image: str) -> bool:
+async def update_opengraph_item_screenshot(user_id: Optional[str], url: str, screenshot_image: str) -> bool:
     """
     更新 OpenGraph item 的截图字段
     
@@ -422,15 +440,16 @@ async def update_opengraph_item_screenshot(url: str, screenshot_image: str) -> b
         成功返回 True，失败返回 False
     """
     try:
+        user_id = _normalize_user_id(user_id)
         pool = await get_pool()
         
         async with pool.acquire() as conn:
             await conn.execute(f"""
-                UPDATE {NAMESPACE}.opengraph_items
+                UPDATE {ACTIVE_TABLE}
                 SET screenshot_image = $1,
                     updated_at = NOW()
-                WHERE url = $2;
-            """, screenshot_image, url)
+                WHERE user_id = $2 AND url = $3;
+            """, screenshot_image, user_id, url)
             
             return True
     except Exception as e:
@@ -440,7 +459,7 @@ async def update_opengraph_item_screenshot(url: str, screenshot_image: str) -> b
         return False
 
 
-async def get_opengraph_item(url: str) -> Optional[Dict]:
+async def get_opengraph_item(user_id: Optional[str], url: str) -> Optional[Dict]:
     """
     根据 URL 获取 OpenGraph 数据（包括 embedding）
     
@@ -451,43 +470,77 @@ async def get_opengraph_item(url: str) -> Optional[Dict]:
         OpenGraph 数据字典，如果不存在返回 None
     """
     try:
+        user_id = _normalize_user_id(user_id)
         pool = await get_pool()
         
         async with pool.acquire() as conn:
             row = await conn.fetchrow(f"""
-                SELECT url, title, description, image, screenshot_image, site_name,
+                SELECT user_id, url, title, description, image, screenshot_image, site_name,
                        tab_id, tab_title, text_embedding, image_embedding, metadata
-                FROM {NAMESPACE}.opengraph_items
-                WHERE url = $1;
-            """, url)
+                FROM {ACTIVE_TABLE}
+                WHERE user_id = $1 AND url = $2 AND status = 'active';
+            """, user_id, url)
             
             if not row:
                 return None
             
             # 转换 vector 类型为列表
-            result = dict(row)
-            if result.get('text_embedding'):
-                result['text_embedding'] = list(result['text_embedding'])
-            if result.get('image_embedding'):
-                result['image_embedding'] = list(result['image_embedding'])
-            if result.get('metadata'):
-                result['metadata'] = json.loads(result['metadata']) if isinstance(result['metadata'], str) else result['metadata']
-            
-            return result
+            return _row_to_dict(row)
     except Exception as e:
         print(f"[VectorDB] Error getting item {url[:50]}...: {e}")
         return None
 
 
+async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dict]:
+    """
+    批量根据 URL 列表获取 OpenGraph 数据（包括 embedding）
+    
+    Args:
+        urls: 网页 URL 列表
+    
+    Returns:
+        OpenGraph 数据字典列表
+    """
+    if not urls:
+        return []
+    
+    try:
+        user_id = _normalize_user_id(user_id)
+        pool = await get_pool()
+        
+        async with pool.acquire() as conn:
+            # 使用 IN 查询批量获取（只返回 active 记录）
+            placeholders = ','.join([f'${i+1}' for i in range(len(urls))])
+            rows = await conn.fetch(f"""
+                SELECT user_id, url, title, description, image, screenshot_image, site_name,
+                       tab_id, tab_title, text_embedding, image_embedding, metadata
+                FROM {ACTIVE_TABLE}
+                WHERE user_id = ${len(urls)+1} AND url IN ({placeholders}) AND status = 'active';
+            """, *urls, user_id)
+            
+            results = []
+            for row in rows:
+                results.append(_row_to_dict(row))
+            
+            return results
+    except Exception as e:
+        print(f"[VectorDB] Error getting items by URLs: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+
 async def search_by_text_embedding(
+    user_id: Optional[str],
     query_embedding: List[float],
     top_k: int = 20,
     threshold: float = 0.0
 ) -> List[Dict]:
     """
-    根据文本 embedding 进行相似度搜索
+    根据文本 embedding 进行相似度搜索（共享向量库，忽略 user_id）
     
     Args:
+        user_id: 用户ID（已废弃，保留用于兼容性）
         query_embedding: 查询文本的 embedding 向量（1024维）
         top_k: 返回前 K 个结果
         threshold: 相似度阈值（0-1）
@@ -501,12 +554,14 @@ async def search_by_text_embedding(
         async with pool.acquire() as conn:
             query_vec = to_vector_str(query_embedding)
             
+            # 共享向量库：搜索所有用户的 active 记录
             rows = await conn.fetch(f"""
-                SELECT url, title, description, image, site_name,
+                SELECT user_id, url, title, description, image, site_name,
                        tab_id, tab_title, text_embedding, image_embedding, metadata,
                        1 - (text_embedding <=> $1::vector(1024)) AS similarity
-                FROM {NAMESPACE}.opengraph_items
-                WHERE text_embedding IS NOT NULL
+                FROM {ACTIVE_TABLE}
+                WHERE status = 'active'
+                  AND text_embedding IS NOT NULL
                   AND (1 - (text_embedding <=> $1::vector(1024))) >= $2
                 ORDER BY text_embedding <=> $1::vector(1024)
                 LIMIT $3;
@@ -514,13 +569,7 @@ async def search_by_text_embedding(
             
             results = []
             for row in rows:
-                item = dict(row)
-                if item.get('text_embedding'):
-                    item['text_embedding'] = list(item['text_embedding'])
-                if item.get('image_embedding'):
-                    item['image_embedding'] = list(item['image_embedding'])
-                if item.get('metadata'):
-                    item['metadata'] = json.loads(item['metadata']) if isinstance(item['metadata'], str) else item['metadata']
+                item = _row_to_dict(row)
                 results.append(item)
             
             return results
@@ -532,14 +581,16 @@ async def search_by_text_embedding(
 
 
 async def search_by_image_embedding(
+    user_id: Optional[str],
     query_embedding: List[float],
     top_k: int = 20,
     threshold: float = 0.0
 ) -> List[Dict]:
     """
-    根据图像 embedding 进行相似度搜索
+    根据图像 embedding 进行相似度搜索（共享向量库，忽略 user_id）
     
     Args:
+        user_id: 用户ID（已废弃，保留用于兼容性）
         query_embedding: 查询图像的 embedding 向量（1024维）
         top_k: 返回前 K 个结果
         threshold: 相似度阈值（0-1）
@@ -553,12 +604,14 @@ async def search_by_image_embedding(
         async with pool.acquire() as conn:
             query_vec = to_vector_str(query_embedding)
             
+            # 共享向量库：搜索所有用户的 active 记录
             rows = await conn.fetch(f"""
-                SELECT url, title, description, image, site_name,
+                SELECT user_id, url, title, description, image, site_name,
                        tab_id, tab_title, text_embedding, image_embedding, metadata,
                        1 - (image_embedding <=> $1::vector(1024)) AS similarity
-                FROM {NAMESPACE}.opengraph_items
-                WHERE image_embedding IS NOT NULL
+                FROM {ACTIVE_TABLE}
+                WHERE status = 'active'
+                  AND image_embedding IS NOT NULL
                   AND (1 - (image_embedding <=> $1::vector(1024))) >= $2
                 ORDER BY image_embedding <=> $1::vector(1024)
                 LIMIT $3;
@@ -566,13 +619,7 @@ async def search_by_image_embedding(
             
             results = []
             for row in rows:
-                item = dict(row)
-                if item.get('text_embedding'):
-                    item['text_embedding'] = list(item['text_embedding'])
-                if item.get('image_embedding'):
-                    item['image_embedding'] = list(item['image_embedding'])
-                if item.get('metadata'):
-                    item['metadata'] = json.loads(item['metadata']) if isinstance(item['metadata'], str) else item['metadata']
+                item = _row_to_dict(row)
                 results.append(item)
             
             return results
@@ -583,7 +630,7 @@ async def search_by_image_embedding(
         return []
 
 
-async def batch_upsert_items(items: List[Dict]) -> int:
+async def batch_upsert_items(items: List[Dict], user_id: Optional[str]) -> int:
     """
     批量插入或更新 OpenGraph 数据
     
@@ -600,6 +647,7 @@ async def batch_upsert_items(items: List[Dict]) -> int:
     success_count = 0
     for item in normalized_items:
         if await upsert_opengraph_item(
+            user_id=user_id,
             url=item.get("url"),
             title=item.get("title"),
             description=item.get("description"),
@@ -613,4 +661,231 @@ async def batch_upsert_items(items: List[Dict]) -> int:
         ):
             success_count += 1
     return success_count
+
+
+class VectorDBClient:
+    """
+    简单的数据库客户端，封装用户隔离相关操作
+    """
+    def __init__(self, table_name: str = ACTIVE_TABLE_NAME):
+        self.table_name = table_name
+        self.qualified_table = _qualified(table_name)
+    
+    async def execute_query(self, query: str, params: Tuple = None, *, fetch: bool = False):
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            if fetch:
+                return await conn.fetch(query, *(params or ()))
+            return await conn.execute(query, *(params or ()))
+    
+    async def upsert_item(self, item: Dict, user_id: str):
+        metadata_json = json.dumps(item.get("metadata") or {})
+        text_vec = to_vector_str(item.get("text_embedding"))
+        image_vec = to_vector_str(item.get("image_embedding"))
+        await self.execute_query(
+            f"""
+            INSERT INTO {self.qualified_table} (
+                user_id, url, title, description, image, site_name,
+                tab_id, tab_title, text_embedding, image_embedding, metadata, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector(1024), $10::vector(1024), $11::jsonb, NOW())
+            ON CONFLICT (user_id, url) DO UPDATE SET
+                title = EXCLUDED.title,
+                description = EXCLUDED.description,
+                image = EXCLUDED.image,
+                site_name = EXCLUDED.site_name,
+                tab_id = EXCLUDED.tab_id,
+                tab_title = EXCLUDED.tab_title,
+                text_embedding = EXCLUDED.text_embedding,
+                image_embedding = EXCLUDED.image_embedding,
+                metadata = EXCLUDED.metadata,
+                updated_at = NOW();
+            """,
+            (
+                _normalize_user_id(user_id),
+                item.get("url"),
+                item.get("title"),
+                item.get("description"),
+                item.get("image"),
+                item.get("site_name"),
+                item.get("tab_id"),
+                item.get("tab_title"),
+                text_vec,
+                image_vec,
+                metadata_json,
+            )
+        )
+    
+    async def search_by_vector(
+        self,
+        query_vec: List[float],
+        user_id: str,
+        top_k: int = 20,
+        min_similarity: float = 0.3
+    ) -> List[Dict]:
+        user_id = _normalize_user_id(user_id)
+        vec_str = to_vector_str(query_vec)
+        params = (vec_str, user_id, vec_str, min_similarity, vec_str, top_k)
+        
+        text_query = f"""
+            SELECT *, 1 - (text_embedding <=> $1::vector(1024)) as text_similarity
+            FROM {self.qualified_table}
+            WHERE user_id = $2
+              AND text_embedding IS NOT NULL
+              AND 1 - (text_embedding <=> $3::vector(1024)) > $4
+            ORDER BY text_embedding <=> $5::vector(1024)
+            LIMIT $6
+        """
+        
+        image_query = f"""
+            SELECT *, 1 - (image_embedding <=> $1::vector(1024)) as image_similarity
+            FROM {self.qualified_table}
+            WHERE user_id = $2
+              AND image_embedding IS NOT NULL
+              AND 1 - (image_embedding <=> $3::vector(1024)) > $4
+            ORDER BY image_embedding <=> $5::vector(1024)
+            LIMIT $6
+        """
+        
+        text_results = await self.execute_query(text_query, params, fetch=True)
+        image_results = await self.execute_query(image_query, params, fetch=True)
+        
+        from search.rank import _choose_weights
+        from search.fuse import fuse_similarity_scores
+        
+        combined: Dict[str, Dict] = {}
+        
+        for row in text_results:
+            item = _row_to_dict(row)
+            url = item["url"]
+            combined[url] = item
+            combined[url]["text_sim"] = float(row.get("text_similarity") or 0.0)
+            combined[url]["image_sim"] = 0.0
+        
+        for row in image_results:
+            item = _row_to_dict(row)
+            url = item["url"]
+            if url in combined:
+                combined[url]["image_sim"] = float(row.get("image_similarity") or 0.0)
+            else:
+                item["text_sim"] = 0.0
+                item["image_sim"] = float(row.get("image_similarity") or 0.0)
+                combined[url] = item
+        
+        results = []
+        for item in combined.values():
+            weights = _choose_weights(item)
+            similarity = fuse_similarity_scores(
+                text_sim=item.get("text_sim", 0.0),
+                image_sim=item.get("image_sim", 0.0),
+                weights=weights,
+                has_text=item.get("text_embedding") is not None,
+                has_image=item.get("image_embedding") is not None
+            )
+            item["similarity"] = similarity
+            results.append(item)
+        
+        results.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
+        return results[:top_k]
+
+
+async def soft_delete_tab(user_id: Optional[str], url: str) -> bool:
+    """
+    软删除一个 tab（OpenGraph item）
+    
+    Args:
+        user_id: 用户ID
+        url: 网页 URL
+    
+    Returns:
+        是否成功
+    """
+    try:
+        user_id = _normalize_user_id(user_id)
+        pool = await get_pool()
+        
+        async with pool.acquire() as conn:
+            result = await conn.execute(f"""
+                UPDATE {ACTIVE_TABLE}
+                SET status = 'deleted',
+                    deleted_at = NOW(),
+                    updated_at = NOW()
+                WHERE user_id = $1 AND url = $2 AND status = 'active';
+            """, user_id, url)
+            
+            return result == "UPDATE 1"
+    except Exception as e:
+        print(f"[VectorDB] Error soft deleting tab {url[:50]}...: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def soft_delete_session_tabs(user_id: Optional[str], session_id: str) -> int:
+    """
+    软删除一个 session 下的所有 tabs
+    
+    Args:
+        user_id: 用户ID
+        session_id: Session ID（存储在 metadata 中）
+    
+    Returns:
+        删除的 tab 数量
+    """
+    try:
+        user_id = _normalize_user_id(user_id)
+        pool = await get_pool()
+        
+        async with pool.acquire() as conn:
+            # 查找该 session 的所有 tabs（通过 metadata 中的 session_id）
+            result = await conn.execute(f"""
+                UPDATE {ACTIVE_TABLE}
+                SET status = 'deleted',
+                    deleted_at = NOW(),
+                    updated_at = NOW()
+                WHERE user_id = $1 
+                  AND status = 'active'
+                  AND metadata->>'session_id' = $2;
+            """, user_id, session_id)
+            
+            # 解析 UPDATE 结果获取影响行数
+            if result.startswith("UPDATE "):
+                count = int(result.split()[1])
+                return count
+            return 0
+    except Exception as e:
+        print(f"[VectorDB] Error soft deleting session {session_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
+
+
+async def get_user_active_tabs(user_id: Optional[str]) -> List[Dict]:
+    """
+    获取用户的所有 active tabs
+    
+    Args:
+        user_id: 用户ID
+    
+    Returns:
+        OpenGraph 数据列表
+    """
+    try:
+        user_id = _normalize_user_id(user_id)
+        pool = await get_pool()
+        
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(f"""
+                SELECT user_id, url, title, description, image, screenshot_image, site_name,
+                       tab_id, tab_title, text_embedding, image_embedding, metadata
+                FROM {ACTIVE_TABLE}
+                WHERE user_id = $1 AND status = 'active'
+                ORDER BY created_at DESC;
+            """, user_id)
+            
+            return [_row_to_dict(row) for row in rows]
+    except Exception as e:
+        print(f"[VectorDB] Error getting user active tabs: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
 

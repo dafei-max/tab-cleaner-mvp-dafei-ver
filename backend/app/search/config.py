@@ -35,6 +35,10 @@ DEFAULT_WEIGHTS = (0.2, 0.8)  # 默认：文本 20%，图像 80%（设计师找�
 IMAGE_FOCUSED_WEIGHTS = (0.05, 0.95)  # 视觉站（Pinterest/Behance/Dribbble/INS）：文本 5%，图像 95%
 DOC_FOCUSED_WEIGHTS = (0.6, 0.4)  # 文本站（博客/文档/知乎）：文本 60%，图像 40%（即使文档站也保留图像权重）
 
+# ---- Search thresholds ----
+# 最小相似度阈值（过滤掉几乎无关的结果）
+MIN_SIMILARITY_THRESHOLD = 0.15  # 低于此阈值的搜索结果将被过滤
+
 
 def get_api_key() -> str:
     return os.getenv("DASHSCOPE_API_KEY", "")

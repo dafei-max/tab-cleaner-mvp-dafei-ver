@@ -11,11 +11,14 @@ from .config import (
     USE_IMAGE_EMBEDDING,
     EMBED_SLEEP_S,
     QUERY_SLEEP_S,
+    MIN_SIMILARITY_THRESHOLD,
     get_api_key,
 )
 from .preprocess import download_image, process_image, extract_text_from_item
 from .embed import embed_text, embed_image
 from .rank import sort_by_vector_similarity, fuzzy_score
+from .query_enhance import enhance_visual_query
+from .fuse import normalize_scores
 
 
 async def _build_item_embedding(item: Dict, verbose: bool = False) -> Dict:
@@ -232,7 +235,11 @@ async def search_relevant_items(
             all_docs = ranked + docs_without_embedding
             all_docs.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
             print(f"[Search] Top 3 similarities: {[d.get('similarity', 0.0) for d in all_docs[:3]]}")
-            return all_docs[:top_k]
+            
+            # 应用最小相似度阈值过滤
+            filtered_docs = [d for d in all_docs if d.get("similarity", 0.0) >= MIN_SIMILARITY_THRESHOLD]
+            print(f"[Search] Filtered {len(all_docs) - len(filtered_docs)} results below threshold {MIN_SIMILARITY_THRESHOLD}")
+            return filtered_docs[:top_k]
         else:
             print("[Search] No documents have embedding, falling back to fuzzy search")
             # 所有文档都没有 embedding，使用模糊搜索
@@ -243,7 +250,11 @@ async def search_relevant_items(
                 d["similarity"] = score
             docs.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
             print(f"[Search] Top 3 fuzzy scores: {[d.get('similarity', 0.0) for d in docs[:3]]}")
-            return docs[:top_k]
+            
+            # 应用最小相似度阈值过滤
+            filtered_docs = [d for d in docs if d.get("similarity", 0.0) >= MIN_SIMILARITY_THRESHOLD]
+            print(f"[Search] Filtered {len(docs) - len(filtered_docs)} results below threshold {MIN_SIMILARITY_THRESHOLD}")
+            return filtered_docs[:top_k]
     
     # 远端不可用/失败 → 本地模糊兜底
     print("[Search] Using fuzzy search fallback (query_vec is None)")
@@ -254,4 +265,180 @@ async def search_relevant_items(
         d["similarity"] = score
     docs.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
     print(f"[Search] Top 3 fuzzy scores: {[d.get('similarity', 0.0) for d in docs[:3]]}")
-    return docs[:top_k]
+    
+    # 应用最小相似度阈值过滤
+    filtered_docs = [d for d in docs if d.get("similarity", 0.0) >= MIN_SIMILARITY_THRESHOLD]
+    print(f"[Search] Filtered {len(docs) - len(filtered_docs)} results below threshold {MIN_SIMILARITY_THRESHOLD}")
+    return filtered_docs[:top_k]
+
+
+async def search_relevant_items_enhanced(
+    query_text: Optional[str] = None,
+    query_image_url: Optional[str] = None,
+    opengraph_items: List[Dict] = None,
+    top_k: int = 20,
+    use_rerank: bool = True,
+) -> List[Dict]:
+    """
+    增强搜索：多路召回 + 重排序
+    
+    召回策略：
+    1. 向量搜索（embedding 相似度）
+    2. 关键词搜索（fuzzy score）
+    3. 视觉属性搜索（颜色、风格）
+    
+    重排序：融合多路结果
+    
+    Args:
+        query_text: 查询文本
+        query_image_url: 查询图片 URL（暂不支持）
+        opengraph_items: OpenGraph 数据列表
+        top_k: 返回结果数量
+        use_rerank: 是否启用重排序
+    
+    Returns:
+        排序后的搜索结果列表
+    """
+    api_key = get_api_key()
+    print(f"[Search Enhanced] USE_REMOTE_EMBEDDING={USE_REMOTE_EMBEDDING}, API key present: {bool(api_key)}")
+    
+    if not query_text:
+        print("[Search Enhanced] query_text is empty, falling back to basic search")
+        return await search_relevant_items(query_text, query_image_url, opengraph_items, top_k)
+    
+    # 步骤1：查询增强
+    enhanced_query = enhance_visual_query(query_text)
+    
+    # 步骤2：生成查询向量（使用增强后的查询）
+    query_vec = None
+    if USE_REMOTE_EMBEDDING:
+        try:
+            print(f"[Search Enhanced] Generating query embedding for enhanced query: '{enhanced_query['enhanced'][:50]}...'")
+            query_vec = await embed_text(enhanced_query["enhanced"])
+            await asyncio.sleep(QUERY_SLEEP_S)
+            if query_vec:
+                print(f"[Search Enhanced] Query embedding generated: {len(query_vec)} dims")
+            else:
+                print(f"[Search Enhanced] Query embedding generation FAILED (returned None)")
+        except Exception as e:
+            print(f"[Search Enhanced] Failed to generate query embedding: {e}")
+            import traceback
+            traceback.print_exc()
+            query_vec = None
+    
+    docs = [dict(x) for x in (opengraph_items or [])]
+    print(f"[Search Enhanced] Processing {len(docs)} documents")
+    
+    # 步骤3：多路召回
+    recall_results = {}
+    
+    # 召回路径1：向量搜索
+    if query_vec:
+        docs_with_embedding = [
+            d for d in docs
+            if (d.get("text_embedding") and isinstance(d.get("text_embedding"), list) and len(d.get("text_embedding", [])) > 0)
+            or (d.get("image_embedding") and isinstance(d.get("image_embedding"), list) and len(d.get("image_embedding", [])) > 0)
+        ]
+        
+        if docs_with_embedding:
+            vector_results = sort_by_vector_similarity(
+                query_vec,
+                docs_with_embedding,
+                weights=None  # 自适应权重
+            )
+            
+            for idx, item in enumerate(vector_results[:top_k * 2]):  # 召回2倍
+                url = item.get('url', f'item_{idx}')
+                if url not in recall_results:
+                    recall_results[url] = {
+                        **item,
+                        "vector_score": item.get('similarity', 0.0),
+                        "keyword_score": 0.0,
+                        "visual_score": 0.0,
+                    }
+    
+    # 召回路径2：关键词搜索
+    for item in docs:
+        url = item.get('url', f'item_{id(item)}')
+        title = item.get('title', '') or item.get('tab_title', '')
+        desc = item.get('description', '')
+        
+        # 模糊匹配
+        keyword_score = fuzzy_score(query_text, title, desc)
+        
+        if url in recall_results:
+            recall_results[url]["keyword_score"] = keyword_score
+        elif keyword_score > 0.3:  # 关键词阈值
+            recall_results[url] = {
+                **item,
+                "vector_score": 0.0,
+                "keyword_score": keyword_score,
+                "visual_score": 0.0,
+            }
+    
+    # 召回路径3：视觉属性搜索（颜色）
+    if enhanced_query["colors"]:
+        for item in docs:
+            url = item.get('url', f'item_{id(item)}')
+            title = (item.get('title', '') or item.get('tab_title', '') + ' ' + item.get('description', '')).lower()
+            
+            # 检查标题/描述中是否包含颜色关键词
+            visual_score = 0.0
+            for color in enhanced_query["colors"]:
+                if color.lower() in title:
+                    visual_score += 0.3
+            
+            visual_score = min(visual_score, 1.0)
+            
+            if url in recall_results:
+                recall_results[url]["visual_score"] = visual_score
+            elif visual_score > 0.0:
+                recall_results[url] = {
+                    **item,
+                    "vector_score": 0.0,
+                    "keyword_score": 0.0,
+                    "visual_score": visual_score,
+                }
+    
+    # 步骤4：重排序（融合多路分数）
+    results = list(recall_results.values())
+    
+    if use_rerank and len(results) > 0:
+        # 归一化各路分数
+        vector_scores = [r.get("vector_score", 0.0) for r in results]
+        keyword_scores = [r.get("keyword_score", 0.0) for r in results]
+        visual_scores = [r.get("visual_score", 0.0) for r in results]
+        
+        norm_vector = normalize_scores(vector_scores, method="minmax")
+        norm_keyword = normalize_scores(keyword_scores, method="minmax")
+        norm_visual = normalize_scores(visual_scores, method="minmax")
+        
+        # 融合权重（视觉查询时提高 visual 权重）
+        if enhanced_query["colors"] or enhanced_query["styles"]:
+            weights = (0.4, 0.2, 0.4)  # (vector, keyword, visual)
+        else:
+            weights = (0.6, 0.3, 0.1)  # (vector, keyword, visual)
+        
+        for idx, item in enumerate(results):
+            item["final_score"] = (
+                weights[0] * norm_vector[idx] +
+                weights[1] * norm_keyword[idx] +
+                weights[2] * norm_visual[idx]
+            )
+        
+        results.sort(key=lambda x: x.get("final_score", 0.0), reverse=True)
+    else:
+        # 不重排序，直接用向量分数
+        results.sort(key=lambda x: x.get("vector_score", 0.0), reverse=True)
+    
+    # 步骤5：过滤低分结果和设置 similarity 字段
+    for r in results:
+        final_score = r.get("final_score", r.get("vector_score", 0.0))
+        r["similarity"] = final_score
+    
+    filtered_results = [r for r in results if r.get("similarity", 0.0) >= MIN_SIMILARITY_THRESHOLD]
+    
+    print(f"[Search Enhanced] Total recalled: {len(results)}, After filter: {len(filtered_results)}")
+    print(f"[Search Enhanced] Top 3 scores: {[r.get('similarity', 0.0) for r in filtered_results[:3]]}")
+    
+    return filtered_results[:top_k]
