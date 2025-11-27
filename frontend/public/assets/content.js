@@ -594,12 +594,47 @@
 
   /**
    * 显示全屏加载动画（飘泡泡效果）
+   * ✅ 改进：泡泡充满整个页面，水蓝色渐变背景，呼吸感
    */
   function showCleaningAnimation() {
     // 如果已经存在，先移除
     if (cleaningOverlay) {
       cleaningOverlay.remove();
     }
+    
+    // ✅ 动画配置（从 uiConfig 读取，这里使用默认值）
+    const config = {
+      bubbles: {
+        count: 50,                    // 泡泡数量（充满整个页面）
+        minSize: 15,                  // 最小尺寸（px）
+        maxSize: 40,                  // 最大尺寸（px）
+        minDelay: 0,                  // 最小延迟（秒）
+        maxDelay: 2,                  // 最大延迟（秒）
+        animationDuration: 3,         // 动画持续时间（秒）
+        spreadRadius: 120,            // 扩散半径（%，相对于视口）
+      },
+      background: {
+        startColor: 'rgba(135, 206, 250, 0.85)',  // 水蓝色（边缘）
+        endColor: 'rgba(255, 255, 255, 0.6)',     // 白色（中心）
+        gradientRadius: '150%',                   // 渐变半径
+        breatheDuration: 4,                       // 呼吸动画持续时间（秒）
+        breatheIntensity: 0.15,                   // 呼吸强度
+      },
+      text: {
+        fontSize: 24,
+        color: 'rgba(255, 255, 255, 0.95)',
+        pulseDuration: 2,
+      },
+    };
+    
+    // 生成泡泡（充满整个页面）
+    const bubbles = Array.from({ length: config.bubbles.count }, (_, i) => {
+      const size = Math.random() * (config.bubbles.maxSize - config.bubbles.minSize) + config.bubbles.minSize;
+      const left = Math.random() * 100; // 0-100%
+      const bottom = Math.random() * 20; // 从底部 0-20% 开始
+      const delay = Math.random() * (config.bubbles.maxDelay - config.bubbles.minDelay) + config.bubbles.minDelay;
+      return `<span style="left: ${left}%; bottom: ${bottom}%; width: ${size}px; height: ${size}px; animation-delay: ${delay}s;"></span>`;
+    }).join('');
     
     // 创建全屏覆盖层
     cleaningOverlay = document.createElement('div');
@@ -608,7 +643,7 @@
       <div class="cleaning-content">
         <div class="cleaning-text">正在清理标签页...</div>
         <div class="cleaning-bubbles">
-          ${Array.from({ length: 20 }, (_, i) => `<span style="left: ${Math.random() * 100}%; animation-delay: ${i * 0.1}s;"></span>`).join('')}
+          ${bubbles}
         </div>
       </div>
     `;
@@ -622,14 +657,15 @@
         left: 0;
         width: 100vw;
         height: 100vh;
-        background: rgba(0, 0, 0, 0.75);
+        /* ✅ 水蓝色到白色的径向渐变背景，有呼吸感 */
+        background: radial-gradient(circle at center, ${config.background.endColor} 0%, ${config.background.startColor} ${config.background.gradientRadius});
         backdrop-filter: blur(8px);
         z-index: 999999;
         display: flex;
         align-items: center;
         justify-content: center;
         pointer-events: all;
-        animation: fadeIn 0.3s ease-in;
+        animation: fadeIn 0.3s ease-in, breathe ${config.background.breatheDuration}s ease-in-out infinite;
       }
       
       @keyframes fadeIn {
@@ -637,18 +673,31 @@
         to { opacity: 1; }
       }
       
+      /* ✅ 呼吸动画：渐变背景的透明度变化 */
+      @keyframes breathe {
+        0%, 100% {
+          background: radial-gradient(circle at center, ${config.background.endColor} 0%, ${config.background.startColor} ${config.background.gradientRadius});
+        }
+        50% {
+          background: radial-gradient(circle at center, 
+            rgba(255, 255, 255, ${0.6 + config.background.breatheIntensity}) 0%, 
+            rgba(135, 206, 250, ${0.85 + config.background.breatheIntensity}) ${config.background.gradientRadius});
+        }
+      }
+      
       #tab-cleaner-cleaning-overlay .cleaning-content {
         position: relative;
         text-align: center;
+        z-index: 1;
       }
       
       #tab-cleaner-cleaning-overlay .cleaning-text {
-        color: rgba(255, 255, 255, 0.95);
-        font-size: 24px;
+        color: ${config.text.color};
+        font-size: ${config.text.fontSize}px;
         font-weight: 500;
         margin-bottom: 60px;
-        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-        animation: pulse 2s ease-in-out infinite;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        animation: pulse ${config.text.pulseDuration}s ease-in-out infinite;
       }
       
       @keyframes pulse {
@@ -658,31 +707,33 @@
       
       #tab-cleaner-cleaning-overlay .cleaning-bubbles {
         position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
+        top: 0;
+        left: 0;
         width: 100vw;
         height: 100vh;
         pointer-events: none;
+        overflow: hidden;
       }
       
       #tab-cleaner-cleaning-overlay .cleaning-bubbles span {
         position: absolute;
         border-radius: 50%;
-        background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(130,199,255,0.3) 50%, rgba(255,255,255,0) 100%);
-        width: 20px;
-        height: 20px;
+        /* ✅ 泡泡：从白色到水蓝色的径向渐变 */
+        background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(135,206,250,0.4) 50%, rgba(255,255,255,0) 100%);
         opacity: 0;
-        animation: bubble-rise 2s infinite ease-out;
+        animation: bubble-rise ${config.bubbles.animationDuration}s infinite ease-out;
       }
       
       @keyframes bubble-rise {
         0% {
-          transform: translateY(0) scale(0.5);
-          opacity: 0.7;
+          transform: translateY(0) scale(0.3);
+          opacity: 0.6;
+        }
+        50% {
+          opacity: 0.8;
         }
         100% {
-          transform: translateY(-100vh) scale(1.5);
+          transform: translateY(-${config.bubbles.spreadRadius}vh) scale(1.2);
           opacity: 0;
         }
       }

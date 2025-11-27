@@ -96,6 +96,30 @@ const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCar
     }
   };
   
+  // ✅ 改进：如果之前是占位符，但图片现在 ready 了，尝试重新加载原图
+  useEffect(() => {
+    // 如果当前是占位符，但 og.image 存在，尝试在延迟后重新加载
+    if (hasError && og?.image && og.image.trim() && !og.image.startsWith('data:')) {
+      // 使用 IntersectionObserver 或延迟重试，避免性能问题
+      const retryTimer = setTimeout(() => {
+        // 检查图片是否已经可以加载（通过创建一个新的 Image 对象测试）
+        const testImg = new Image();
+        testImg.onload = () => {
+          // 图片可以加载，更新 src
+          setImageSrc(og.image);
+          setHasError(false);
+          console.log('[ImageWithFallback] Image ready, retrying load:', og.url?.substring(0, 50));
+        };
+        testImg.onerror = () => {
+          // 图片仍然无法加载，保持占位符
+        };
+        testImg.src = og.image;
+      }, 2000); // 延迟2秒，避免频繁重试
+      
+      return () => clearTimeout(retryTimer);
+    }
+  }, [hasError, og?.image, og?.url]);
+  
   return (
     <img
       src={imageSrc}

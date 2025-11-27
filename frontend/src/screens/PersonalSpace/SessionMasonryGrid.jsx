@@ -285,10 +285,19 @@ const SessionMasonryGridContent = ({
           }
           
           return validItems.map((og, index) => {
-            // 确保有 id，如果没有则生成一个
-            const itemId = og.id || og.url || `og-${session.id}-${index}`;
+            // ✅ 确保有 id，如果没有则生成一个（使用更稳定的 ID 生成策略）
+            const itemId = og.id || og.url || `og-${session.id}-${index}-${Date.now()}`;
             if (!og.id) {
               og.id = itemId;
+            }
+            
+            // ✅ 调试：记录每个渲染的卡片
+            if (process.env.NODE_ENV === 'development' && index < 5) {
+              console.log(`[SessionMasonryGrid] Rendering card ${index + 1}/${validCount}:`, {
+                id: itemId,
+                url: og.url?.substring(0, 50),
+                hasImage: !!(og.image || og.screenshot_image),
+              });
             }
 
             const isSelected = selectedCardIds.has(itemId);

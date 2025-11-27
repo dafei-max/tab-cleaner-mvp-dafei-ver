@@ -144,6 +144,36 @@ export const UI_CONFIG = {
     radiusGap: 280,            // 层间距（px）
   },
 
+  // ========== 清理动画配置 ==========
+  cleaningAnimation: {
+    // 泡泡配置
+    bubbles: {
+      count: 50,                    // 泡泡数量（充满整个页面）
+      minSize: 15,                  // 最小尺寸（px）
+      maxSize: 40,                  // 最大尺寸（px）
+      minDelay: 0,                  // 最小延迟（秒）
+      maxDelay: 2,                  // 最大延迟（秒）
+      animationDuration: 3,         // 动画持续时间（秒）
+      spreadRadius: 120,            // 扩散半径（%，相对于视口）
+    },
+    // 背景渐变配置
+    background: {
+      // 渐变：从边缘的水蓝色到中心的白色
+      startColor: 'rgba(135, 206, 250, 0.85)',  // 水蓝色（边缘）
+      endColor: 'rgba(255, 255, 255, 0.6)',     // 白色（中心）
+      gradientRadius: '150%',                   // 渐变半径（%，越大越扩散）
+      // 呼吸动画
+      breatheDuration: 4,                       // 呼吸动画持续时间（秒）
+      breatheIntensity: 0.15,                   // 呼吸强度（0-1，值越大变化越明显）
+    },
+    // 文字配置
+    text: {
+      fontSize: 24,                 // 文字大小（px）
+      color: 'rgba(255, 255, 255, 0.95)',  // 文字颜色
+      pulseDuration: 2,             // 脉冲动画持续时间（秒）
+    },
+  },
+
   // ========== 宠物设置页面 ==========
   petSetting: {
     // Bar 高度配置
