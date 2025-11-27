@@ -624,6 +624,7 @@
         fontSize: 24,
         color: 'rgba(255, 255, 255, 0.95)',
         pulseDuration: 2,
+        fontFamily: "'FZLanTingHei-R-GBK', '方正兰亭', 'Microsoft YaHei', '微软雅黑', sans-serif",
       },
     };
     
@@ -695,6 +696,7 @@
         color: ${config.text.color};
         font-size: ${config.text.fontSize}px;
         font-weight: 500;
+        font-family: ${config.text.fontFamily};
         margin-bottom: 60px;
         text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         animation: pulse ${config.text.pulseDuration}s ease-in-out infinite;
@@ -742,7 +744,16 @@
     document.head.appendChild(style);
     document.body.appendChild(cleaningOverlay);
     
-    console.log('[Tab Cleaner] Cleaning animation shown');
+    // ✅ 调试：检查样式是否正确应用
+    const computedStyle = window.getComputedStyle(cleaningOverlay);
+    console.log('[Tab Cleaner] Cleaning animation shown', {
+      background: computedStyle.background,
+      backgroundColor: computedStyle.backgroundColor,
+      config: {
+        startColor: config.background.startColor,
+        endColor: config.background.endColor,
+      }
+    });
   }
   
   /**

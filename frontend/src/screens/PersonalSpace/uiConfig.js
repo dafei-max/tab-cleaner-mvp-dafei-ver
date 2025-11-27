@@ -149,8 +149,8 @@ export const UI_CONFIG = {
     // 泡泡配置
     bubbles: {
       count: 50,                    // 泡泡数量（充满整个页面）
-      minSize: 15,                  // 最小尺寸（px）
-      maxSize: 40,                  // 最大尺寸（px）
+      minSize: 40,                  // 最小尺寸（px）
+      maxSize: 420,                  // 最大尺寸（px）
       minDelay: 0,                  // 最小延迟（秒）
       maxDelay: 2,                  // 最大延迟（秒）
       animationDuration: 3,         // 动画持续时间（秒）
@@ -171,6 +171,7 @@ export const UI_CONFIG = {
       fontSize: 24,                 // 文字大小（px）
       color: 'rgba(255, 255, 255, 0.95)',  // 文字颜色
       pulseDuration: 2,             // 脉冲动画持续时间（秒）
+      fontFamily: "'FZLanTingHei-R-GBK', '方正兰亭', 'Microsoft YaHei', '微软雅黑', sans-serif",  // 字体设置
     },
   },
 
