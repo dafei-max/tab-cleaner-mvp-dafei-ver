@@ -441,7 +441,29 @@ export const getBestImageSource = (og, style = 'text', width = 200, height = 150
   // 后端已经提取了首图，存储在 og.image 中（如果 source_type 是 'first-img'）
   // 这里直接使用 og.image（后端已经按优先级处理过了）
   if (og.image && og.image.trim()) {
-    return og.image;
+    let imageUrl = og.image.trim();
+    
+    // ✅ 确保 URL 格式正确
+    // 如果是相对路径，尝试转换为绝对路径
+    if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://') && !imageUrl.startsWith('data:') && !imageUrl.startsWith('blob:')) {
+      // 尝试使用 og.url 作为基础 URL
+      if (og.url) {
+        try {
+          const baseUrl = new URL(og.url);
+          imageUrl = new URL(imageUrl, baseUrl.origin).href;
+        } catch (e) {
+          // URL 解析失败，保持原样
+          console.warn('[getBestImageSource] Failed to resolve relative URL:', imageUrl);
+        }
+      }
+    }
+    
+    // ✅ 处理协议相对 URL（//example.com/image.jpg）
+    if (imageUrl.startsWith('//')) {
+      imageUrl = 'https:' + imageUrl;
+    }
+    
+    return imageUrl;
   }
   
   // ② OG/Twitter Card 图像 - 已经在上面处理（后端提取后存储在 og.image）
@@ -554,15 +576,52 @@ export const handleImageError = (e, og, style = 'text', width = 200, height = 15
   const currentSrc = img.src;
   
   // 避免无限循环：如果已经是占位符，就不再替换
-  if (currentSrc.startsWith('data:image/svg+xml') || currentSrc.startsWith('data:image/jpeg')) {
+  if (currentSrc.startsWith('data:image/svg+xml') || currentSrc.startsWith('data:image/jpeg') || currentSrc.startsWith('data:image/png')) {
     return;
+  }
+  
+  // ✅ 添加重试机制：如果图片加载失败，尝试修复 URL 后重试一次
+  const retryCount = img.dataset.retryCount || '0';
+  const maxRetries = 1; // 最多重试 1 次
+  
+  if (parseInt(retryCount) < maxRetries) {
+    // 尝试修复 URL
+    let fixedUrl = currentSrc;
+    
+    // 如果是相对路径，尝试使用 og.url 作为基础
+    if (og && og.url && !fixedUrl.startsWith('http://') && !fixedUrl.startsWith('https://')) {
+      try {
+        const baseUrl = new URL(og.url);
+        fixedUrl = new URL(fixedUrl, baseUrl.origin).href;
+      } catch (e) {
+        // URL 解析失败
+      }
+    }
+    
+    // 如果是协议相对 URL，添加 https
+    if (fixedUrl.startsWith('//')) {
+      fixedUrl = 'https:' + fixedUrl;
+    }
+    
+    // 如果 URL 被修复了，重试一次
+    if (fixedUrl !== currentSrc) {
+      img.dataset.retryCount = String(parseInt(retryCount) + 1);
+      img.src = fixedUrl;
+      console.log('[handleImageError] Retrying with fixed URL:', fixedUrl.substring(0, 50));
+      return;
+    }
   }
   
   // 优先级回退策略：
   // 1. 如果当前是 image，尝试使用 screenshot_image
-  if (og && og.image && currentSrc === og.image) {
+  if (og && og.image && (currentSrc === og.image || currentSrc.includes(og.image))) {
     if (og.screenshot_image && og.screenshot_image.trim()) {
       img.src = og.screenshot_image;
+      return;
+    }
+    // 如果 og.image 是截图（base64），也尝试使用
+    if (og.is_screenshot && og.image.startsWith('data:')) {
+      // 已经是截图，不需要回退
       return;
     }
   }
@@ -571,6 +630,7 @@ export const handleImageError = (e, og, style = 'text', width = 200, height = 15
   const placeholder = getPlaceholderImage(og, style, width, height);
   if (placeholder && placeholder !== currentSrc) {
     img.src = placeholder;
+    console.warn('[handleImageError] Using placeholder for:', og.url?.substring(0, 50));
   }
 };
 

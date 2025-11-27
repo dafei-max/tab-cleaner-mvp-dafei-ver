@@ -34,12 +34,152 @@
   let isButtonsVisible = false;
   let petMainEl = null;
   let choiceOverlayEl = null;
+  let cleaningOverlay = null; // 全屏加载动画覆盖层
   
   // ✅ 初始化状态标志：标记容器是否真正添加到 DOM
   let petInitialized = false;
   
   // ✅ 全局状态同步：从 Chrome Storage 读取宠物状态
   let petStateLoaded = false;
+  
+  /**
+   * 显示全屏加载动画（飘泡泡效果）
+   */
+  function showFullscreenCleaningAnimation() {
+    // 如果已经存在，先移除
+    if (cleaningOverlay) {
+      cleaningOverlay.remove();
+    }
+    
+    // 创建全屏覆盖层
+    cleaningOverlay = document.createElement('div');
+    cleaningOverlay.id = 'tab-cleaner-cleaning-overlay';
+    cleaningOverlay.innerHTML = `
+      <div class="cleaning-content">
+        <div class="cleaning-text">正在清理标签页...</div>
+        <div class="cleaning-bubbles">
+          ${Array.from({ length: 20 }, (_, i) => `<span style="left: ${Math.random() * 100}%; animation-delay: ${i * 0.1}s;"></span>`).join('')}
+        </div>
+      </div>
+    `;
+    
+    // 添加样式
+    const style = document.createElement('style');
+    style.id = 'tab-cleaner-cleaning-overlay-style';
+    style.textContent = `
+      #tab-cleaner-cleaning-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(8px);
+        z-index: 999999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: all;
+        animation: fadeIn 0.3s ease-in;
+      }
+      
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      
+      #tab-cleaner-cleaning-overlay .cleaning-content {
+        position: relative;
+        text-align: center;
+      }
+      
+      #tab-cleaner-cleaning-overlay .cleaning-text {
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 24px;
+        font-weight: 500;
+        margin-bottom: 60px;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+        animation: pulse 2s ease-in-out infinite;
+      }
+      
+      @keyframes pulse {
+        0%, 100% { opacity: 0.8; }
+        50% { opacity: 1; }
+      }
+      
+      #tab-cleaner-cleaning-overlay .cleaning-bubbles {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+      }
+      
+      #tab-cleaner-cleaning-overlay .cleaning-bubbles span {
+        position: absolute;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(130,199,255,0.3) 50%, rgba(255,255,255,0) 100%);
+        width: 20px;
+        height: 20px;
+        opacity: 0;
+        animation: bubble-rise 2s infinite ease-out;
+      }
+      
+      @keyframes bubble-rise {
+        0% {
+          transform: translateY(0) scale(0.5);
+          opacity: 0.7;
+        }
+        100% {
+          transform: translateY(-100vh) scale(1.5);
+          opacity: 0;
+        }
+      }
+      
+      @keyframes fadeOut {
+        from { opacity: 1; }
+        to { opacity: 0; }
+      }
+    `;
+    
+    if (!document.getElementById('tab-cleaner-cleaning-overlay-style')) {
+      document.head.appendChild(style);
+    }
+    document.body.appendChild(cleaningOverlay);
+    
+    console.log('[Tab Cleaner Pet] Fullscreen cleaning animation shown');
+  }
+  
+  /**
+   * 隐藏全屏加载动画
+   */
+  function hideFullscreenCleaningAnimation() {
+    if (cleaningOverlay) {
+      cleaningOverlay.style.animation = 'fadeOut 0.3s ease-out';
+      cleaningOverlay.style.opacity = '0';
+      setTimeout(() => {
+        if (cleaningOverlay && cleaningOverlay.parentNode) {
+          cleaningOverlay.remove();
+        }
+        cleaningOverlay = null;
+      }, 300);
+      console.log('[Tab Cleaner Pet] Fullscreen cleaning animation hidden');
+    }
+  }
+  
+  // 监听消息，隐藏动画
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
+      if (req && req.action === 'hide-cleaning-animation') {
+        hideFullscreenCleaningAnimation();
+        sendResponse?.({ ok: true });
+        return true;
+      }
+      return false;
+    });
+  }
 
   function getPetAsset(petId) {
     return PET_IMAGE_MAP[petId] || PET_IMAGE_MAP[DEFAULT_PET_ID];
@@ -124,19 +264,26 @@
     const runtimeAction = actionMap[action];
     if (!runtimeAction) return;
 
+    // 显示全屏加载动画
+    showFullscreenCleaningAnimation();
+    
     const stopEffect = triggerCleaningEffect(2500);
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       try {
         chrome.runtime.sendMessage({ action: runtimeAction }, () => {
           stopEffect();
+          // 注意：动画会在 background.js 处理完成后通过消息隐藏
         });
         setTimeout(stopEffect, 5000);
       } catch (err) {
         console.warn('[Tab Cleaner Pet] Failed to send action message:', err);
         stopEffect();
+        // 出错时隐藏动画
+        hideFullscreenCleaningAnimation();
       }
     } else {
       setTimeout(stopEffect, 1500);
+      hideFullscreenCleaningAnimation();
     }
   }
 

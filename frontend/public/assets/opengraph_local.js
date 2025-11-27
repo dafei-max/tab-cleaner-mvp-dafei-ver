@@ -291,6 +291,14 @@
     }
   }
 
+  // ✅ 全局状态对象（用于消息通信）
+  window.__OG_EXTRACTION_STATUS = {
+    inProgress: false,
+    completed: false,
+    data: null,
+    timestamp: Date.now()
+  };
+
   // ✅ 优化：智能提取策略 - 立即提取 + 监听变化 + 延迟优化
   let extractionAttempts = 0;
   const MAX_EXTRACTION_ATTEMPTS = 3;
@@ -427,6 +435,139 @@
     } else {
       console.log(`[OpenGraph Local] ⚠️ Max extraction attempts reached, using best available data`);
     }
+  }
+
+  /**
+   * 带等待的 OpenGraph 抓取（支持动态加载的 OG 标签）
+   * 使用 MutationObserver 监听动态插入的 OG 标签
+   */
+  async function extractOpenGraphWithWait(maxWaitTime = 8000) {
+    window.__OG_EXTRACTION_STATUS.inProgress = true;
+    window.__OG_EXTRACTION_STATUS.completed = false;
+    
+    console.log('[OG] Starting extractOpenGraphWithWait, maxWaitTime:', maxWaitTime);
+    
+    // 第一次抓取
+    let ogData = extractOpenGraphLocal();
+    
+    // 如果已经有图片，立即返回
+    if (ogData.image && ogData.image.trim()) {
+      console.log('[OG] ✅ Got OG image immediately');
+      window.__OG_EXTRACTION_STATUS = {
+        inProgress: false,
+        completed: true,
+        data: ogData,
+        timestamp: Date.now()
+      };
+      return ogData;
+    }
+    
+    // 没有图片，等待动态加载
+    console.log('[OG] No image found, waiting for dynamic OG tags...');
+    
+    return new Promise((resolve) => {
+      let resolved = false;
+      const startTime = Date.now();
+      const checkInterval = 300;
+      
+      // 使用 MutationObserver 监听 OG 标签
+      const observer = new MutationObserver(() => {
+        if (resolved) return;
+        
+        const newOgData = extractOpenGraphLocal();
+        if (newOgData.image && newOgData.image.trim()) {
+          resolved = true;
+          observer.disconnect();
+          
+          window.__OG_EXTRACTION_STATUS = {
+            inProgress: false,
+            completed: true,
+            data: newOgData,
+            timestamp: Date.now()
+          };
+          
+          console.log('[OG] ✅ Got OG image after mutation');
+          resolve(newOgData);
+        }
+      });
+      
+      // 监听 head 中的变化
+      observer.observe(document.head || document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['content', 'property', 'name']
+      });
+      
+      // 轮询检查（每 300ms 检查一次）
+      const pollInterval = setInterval(() => {
+        if (resolved) {
+          clearInterval(pollInterval);
+          return;
+        }
+        
+        const elapsed = Date.now() - startTime;
+        if (elapsed >= maxWaitTime) {
+          resolved = true;
+          observer.disconnect();
+          clearInterval(pollInterval);
+          
+          const finalOgData = extractOpenGraphLocal();
+          window.__OG_EXTRACTION_STATUS = {
+            inProgress: false,
+            completed: true,
+            data: finalOgData,
+            timestamp: Date.now()
+          };
+          
+          if (finalOgData.image && finalOgData.image.trim()) {
+            console.log('[OG] ✅ Got OG image after polling');
+          } else {
+            console.log('[OG] ⚠️ Timeout, no OG image found');
+          }
+          
+          resolve(finalOgData);
+        } else {
+          // 重新抓取（处理 React/Vue SPA）
+          const currentOgData = extractOpenGraphLocal();
+          if (currentOgData.image && currentOgData.image.trim()) {
+            resolved = true;
+            observer.disconnect();
+            clearInterval(pollInterval);
+            
+            window.__OG_EXTRACTION_STATUS = {
+              inProgress: false,
+              completed: true,
+              data: currentOgData,
+              timestamp: Date.now()
+            };
+            
+            console.log('[OG] ✅ Got OG image after waiting');
+            resolve(currentOgData);
+          }
+        }
+      }, checkInterval);
+      
+      // 超时断开（5秒后放弃，返回无图片的数据）
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          observer.disconnect();
+          clearInterval(pollInterval);
+          
+          const finalOgData = extractOpenGraphLocal();
+          window.__OG_EXTRACTION_STATUS = {
+            inProgress: false,
+            completed: true,
+            data: finalOgData,
+            timestamp: Date.now()
+          };
+          
+          console.log('[OG] ⚠️ Timeout, no OG image found');
+          resolve(finalOgData);
+        }
+      }, Math.min(maxWaitTime, 5000));
+    });
   }
 
   /**
@@ -734,6 +875,49 @@
     }
   }
   
+  // ✅ 消息监听器（处理来自 background.js 的消息）
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+      if (request.action === 'extract-opengraph-with-wait') {
+        console.log('[OG] Received extract-opengraph-with-wait message');
+        extractOpenGraphWithWait(request.maxWaitTime || 8000).then(data => {
+          sendResponse(data);
+        }).catch(err => {
+          console.error('[OG] extractOpenGraphWithWait failed:', err);
+          const fallbackData = extractOpenGraphLocal();
+          sendResponse(fallbackData);
+        });
+        return true; // 异步响应
+      }
+      
+      if (request.action === 'get-opengraph-status') {
+        console.log('[OG] Received get-opengraph-status message');
+        sendResponse(window.__OG_EXTRACTION_STATUS || {
+          inProgress: false,
+          completed: false,
+          data: null,
+          timestamp: Date.now()
+        });
+        return true;
+      }
+      
+      // 兼容旧的 action
+      if (request.action === 'extract-opengraph') {
+        const data = extractOpenGraphLocal();
+        window.__OG_EXTRACTION_STATUS = {
+          inProgress: false,
+          completed: true,
+          data,
+          timestamp: Date.now()
+        };
+        sendResponse(data);
+        return true;
+      }
+    });
+    
+    console.log('[OpenGraph Local] ✅ Message listener registered');
+  }
+
   console.log('[OpenGraph Local] Script execution completed');
   console.log('[OpenGraph Local] Final check - Function available:', typeof window.__TAB_CLEANER_GET_OPENGRAPH);
   console.log('[OpenGraph Local] Final check - Function is function?', typeof window.__TAB_CLEANER_GET_OPENGRAPH === 'function');

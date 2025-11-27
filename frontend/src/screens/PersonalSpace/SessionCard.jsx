@@ -1,9 +1,124 @@
 import React, { useLayoutEffect, useRef, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { MASONRY_CONFIG } from '../../config/masonryConfig';
-import { getBestImageSource, handleImageError } from '../../utils/imagePlaceholder';
+import { getBestImageSource, handleImageError, getPlaceholderImage } from '../../utils/imagePlaceholder';
 import { getImageUrl } from '../../shared/utils';
 import { UI_CONFIG } from './uiConfig';
+
+/**
+ * 带错误处理和重试的图片组件
+ * 确保即使图片加载失败，也会显示占位符
+ */
+const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCardWidth, appearDelay }) => {
+  const [imageSrc, setImageSrc] = useState(() => 
+    getBestImageSource(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75)
+  );
+  const [hasError, setHasError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const maxRetries = 2; // 最多重试 2 次
+  
+  // 当 og 改变时，重置状态
+  useEffect(() => {
+    const newSrc = getBestImageSource(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75);
+    setImageSrc(newSrc);
+    setHasError(false);
+    setRetryCount(0);
+  }, [og, resolvedCardWidth]);
+  
+  const handleError = (e) => {
+    const img = e.target;
+    const currentSrc = img.src;
+    
+    console.warn('[ImageWithFallback] Image load failed:', {
+      url: og.url?.substring(0, 50),
+      currentSrc: currentSrc.substring(0, 50),
+      retryCount
+    });
+    
+    // 如果已经是占位符，不再重试
+    if (currentSrc.startsWith('data:image/svg+xml') || 
+        currentSrc.startsWith('data:image/jpeg') || 
+        currentSrc.startsWith('data:image/png')) {
+      setHasError(true);
+      return;
+    }
+    
+    // 重试机制
+    if (retryCount < maxRetries) {
+      // 尝试修复 URL
+      let fixedUrl = currentSrc;
+      
+      // 如果是相对路径，尝试使用 og.url 作为基础
+      if (og && og.url && !fixedUrl.startsWith('http://') && !fixedUrl.startsWith('https://') && !fixedUrl.startsWith('data:')) {
+        try {
+          const baseUrl = new URL(og.url);
+          fixedUrl = new URL(fixedUrl, baseUrl.origin).href;
+        } catch (e) {
+          // URL 解析失败
+        }
+      }
+      
+      // 如果是协议相对 URL，添加 https
+      if (fixedUrl.startsWith('//')) {
+        fixedUrl = 'https:' + fixedUrl;
+      }
+      
+      // 如果 URL 被修复了，重试
+      if (fixedUrl !== currentSrc) {
+        setRetryCount(prev => prev + 1);
+        setImageSrc(fixedUrl);
+        console.log('[ImageWithFallback] Retrying with fixed URL:', fixedUrl.substring(0, 50));
+        return;
+      }
+      
+      // 尝试使用截图
+      if (og.screenshot_image && og.screenshot_image.trim() && currentSrc !== og.screenshot_image) {
+        setRetryCount(prev => prev + 1);
+        setImageSrc(og.screenshot_image);
+        console.log('[ImageWithFallback] Retrying with screenshot');
+        return;
+      }
+    }
+    
+    // 所有重试都失败，使用占位符
+    const placeholder = getPlaceholderImage(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75);
+    if (placeholder) {
+      setImageSrc(placeholder);
+      setHasError(true);
+      console.log('[ImageWithFallback] Using placeholder');
+    }
+  };
+  
+  const handleLoad = () => {
+    setHasError(false);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[ImageWithFallback] Image loaded successfully:', og.url?.substring(0, 50));
+    }
+  };
+  
+  return (
+    <img
+      src={imageSrc}
+      alt={og.title || og.url}
+      className={`opengraph-image ${isDocCard ? 'doc-card' : ''} ${isTopResult ? 'top-result' : ''} ${isSelected ? 'selected' : ''}`}
+      style={{
+        width: '100%',
+        height: 'auto',
+        display: 'block',
+        borderRadius: '0 0 8px 8px',
+        cursor: 'pointer',
+        transition: 'box-shadow 0.2s ease',
+        objectFit: 'contain',
+        backgroundColor: '#f5f5f5',
+        minHeight: hasError ? '120px' : 'auto', // 确保占位符有足够高度
+      }}
+      // ✅ 改进：对于前几张图片（前 10 张），不使用懒加载，确保立即加载
+      loading={appearDelay < 10 ? 'eager' : 'lazy'}
+      onError={handleError}
+      onLoad={handleLoad}
+    />
+  );
+};
 
 /**
  * 单个卡片组件（带悬浮功能）
@@ -495,21 +610,13 @@ export const SessionCard = ({
 
       {/* 图片内容 */}
       <div style={{ position: 'relative' }}>
-        <img
-          src={getBestImageSource(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75)}
-          alt={og.title || og.url}
-          className={`opengraph-image ${isDocCard ? 'doc-card' : ''} ${isTopResult ? 'top-result' : ''} ${isSelected ? 'selected' : ''}`}
-          style={{
-            width: '100%',
-            height: 'auto',
-            display: 'block',
-            borderRadius: '0 0 8px 8px',
-            cursor: 'pointer',
-            transition: 'box-shadow 0.2s ease',
-            objectFit: 'contain',
-            backgroundColor: '#f5f5f5',
-          }}
-          onError={(e) => handleImageError(e, og, 'text')}
+        <ImageWithFallback
+          og={og}
+          isDocCard={isDocCard}
+          isTopResult={isTopResult}
+          isSelected={isSelected}
+          resolvedCardWidth={resolvedCardWidth}
+          appearDelay={appearDelay}
         />
         
         {/* 悬浮按钮（底部靠右） */}

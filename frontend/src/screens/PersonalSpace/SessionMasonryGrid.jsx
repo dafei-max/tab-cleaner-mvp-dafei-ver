@@ -262,44 +262,62 @@ const SessionMasonryGridContent = ({
       }}
     >
       {session.opengraphData && Array.isArray(session.opengraphData) && session.opengraphData.length > 0 ? (
-        session.opengraphData.map((og, index) => {
-          if (!og || typeof og !== 'object') {
-            console.warn('[SessionMasonryGrid] Invalid og item:', og);
-            return null;
+        (() => {
+          // ✅ 调试：记录总数和过滤后的数量
+          const totalCount = session.opengraphData.length;
+          const validItems = session.opengraphData.filter((og, index) => {
+            // ✅ 改进：过滤无效项，但记录日志
+            if (!og || typeof og !== 'object') {
+              console.warn('[SessionMasonryGrid] Invalid og item at index', index, ':', og);
+              return false;
+            }
+            // ✅ 确保有 URL 或 title，至少有一个可用的标识
+            if (!og.url && !og.title) {
+              console.warn('[SessionMasonryGrid] Item missing both url and title at index', index, ':', og);
+              return false;
+            }
+            return true;
+          });
+          
+          const validCount = validItems.length;
+          if (totalCount !== validCount) {
+            console.warn(`[SessionMasonryGrid] Filtered ${totalCount - validCount} invalid items from session ${session.id} (${totalCount} total, ${validCount} valid)`);
           }
           
-          // 确保有 id，如果没有则生成一个
-          const itemId = og.id || og.url || `og-${session.id}-${index}`;
-          if (!og.id) {
-            og.id = itemId;
-          }
+          return validItems.map((og, index) => {
+            // 确保有 id，如果没有则生成一个
+            const itemId = og.id || og.url || `og-${session.id}-${index}`;
+            if (!og.id) {
+              og.id = itemId;
+            }
 
-          const isSelected = selectedCardIds.has(itemId);
-          const isTopResult = topResultId === itemId;
-          // 判断是否为搜索结果
-          const isSearchResult = hasSearchResults && og.similarity !== undefined && og.similarity > 0;
-          const similarity = og.similarity ?? 0;
+            const isSelected = selectedCardIds.has(itemId);
+            const isTopResult = topResultId === itemId;
+            // 判断是否为搜索结果
+            const isSearchResult = hasSearchResults && og.similarity !== undefined && og.similarity > 0;
+            const similarity = og.similarity ?? 0;
 
-          const appearDelay = Math.min(index * 0.05, 1.2); // 控制总时长 <= 1.5s
+            const appearDelay = Math.min(index * 0.05, 1.2); // 控制总时长 <= 1.5s
 
-          return (
-            <SessionCard
-              key={itemId}
-              og={og}
-              isSelected={isSelected}
-              isTopResult={isTopResult}
-              isSearchResult={isSearchResult}
-              similarity={similarity}
-              hasSearchResults={hasSearchResults}
-              appearDelay={appearDelay}
-              onSelect={onCardSelect}
-              onDelete={onCardDelete}
-              onOpenLink={onOpenLink}
-              onCardClick={onCardClick}
-              variant="masonry"
-            />
-          );
-        })
+            return (
+              <SessionCard
+                key={itemId}
+                og={og}
+                isSelected={isSelected}
+                isTopResult={isTopResult}
+                isSearchResult={isSearchResult}
+                similarity={similarity}
+                hasSearchResults={hasSearchResults}
+                appearDelay={appearDelay}
+                onSelect={onCardSelect}
+                onDelete={onCardDelete}
+                onOpenLink={onOpenLink}
+                onCardClick={onCardClick}
+                variant="masonry"
+              />
+            );
+          });
+        })()
       ) : (
         <div style={{ 
           textAlign: 'center', 

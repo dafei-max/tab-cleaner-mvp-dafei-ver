@@ -33,6 +33,7 @@
 
   let cardContainer = null;
   let isVisible = false;
+  let cleaningOverlay = null; // 全屏加载动画覆盖层
 
   // 确保 asset() 可用（将相对路径转为扩展 URL）
   if (typeof asset !== 'function') {
@@ -413,6 +414,9 @@
     }
     if (cleanBtn) {
       cleanBtn.addEventListener("click", () => {
+        // 显示全屏加载动画
+        showCleaningAnimation();
+        
         try {
           chrome.runtime.sendMessage({ action: "clean" }, (response) => {
             if (chrome.runtime.lastError) {
@@ -421,12 +425,17 @@
               } else {
                 console.error("[Tab Cleaner] Failed to clean tabs:", chrome.runtime.lastError);
               }
+              // 出错时隐藏动画
+              hideCleaningAnimation();
             } else {
               console.log("[Tab Cleaner] Clean action sent:", response);
+              // 注意：动画会在 background.js 处理完成后通过消息隐藏
             }
           });
         } catch (error) {
           console.error("[Tab Cleaner] Error sending clean message:", error);
+          // 出错时隐藏动画
+          hideCleaningAnimation();
         }
       });
     }
@@ -583,11 +592,145 @@
     }
   });
 
+  /**
+   * 显示全屏加载动画（飘泡泡效果）
+   */
+  function showCleaningAnimation() {
+    // 如果已经存在，先移除
+    if (cleaningOverlay) {
+      cleaningOverlay.remove();
+    }
+    
+    // 创建全屏覆盖层
+    cleaningOverlay = document.createElement('div');
+    cleaningOverlay.id = 'tab-cleaner-cleaning-overlay';
+    cleaningOverlay.innerHTML = `
+      <div class="cleaning-content">
+        <div class="cleaning-text">正在清理标签页...</div>
+        <div class="cleaning-bubbles">
+          ${Array.from({ length: 20 }, (_, i) => `<span style="left: ${Math.random() * 100}%; animation-delay: ${i * 0.1}s;"></span>`).join('')}
+        </div>
+      </div>
+    `;
+    
+    // 添加样式
+    const style = document.createElement('style');
+    style.textContent = `
+      #tab-cleaner-cleaning-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(8px);
+        z-index: 999999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: all;
+        animation: fadeIn 0.3s ease-in;
+      }
+      
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      
+      #tab-cleaner-cleaning-overlay .cleaning-content {
+        position: relative;
+        text-align: center;
+      }
+      
+      #tab-cleaner-cleaning-overlay .cleaning-text {
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 24px;
+        font-weight: 500;
+        margin-bottom: 60px;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+        animation: pulse 2s ease-in-out infinite;
+      }
+      
+      @keyframes pulse {
+        0%, 100% { opacity: 0.8; }
+        50% { opacity: 1; }
+      }
+      
+      #tab-cleaner-cleaning-overlay .cleaning-bubbles {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+      }
+      
+      #tab-cleaner-cleaning-overlay .cleaning-bubbles span {
+        position: absolute;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(130,199,255,0.3) 50%, rgba(255,255,255,0) 100%);
+        width: 20px;
+        height: 20px;
+        opacity: 0;
+        animation: bubble-rise 2s infinite ease-out;
+      }
+      
+      @keyframes bubble-rise {
+        0% {
+          transform: translateY(0) scale(0.5);
+          opacity: 0.7;
+        }
+        100% {
+          transform: translateY(-100vh) scale(1.5);
+          opacity: 0;
+        }
+      }
+    `;
+    
+    document.head.appendChild(style);
+    document.body.appendChild(cleaningOverlay);
+    
+    console.log('[Tab Cleaner] Cleaning animation shown');
+  }
+  
+  /**
+   * 隐藏全屏加载动画
+   */
+  function hideCleaningAnimation() {
+    if (cleaningOverlay) {
+      cleaningOverlay.style.animation = 'fadeOut 0.3s ease-out';
+      cleaningOverlay.style.opacity = '0';
+      setTimeout(() => {
+        if (cleaningOverlay && cleaningOverlay.parentNode) {
+          cleaningOverlay.remove();
+        }
+        cleaningOverlay = null;
+      }, 300);
+      console.log('[Tab Cleaner] Cleaning animation hidden');
+    }
+  }
+  
+  // 添加 fadeOut 动画样式
+  if (!document.getElementById('tab-cleaner-fadeout-style')) {
+    const fadeOutStyle = document.createElement('style');
+    fadeOutStyle.id = 'tab-cleaner-fadeout-style';
+    fadeOutStyle.textContent = `
+      @keyframes fadeOut {
+        from { opacity: 1; }
+        to { opacity: 0; }
+      }
+    `;
+    document.head.appendChild(fadeOutStyle);
+  }
+
   chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     if (!req || !req.action) return false;
     if (req.action === "toggle" || req.action === "toggleCard") { toggleCard(); sendResponse?.({ ok: true }); return true; }
     if (req.action === "show") { showCard(); sendResponse?.({ ok: true }); return true; }
     if (req.action === "hide") { hideCard(); sendResponse?.({ ok: true }); return true; }
+    if (req.action === "show-cleaning-animation") { showCleaningAnimation(); sendResponse?.({ ok: true }); return true; }
+    if (req.action === "hide-cleaning-animation") { hideCleaningAnimation(); sendResponse?.({ ok: true }); return true; }
     if (req.action === "cache-opengraph") {
       // 处理来自 opengraph_local.js 的缓存请求
       // opengraph_local.js 运行在页面上下文中，无法直接访问 chrome.storage
