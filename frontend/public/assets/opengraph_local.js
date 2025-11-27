@@ -712,30 +712,58 @@
       setupMutationObserver();
     }
 
-    // ✅ 监听 URL 变化（SPA 支持）
+    // ✅ 监听 URL 变化（SPA 支持，包括 Pinterest）
+    let lastUrl = window.location.href;
+    
     // 1. 监听 popstate 事件（浏览器前进/后退）
     window.addEventListener('popstate', () => {
       console.log('[OpenGraph Local] 🔄 popstate event detected');
+      lastUrl = window.location.href;
+      checkUrlAndReextract();
+    });
+    
+    // 2. 监听 hashchange（虽然 Pinterest 可能不用，但为了兼容性）
+    window.addEventListener('hashchange', () => {
+      console.log('[OpenGraph Local] 🔄 hashchange event detected');
+      lastUrl = window.location.href;
       checkUrlAndReextract();
     });
 
-    // 2. 拦截 history.pushState 和 history.replaceState
+    // 3. 拦截 history.pushState 和 history.replaceState
     const originalPushState = history.pushState;
     const originalReplaceState = history.replaceState;
 
     history.pushState = function(...args) {
       originalPushState.apply(history, args);
-      console.log('[OpenGraph Local] 🔄 pushState detected');
-      // 使用 setTimeout 确保 URL 已更新
-      setTimeout(() => checkUrlAndReextract(), 0);
+      const newUrl = window.location.href;
+      if (newUrl !== lastUrl) {
+        console.log('[OpenGraph Local] 🔄 pushState detected, URL changed:', newUrl);
+        lastUrl = newUrl;
+        // 延迟一下，确保 DOM 已更新（Pinterest 等 SPA 需要时间）
+        setTimeout(() => checkUrlAndReextract(), 300);
+      }
     };
 
     history.replaceState = function(...args) {
       originalReplaceState.apply(history, args);
-      console.log('[OpenGraph Local] 🔄 replaceState detected');
-      // 使用 setTimeout 确保 URL 已更新
-      setTimeout(() => checkUrlAndReextract(), 0);
+      const newUrl = window.location.href;
+      if (newUrl !== lastUrl) {
+        console.log('[OpenGraph Local] 🔄 replaceState detected, URL changed:', newUrl);
+        lastUrl = newUrl;
+        // 延迟一下，确保 DOM 已更新
+        setTimeout(() => checkUrlAndReextract(), 300);
+      }
     };
+    
+    // 4. ✅ 定期检查 URL 变化（Pinterest 等可能直接修改 location.href）
+    setInterval(() => {
+      const currentUrl = window.location.href;
+      if (currentUrl !== lastUrl) {
+        console.log('[OpenGraph Local] 🔄 URL changed via location.href:', currentUrl);
+        lastUrl = currentUrl;
+        checkUrlAndReextract();
+      }
+    }, 1000); // 每秒检查一次
 
     console.log('[OpenGraph Local] ✅ URL change detection setup complete');
 
@@ -878,8 +906,35 @@
   // ✅ 消息监听器（处理来自 background.js 的消息）
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+      if (request.action === 'sync-url') {
+        // ✅ 同步 URL，确保使用最新的 URL
+        const newUrl = request.url || window.location.href;
+        if (newUrl !== window.location.href) {
+          console.log('[OG] ⚠️ URL mismatch, current:', window.location.href, 'expected:', newUrl);
+        }
+        // 如果 URL 不匹配，重置状态
+        if (lastExtractedUrl !== newUrl) {
+          console.log('[OG] 🔄 Resetting extraction state for URL sync');
+          resetExtractionState();
+          lastExtractedUrl = newUrl;
+        }
+        sendResponse({ ok: true, url: window.location.href });
+        return true;
+      }
+      
       if (request.action === 'extract-opengraph-with-wait') {
-        console.log('[OG] Received extract-opengraph-with-wait message');
+        console.log('[OG] Received extract-opengraph-with-wait message', {
+          forceReextract: request.forceReextract,
+          maxWaitTime: request.maxWaitTime
+        });
+        
+        // ✅ 如果强制重新提取，重置状态
+        if (request.forceReextract) {
+          console.log('[OG] 🔄 Force re-extract requested, resetting state');
+          resetExtractionState();
+          lastExtractedUrl = window.location.href; // 更新为当前 URL
+        }
+        
         extractOpenGraphWithWait(request.maxWaitTime || 8000).then(data => {
           sendResponse(data);
         }).catch(err => {

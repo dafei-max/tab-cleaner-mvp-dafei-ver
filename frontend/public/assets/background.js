@@ -176,11 +176,34 @@ async function collectTabWithGuaranteedImage(tab) {
   // 等待脚本加载
   await new Promise(resolve => setTimeout(resolve, 300));
   
-  // 步骤2：发送抓取消息
+  // ✅ 步骤1.5：对于 Pinterest 等 SPA，确保 URL 匹配并强制重新提取
+  try {
+    const currentTab = await chrome.tabs.get(tab.id);
+    if (currentTab.url !== tab.url) {
+      console.log(`[Collect] ⚠️ Tab URL changed: ${tab.url} -> ${currentTab.url}`);
+      // URL 已变化，更新 tab 对象
+      tab = currentTab;
+    }
+    
+    // 发送 URL 同步消息，确保 opengraph_local.js 使用最新的 URL
+    try {
+      await chrome.tabs.sendMessage(tab.id, { 
+        action: 'sync-url',
+        url: tab.url
+      });
+    } catch (e) {
+      // 忽略错误，可能脚本还没准备好
+    }
+  } catch (e) {
+    console.warn(`[Collect] Failed to sync URL:`, e);
+  }
+  
+  // 步骤2：发送抓取消息（强制重新提取，忽略缓存）
   try {
     await chrome.tabs.sendMessage(tab.id, { 
       action: 'extract-opengraph-with-wait',
-      maxWaitTime: 8000
+      maxWaitTime: 8000,
+      forceReextract: true  // ✅ 强制重新提取，不使用缓存
     });
     console.log(`[Collect] ✅ Extraction message sent for tab ${tab.id}`);
   } catch (e) {
