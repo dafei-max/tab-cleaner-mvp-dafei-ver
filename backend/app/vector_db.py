@@ -537,10 +537,10 @@ async def search_by_text_embedding(
     threshold: float = 0.0
 ) -> List[Dict]:
     """
-    根据文本 embedding 进行相似度搜索（共享向量库，忽略 user_id）
+    根据文本 embedding 进行相似度搜索（严格按用户隔离）
     
     Args:
-        user_id: 用户ID（已废弃，保留用于兼容性）
+        user_id: 用户ID
         query_embedding: 查询文本的 embedding 向量（1024维）
         top_k: 返回前 K 个结果
         threshold: 相似度阈值（0-1）
@@ -549,23 +549,24 @@ async def search_by_text_embedding(
         相似度排序的结果列表
     """
     try:
+        normalized_user = _normalize_user_id(user_id)
         pool = await get_pool()
         
         async with pool.acquire() as conn:
             query_vec = to_vector_str(query_embedding)
             
-            # 共享向量库：搜索所有用户的 active 记录
             rows = await conn.fetch(f"""
                 SELECT user_id, url, title, description, image, site_name,
                        tab_id, tab_title, text_embedding, image_embedding, metadata,
                        1 - (text_embedding <=> $1::vector(1024)) AS similarity
                 FROM {ACTIVE_TABLE}
                 WHERE status = 'active'
+                  AND user_id = $2
                   AND text_embedding IS NOT NULL
-                  AND (1 - (text_embedding <=> $1::vector(1024))) >= $2
+                  AND (1 - (text_embedding <=> $1::vector(1024))) >= $3
                 ORDER BY text_embedding <=> $1::vector(1024)
-                LIMIT $3;
-            """, query_vec, threshold, top_k)
+                LIMIT $4;
+            """, query_vec, normalized_user, threshold, top_k)
             
             results = []
             for row in rows:
@@ -587,10 +588,10 @@ async def search_by_image_embedding(
     threshold: float = 0.0
 ) -> List[Dict]:
     """
-    根据图像 embedding 进行相似度搜索（共享向量库，忽略 user_id）
+    根据图像 embedding 进行相似度搜索（严格按用户隔离）
     
     Args:
-        user_id: 用户ID（已废弃，保留用于兼容性）
+        user_id: 用户ID
         query_embedding: 查询图像的 embedding 向量（1024维）
         top_k: 返回前 K 个结果
         threshold: 相似度阈值（0-1）
@@ -599,23 +600,24 @@ async def search_by_image_embedding(
         相似度排序的结果列表
     """
     try:
+        normalized_user = _normalize_user_id(user_id)
         pool = await get_pool()
         
         async with pool.acquire() as conn:
             query_vec = to_vector_str(query_embedding)
             
-            # 共享向量库：搜索所有用户的 active 记录
             rows = await conn.fetch(f"""
                 SELECT user_id, url, title, description, image, site_name,
                        tab_id, tab_title, text_embedding, image_embedding, metadata,
                        1 - (image_embedding <=> $1::vector(1024)) AS similarity
                 FROM {ACTIVE_TABLE}
                 WHERE status = 'active'
+                  AND user_id = $2
                   AND image_embedding IS NOT NULL
-                  AND (1 - (image_embedding <=> $1::vector(1024))) >= $2
+                  AND (1 - (image_embedding <=> $1::vector(1024))) >= $3
                 ORDER BY image_embedding <=> $1::vector(1024)
-                LIMIT $3;
-            """, query_vec, threshold, top_k)
+                LIMIT $4;
+            """, query_vec, normalized_user, threshold, top_k)
             
             results = []
             for row in rows:

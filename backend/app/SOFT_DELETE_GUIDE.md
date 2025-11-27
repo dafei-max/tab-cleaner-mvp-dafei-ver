@@ -74,7 +74,7 @@ python migrate_data.py
 迁移脚本会：
 1. 检查旧表 `opengraph_items` 是否存在
 2. 批量迁移数据到新表 `opengraph_items_v2`
-3. 所有迁移的数据 `user_id` 设为 `'anonymous'`（共享向量库）
+3. 所有迁移的数据 `user_id` 设为 `'anonymous'`（历史数据会归属匿名账号，仍然是单用户隔离）
 4. 所有迁移的数据 `status` 设为 `'active'`
 
 ## 定时清理任务
@@ -120,19 +120,18 @@ scheduler.start()
 
 ## 搜索行为
 
-### 共享向量库
+### 用户隔离
 
-搜索接口已改为**共享向量库**模式：
-- ✅ 搜索时忽略 `user_id`，搜索所有用户的 `active` 记录
+搜索接口采用**严格用户隔离**模式：
+- ✅ 搜索时必须携带 `user_id`，只返回该用户的 `active` 记录
 - ✅ 只返回 `status='active'` 的记录
 - ✅ 已删除的记录不会出现在搜索结果中
 
 ### 示例
 
 ```python
-# 搜索所有用户的 active 记录
 results = await search_by_text_embedding(
-    user_id=None,  # 忽略 user_id
+    user_id="current_user_id",
     query_embedding=embedding,
     top_k=20
 )

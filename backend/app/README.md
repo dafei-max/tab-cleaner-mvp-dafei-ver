@@ -122,20 +122,20 @@ pip install -r requirements.txt
 
 ## 📊 核心业务逻辑
 
-### 1. 共享向量库架构
+### 1. 用户隔离搜索架构
 
-**设计理念**：所有用户的 embedding 数据存储在共享向量库中，搜索时忽略用户隔离，实现跨用户的知识共享。
+**设计理念**：每个用户只能看到自己的 embedding 数据与搜索结果。所有 CUD 操作和查询都会携带 `user_id`，确保个人空间与后端数据完全一致。
 
 **实现方式**：
 - 数据库表：`cleantab.opengraph_items_v2`
-- 主键：`(user_id, url)` - 支持同一 URL 被多个用户收藏
-- 搜索行为：`search_by_text_embedding` 和 `search_by_image_embedding` 忽略 `user_id`，搜索所有 `status='active'` 的记录
-- 数据隔离：虽然搜索是共享的，但删除操作仍然需要 `user_id` 来确保用户只能删除自己的数据
+- 主键：`(user_id, url)` - 支持同一 URL 被多个用户独立收藏
+- 搜索行为：`search_by_text_embedding`、`search_by_image_embedding`、`VectorDBClient.search_by_vector` 均带 `WHERE user_id = $1`
+- 私有化保证：任何查询都只会使用当前用户 `status='active'` 的记录
 
 **优势**：
-- ✅ 更大的搜索池：可以搜索所有用户的历史数据
-- ✅ 更好的搜索质量：更多数据意味着更准确的相似度匹配
-- ✅ 知识共享：用户可以从其他用户的收藏中受益
+- ✅ 结果可解释：用户搜索只会看到自己曾经清理过的卡片
+- ✅ 权限清晰：无需担心把其他用户的数据暴露给当前用户
+- ✅ 更易审计：结合软删除字段，可以追溯每个用户的数据生命周期
 
 ### 2. 软删除机制
 
@@ -195,7 +195,7 @@ CREATE TABLE cleantab.opengraph_items_v2 (
 1. 检查旧表 `opengraph_items` 是否存在
 2. 检查新表 `opengraph_items_v2` 是否存在（如果不存在，先运行 `init_schema_standalone.py`）
 3. 批量迁移数据（每次 100 条）：
-   - 设置 `user_id = 'anonymous'`（共享向量库）
+   - 设置 `user_id = 'anonymous'`（所有历史数据都会归属于该匿名用户）
    - 设置 `status = 'active'`（所有记录都是活跃状态）
 4. 统计迁移结果
 

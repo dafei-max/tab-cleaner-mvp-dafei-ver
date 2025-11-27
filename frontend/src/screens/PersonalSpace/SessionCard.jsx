@@ -858,11 +858,6 @@ export const SessionCard = ({
           </div>
         )}
 
-        {isSearchResult && (
-          <div className="similarity-badge">
-            相似度 {(similarity * 100).toFixed(1)}%
-          </div>
-        )}
       </div>
     </CardWrapper>
   );

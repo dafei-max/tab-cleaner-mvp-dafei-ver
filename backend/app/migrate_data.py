@@ -92,7 +92,7 @@ async def migrate_data():
                 
                 for row in rows:
                     try:
-                        # 迁移到新表，user_id 设为 'anonymous'（共享向量库）
+                        # 迁移到新表，user_id 统一设为 'anonymous'（历史数据归属于匿名账号）
                         await conn.execute(f"""
                             INSERT INTO {ACTIVE_TABLE} (
                                 user_id, url, title, description, image, screenshot_image, site_name,

@@ -66,7 +66,7 @@
     - 图片自动归一化处理（缩放、压缩）以节省token成本
     - 支持批量处理，避免API过载
     - **数据持久化**：所有 OpenGraph 数据和 embedding 向量都保存到向量数据库，支持跨会话搜索
-    - **共享向量库**：搜索时忽略用户隔离，可以搜索所有用户的历史数据，实现知识共享
+    - **用户隔离搜索**：每个用户只会搜索到自己收藏的卡片记录
   - 🗑️ **软删除机制**：
     - 支持删除单个 tab 或整个 session（洗衣筐）
     - 软删除：数据不会立即物理删除，只是标记为已删除
@@ -107,7 +107,7 @@
    ├─ 保存到向量数据库（Alibaba Cloud AnalyticDB PostgreSQL）
    │  ├─ 存储时包含 user_id 和 session_id（用于软删除）
    │  ├─ status 默认为 'active'
-   │  └─ 支持共享向量库（搜索时忽略 user_id）
+   │  └─ 搜索时严格携带 user_id，保证只返回自己的数据
    └─ 返回 embedding 数据
    ↓
    background.js 更新 sessions 中的 embedding 数据

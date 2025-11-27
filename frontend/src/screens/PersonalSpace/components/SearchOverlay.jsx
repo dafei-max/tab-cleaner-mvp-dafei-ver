@@ -40,7 +40,7 @@ export const SearchOverlay = ({
         }}
       />
       
-      {/* 搜索结果水平行 */}
+      {/* 搜索结果水平行（单行排列，可横向滚动） */}
       <div
         style={{
           position: 'fixed',
@@ -54,9 +54,10 @@ export const SearchOverlay = ({
           zIndex: 1501,
           pointerEvents: 'auto',
           maxWidth: `${searchOverlayConfig.maxWidthPercent ?? 90}vw`,
-          flexWrap: 'wrap',
+          flexWrap: 'nowrap',
           padding: `0 ${searchOverlayConfig.paddingX ?? 0}px`,
-          overflow: 'visible',
+          overflowX: 'auto',
+          overflowY: 'visible',
         }}
       >
         {topSearchResults.map((result, index) => {
