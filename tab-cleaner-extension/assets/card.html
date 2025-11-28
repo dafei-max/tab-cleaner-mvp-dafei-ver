@@ -1,0 +1,42 @@
+<div class="card" id="tc-card">
+  <div class="div">
+    <img class="draggable" alt="Draggable" src="{{DRAGGABLE}}" />
+    <div class="window-button-wrapper">
+      <div class="window-button">
+        <div class="image">
+          <!-- window.png 置于上层可见 -->
+          <img class="window-img" alt="window" src="{{WINDOW}}" />
+          <div class="window">
+            <div class="group"><div class="group-wrapper"><div class="group-2"></div></div></div>
+            <img class="vector" alt="Vector" src="{{VECTOR6}}" />
+            <div class="clip-path-group"></div>
+          </div>
+          <div class="ellipse"></div>
+        </div>
+      </div>
+      <!-- 详情图片覆盖层 -->
+      <div class="details-overlay" id="detailsOverlay" style="display: none;">
+        <img class="details-image" alt="洗衣机详情" src="{{DETAILS_IMAGE}}" />
+      </div>
+      <span class="tooltip">召唤桌宠</span>
+    </div>
+  </div>
+  <div class="buttons">
+    <div class="button-wrapper home-wrapper">
+      <img class="home-button" id="homeBtn" alt="Home" src="{{HOME}}"/>
+      <span class="tooltip">个人空间</span>
+    </div>
+    <div class="button-wrapper clean-wrapper">
+      <img class="clean-button" id="cleanBtn" alt="Clean" src="{{CLEAN}}"/>
+      <span class="tooltip">一键清理</span>
+    </div>
+    <div class="button-wrapper details-wrapper">
+      <img class="details-button" id="detailsBtn" alt="Details" src="{{DETAILS}}"/>
+      <span class="tooltip">洗衣机详情</span>
+    </div>
+  </div>
+  <button id="tc-close"
+    style="position:absolute;top:10px;right:10px;width:30px;height:30px;border:none;border-radius:50%;
+           background:rgba(255,255,255,.95);color:#333;font-size:18px;display:flex;align-items:center;
+           justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:pointer;z-index:10;">×</button>
+</div>

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Pinterest OpenGraph Local Fetch</title>
+</head>
+<body>
+  <h1>Pinterest OpenGraph 本地抓取测试</h1>
+  <p>打开 Chrome DevTools Console，然后运行：</p>
+  <pre>
+// 方法 1：直接测试函数
+window.__TAB_CLEANER_GET_OPENGRAPH()
+
+// 方法 2：等待页面加载完成
+window.__TAB_CLEANER_GET_OPENGRAPH(true).then(result => {
+  console.log('OpenGraph 结果:', result);
+  console.log('图片 URL:', result.image);
+});
+  </pre>
+  
+  <p>或者访问 Pinterest 页面：</p>
+  <a href="https://www.pinterest.com/pin/17803361024885810/" target="_blank">
+    https://www.pinterest.com/pin/17803361024885810/
+  </a>
+  
+  <script>
+    // 加载 opengraph_local.js（模拟 content script）
+    const script = document.createElement('script');
+    script.src = chrome?.runtime?.getURL('assets/opengraph_local.js') || 'assets/opengraph_local.js';
+    document.head.appendChild(script);
+  </script>
+</body>
+</html>
+
+
+
+
