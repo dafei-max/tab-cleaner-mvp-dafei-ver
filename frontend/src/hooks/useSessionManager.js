@@ -24,7 +24,9 @@ const generateSessionId = () => {
  * 生成默认 session 名称
  */
 const generateSessionName = (existingSessions) => {
-  const existingNames = existingSessions.map(s => s.name);
+  // ✅ 修复：确保 existingSessions 是数组
+  const safeSessions = Array.isArray(existingSessions) ? existingSessions : [];
+  const existingNames = safeSessions.map(s => s && s.name ? s.name : null).filter(Boolean);
   let counter = 1;
   let name = `洗衣筐${counter}`;
   while (existingNames.includes(name)) {
@@ -47,24 +49,33 @@ export const useSessionManager = () => {
     if (typeof chrome !== 'undefined' && chrome.storage) {
       chrome.storage.local.get([STORAGE_KEY], (result) => {
         try {
-          const loadedSessions = result[STORAGE_KEY] || [];
+          // ✅ 修复：确保 loadedSessions 是数组
+          const rawSessions = result[STORAGE_KEY];
+          const loadedSessions = Array.isArray(rawSessions) ? rawSessions : [];
           // 按时间倒序排列（最新的在顶部）
-          const sortedSessions = loadedSessions.sort((a, b) => b.createdAt - a.createdAt);
+          const sortedSessions = loadedSessions
+            .filter(s => s && typeof s === 'object') // 过滤无效项
+            .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
           setSessions(sortedSessions);
           
           // 如果有 sessions，默认选择最新的
-          if (sortedSessions.length > 0) {
+          if (sortedSessions.length > 0 && sortedSessions[0] && sortedSessions[0].id) {
             setCurrentSessionId(sortedSessions[0].id);
+          } else {
+            setCurrentSessionId(null);
           }
           
           setIsLoading(false);
         } catch (error) {
           console.error('[SessionManager] Failed to load sessions:', error);
           setSessions([]);
+          setCurrentSessionId(null);
           setIsLoading(false);
         }
       });
     } else {
+      setSessions([]);
+      setCurrentSessionId(null);
       setIsLoading(false);
     }
   }, []);
@@ -105,15 +116,18 @@ export const useSessionManager = () => {
 
   // 创建新 session
   const createSession = useCallback((opengraphData = []) => {
+    // ✅ 修复：确保 sessions 和 opengraphData 是数组
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    const safeOpengraphData = Array.isArray(opengraphData) ? opengraphData : [];
     const newSession = {
       id: generateSessionId(),
-      name: generateSessionName(sessions),
+      name: generateSessionName(safeSessions),
       createdAt: Date.now(),
-      opengraphData: opengraphData,
-      tabCount: opengraphData.length,
+      opengraphData: safeOpengraphData,
+      tabCount: safeOpengraphData.length,
     };
 
-    const newSessions = [newSession, ...sessions]; // 新 session 在顶部
+    const newSessions = [newSession, ...safeSessions]; // 新 session 在顶部
     setSessions(newSessions);
     setCurrentSessionId(newSession.id);
     saveSessions(newSessions);
@@ -123,12 +137,15 @@ export const useSessionManager = () => {
 
   // 更新 session 数据
   const updateSession = useCallback((sessionId, updates) => {
-    const newSessions = sessions.map(session => {
-      if (session.id === sessionId) {
+    // ✅ 修复：确保 sessions 是数组
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    const newSessions = safeSessions.map(session => {
+      if (session && session.id === sessionId) {
         const updated = { ...session, ...updates };
         // 如果更新了 opengraphData，自动更新 tabCount
         if (updates.opengraphData !== undefined) {
-          updated.tabCount = updates.opengraphData.length;
+          const safeOpengraphData = Array.isArray(updates.opengraphData) ? updates.opengraphData : [];
+          updated.tabCount = safeOpengraphData.length;
         }
         return updated;
       }
@@ -140,7 +157,9 @@ export const useSessionManager = () => {
 
   // 删除 session
   const deleteSession = useCallback((sessionId) => {
-    const newSessions = sessions.filter(s => s.id !== sessionId);
+    // ✅ 修复：确保 sessions 是数组
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    const newSessions = safeSessions.filter(s => s && s.id !== sessionId);
     setSessions(newSessions);
     saveSessions(newSessions);
     
@@ -156,7 +175,9 @@ export const useSessionManager = () => {
 
   // 获取当前 session
   const getCurrentSession = useCallback(() => {
-    return sessions.find(s => s.id === currentSessionId) || null;
+    // ✅ 修复：确保 sessions 是数组
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    return safeSessions.find(s => s && s.id === currentSessionId) || null;
   }, [sessions, currentSessionId]);
 
   // 重命名 session

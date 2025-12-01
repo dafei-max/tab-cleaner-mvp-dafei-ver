@@ -50,6 +50,9 @@ export const ViewContainer = ({
   onHistoryChange,
   getCanvasCursor,
 }) => {
+  // ✅ 修复：确保 sessions 是数组
+  const safeSessions = Array.isArray(sessions) ? sessions : [];
+  
   return (
     <AnimatePresence mode="wait">
       {viewMode === 'masonry' ? (
@@ -62,7 +65,7 @@ export const ViewContainer = ({
           style={{ pointerEvents: hasActiveSearch ? 'none' : 'auto' }}
         >
           <SessionMasonryGrid
-            sessions={sessions}
+            sessions={safeSessions}
             searchQuery={searchQuery}
             onCardClick={onCardClick}
             onSessionDelete={onSessionDelete}
@@ -72,9 +75,9 @@ export const ViewContainer = ({
             onSessionFocus={onSessionFocus}
           />
           {/* Scroll Spy Indicator */}
-          {sessions.length > 1 && (
+          {safeSessions.length > 1 && (
             <ScrollSpyIndicator 
-              sessions={sessions} 
+              sessions={safeSessions} 
               containerRef={sessionContainerRef}
               activeSessionId={currentSessionId}
               onActiveSessionChange={onSessionFocus}

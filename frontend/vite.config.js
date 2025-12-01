@@ -14,10 +14,13 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
+    sourcemap: true, // ✅ 启用 source maps 便于调试
+    minify: 'esbuild', // ✅ 使用 esbuild（Vite 默认，更快）
     rollupOptions: {
       input: {
         blank: resolve(__dirname, "public/blank.html"),
         personalspace: resolve(__dirname, "personalspace.html"),
+        sidepanel: resolve(__dirname, "public/sidepanel.html"),
       },
       output: {
         entryFileNames: "assets/[name].js",

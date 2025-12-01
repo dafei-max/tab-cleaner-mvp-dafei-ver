@@ -1,2 +1,70 @@
 @import "tailwindcss";
 
+/* =========================================
+   用户体验提示动画 (UX Hints & Animations)
+========================================= */
+
+/* --- 1. 页面加载时的图片呼吸提示 --- */
+
+/* 定义蓝色呼吸动画的关键帧 */
+@keyframes tc-blue-breathing-glow {
+  0% {
+    /* 初始状态：微弱的光晕 */
+    box-shadow: 0 0 4px 1px rgba(64, 158, 255, 0.2);
+    /* 可以选择性地稍微提亮图片，增加吸引力，不需要可以删掉下面这行 */
+    filter: brightness(1);
+  }
+  50% {
+    /* 中间状态：扩散的光晕，使用双层阴影制造柔和感 */
+    /* 第一层是核心亮光，第二层是扩散的柔光 */
+    box-shadow: 0 0 12px 4px rgba(64, 158, 255, 0.7), 0 0 24px 8px rgba(64, 158, 255, 0.3);
+    filter: brightness(1.05);
+  }
+  100% {
+    /* 回到初始状态 */
+    box-shadow: 0 0 4px 1px rgba(64, 158, 255, 0.2);
+    filter: brightness(1);
+  }
+}
+
+/* 应用于可采集图片的类 */
+.tc-collectible-hint {
+  /* 确保光晕显示在最上层，不被周围元素遮挡 */
+  position: relative;
+  z-index: 999; 
+  /* 应用动画：动画名，时长，缓动函数，无限循环 */
+  /* 2s 完成一次呼吸，看起来比较舒缓 */
+  animation: tc-blue-breathing-glow 2s ease-in-out infinite;
+  /* 添加一个过渡，以便 7s 后移除类时光晕是渐隐而不是突然消失 */
+  transition: box-shadow 0.5s ease-out, filter 0.5s ease-out;
+  /* 圆角让光晕更柔和，如果网页图片主要是直角，可以去掉 */
+  border-radius: 4px;
+}
+
+/* --- 2. 拖拽时桌宠的交互反馈 --- */
+
+/* 当用户拖拽图片时，桌宠容器被添加的类 */
+#tab-cleaner-pet-container.is-dragging-active,
+.tc-pet-container.is-dragging-active {
+    /* 丝滑感的核心：
+       1. 使用强烈的、聚焦的亮蓝色/青色光晕，营造"磁吸"和"充能"的感觉。
+       2. 添加 transition，让光晕的出现和消失是渐变的，不是突兀的。
+    */
+    box-shadow: 0 0 20px 5px rgba(0, 220, 255, 0.8), 0 0 40px 10px rgba(0, 220, 255, 0.4) !important;
+    
+    /* 可选：让桌宠稍微放大一点点，表示"准备好接收了"，增加动态感 */
+    transform: scale(1.05) !important;
+    
+    /* 关键：平滑过渡属性 */
+    transition: box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+    
+    /* 确保桌宠在拖拽层之下，但比其他网页内容高 */
+    z-index: 9998;
+}
+
+/* 确保桌宠默认状态也有 transition，这样拖拽结束时光晕消失也是平滑的 */
+#tab-cleaner-pet-container,
+.tc-pet-container {
+    transition: box-shadow 0.3s ease-out, transform 0.3s ease-out;
+}
+

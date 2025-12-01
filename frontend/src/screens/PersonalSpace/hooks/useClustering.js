@@ -20,18 +20,25 @@ export const useClustering = ({
 
   // 处理聚类重命名
   const handleClusterRename = useCallback((clusterId, newName) => {
-    setClusters(prev => prev.map(c => 
-      c.id === clusterId ? { ...c, name: newName } : c
-    ));
+    setClusters(prev => {
+      // ✅ 修复：确保 prev 是数组
+      const safePrev = Array.isArray(prev) ? prev : [];
+      return safePrev.map(c => 
+        c && c.id === clusterId ? { ...c, name: newName } : c
+      );
+    });
   }, []);
 
   // 处理聚类拖拽
   const handleClusterDrag = useCallback((clusterId, newCenter, isDragEnd) => {
+    // ✅ 修复：确保 clusters 是数组
+    const safeClusters = Array.isArray(clusters) ? clusters : [];
+    
     if (!clusterDragStartRef.current.has(clusterId)) {
-      const cluster = clusters.find(c => c.id === clusterId);
+      const cluster = safeClusters.find(c => c && c.id === clusterId);
       if (cluster) {
         const initialCenter = cluster.center || { x: 720, y: 512 };
-        const initialItems = (cluster.items || []).map(item => ({
+        const initialItems = (Array.isArray(cluster.items) ? cluster.items : []).map(item => ({
           id: item.id,
           x: item.x || initialCenter.x,
           y: item.y || initialCenter.y,
@@ -49,53 +56,65 @@ export const useClustering = ({
     const offsetX = newCenter.x - dragStart.center.x;
     const offsetY = newCenter.y - dragStart.center.y;
 
-    setClusters(prev => prev.map(c => {
-      if (c.id === clusterId) {
-        const updatedItems = (c.items || []).map(item => {
-          const initialItem = dragStart.items.find(init => init.id === item.id);
+    setClusters(prev => {
+      // ✅ 修复：确保 prev 是数组
+      const safePrev = Array.isArray(prev) ? prev : [];
+      return safePrev.map(c => {
+        if (c && c.id === clusterId) {
+          const updatedItems = (Array.isArray(c.items) ? c.items : []).map(item => {
+            const initialItem = dragStart.items.find(init => init && init.id === item.id);
+            if (initialItem) {
+              return {
+                ...item,
+                x: initialItem.x + offsetX,
+                y: initialItem.y + offsetY,
+              };
+            }
+            return item;
+          });
+
+          return {
+            ...c,
+            center: newCenter,
+            items: updatedItems,
+          };
+        }
+        return c;
+      });
+    });
+
+    if (showOriginalImages) {
+      setImages(prevImages => {
+        // ✅ 修复：确保 prevImages 是数组
+        const safePrevImages = Array.isArray(prevImages) ? prevImages : [];
+        return safePrevImages.map(img => {
+          const initialItem = dragStart.items.find(init => init && init.id === img.id);
           if (initialItem) {
             return {
-              ...item,
+              ...img,
               x: initialItem.x + offsetX,
               y: initialItem.y + offsetY,
             };
           }
-          return item;
+          return img;
         });
-
-        return {
-          ...c,
-          center: newCenter,
-          items: updatedItems,
-        };
-      }
-      return c;
-    }));
-
-    if (showOriginalImages) {
-      setImages(prevImages => prevImages.map(img => {
-        const initialItem = dragStart.items.find(init => init.id === img.id);
-        if (initialItem) {
-          return {
-            ...img,
-            x: initialItem.x + offsetX,
-            y: initialItem.y + offsetY,
-          };
-        }
-        return img;
-      }));
+      });
     } else {
-      setOpengraphData(prevOG => prevOG.map(og => {
-        const initialItem = dragStart.items.find(init => init.id === og.id);
-        if (initialItem) {
-          return {
-            ...og,
-            x: initialItem.x + offsetX,
-            y: initialItem.y + offsetY,
-          };
-        }
-        return og;
-      }));
+      setOpengraphData(prevOG => {
+        // ✅ 修复：确保 prevOG 是数组
+        const safePrevOG = Array.isArray(prevOG) ? prevOG : [];
+        return safePrevOG.map(og => {
+          const initialItem = dragStart.items.find(init => init && init.id === og.id);
+          if (initialItem) {
+            return {
+              ...og,
+              x: initialItem.x + offsetX,
+              y: initialItem.y + offsetY,
+            };
+          }
+          return og;
+        });
+      });
     }
 
     if (isDragEnd) {
@@ -105,39 +124,59 @@ export const useClustering = ({
 
   // 添加标签
   const handleAddLabel = useCallback(() => {
+    // ✅ 修复：确保 aiLabels 是数组
+    const safeAiLabels = Array.isArray(aiLabels) ? aiLabels : [];
     const newLabel = prompt('请输入新标签名称（最多3个标签）：');
-    if (newLabel && newLabel.trim() && aiLabels.length < 3) {
-      setAiLabels(prev => [...prev, newLabel.trim()]);
+    if (newLabel && newLabel.trim() && safeAiLabels.length < 3) {
+      setAiLabels(prev => {
+        const safePrev = Array.isArray(prev) ? prev : [];
+        return [...safePrev, newLabel.trim()];
+      });
     }
-  }, [aiLabels.length]);
+  }, [aiLabels]);
 
   // 重命名标签
   const handleLabelRename = useCallback((idx, newLabel) => {
-    setAiLabels(prev => prev.map((l, i) => i === idx ? newLabel : l));
+    setAiLabels(prev => {
+      // ✅ 修复：确保 prev 是数组
+      const safePrev = Array.isArray(prev) ? prev : [];
+      return safePrev.map((l, i) => i === idx ? newLabel : l);
+    });
   }, []);
 
   // 删除标签
   const handleLabelDelete = useCallback((idx) => {
-    if (window.confirm(`删除标签 "${aiLabels[idx]}"？`)) {
-      setAiLabels(prev => prev.filter((_, i) => i !== idx));
+    // ✅ 修复：确保 aiLabels 是数组
+    const safeAiLabels = Array.isArray(aiLabels) ? aiLabels : [];
+    if (safeAiLabels[idx] && window.confirm(`删除标签 "${safeAiLabels[idx]}"？`)) {
+      setAiLabels(prev => {
+        const safePrev = Array.isArray(prev) ? prev : [];
+        return safePrev.filter((_, i) => i !== idx);
+      });
     }
   }, [aiLabels]);
 
   // 按标签分类
   const handleClassify = useCallback(async () => {
-    if (isClustering || aiLabels.length === 0) return;
+    // ✅ 修复：确保 aiLabels 是数组
+    const safeAiLabels = Array.isArray(aiLabels) ? aiLabels : [];
+    if (isClustering || safeAiLabels.length === 0) return;
     
     try {
       setIsClustering(true);
-      let allItems = showOriginalImages ? images : opengraphData;
+      // ✅ 修复：确保数据是数组
+      const safeImages = Array.isArray(images) ? images : [];
+      const safeOpengraphData = Array.isArray(opengraphData) ? opengraphData : [];
+      let allItems = showOriginalImages ? safeImages : safeOpengraphData;
       
-      const clusteredItemIds = clusters
-        .filter(c => c.type === 'manual')
-        .flatMap(c => (c.items || []).map(item => item.id))
-        .filter(Boolean);
+      // ✅ 修复：确保 clusters 是数组
+      const safeClusters = Array.isArray(clusters) ? clusters : [];
+      const clusteredItemIds = safeClusters
+        .filter(c => c && c.type === 'manual')
+        .flatMap(c => (Array.isArray(c.items) ? c.items : []).map(item => item && item.id ? item.id : null).filter(Boolean));
       
       const itemsWithEmbedding = allItems.filter(item => 
-        item.text_embedding || item.image_embedding
+        item && (item.text_embedding || item.image_embedding)
       );
       
       if (itemsWithEmbedding.length === 0) {
@@ -146,13 +185,13 @@ export const useClustering = ({
       }
       
       const result = await classifyByLabels(
-        aiLabels,
+        safeAiLabels,
         itemsWithEmbedding,
         clusteredItemIds.length > 0 ? clusteredItemIds : null
       );
       
       if (result && result.ok && result.clusters) {
-        const updatedClusters = [...clusters, ...result.clusters];
+        const updatedClusters = [...safeClusters, ...result.clusters];
         const repositionedClusters = calculateMultipleClustersLayout(updatedClusters, {
           canvasWidth: 1440,
           canvasHeight: 1024,
@@ -162,17 +201,21 @@ export const useClustering = ({
         setClusters(repositionedClusters);
         
         const classifiedItemIds = new Set(
-          result.clusters.flatMap(c => (c.items || []).map(item => item.id))
+          result.clusters.flatMap(c => (Array.isArray(c.items) ? c.items : []).map(item => item && item.id ? item.id : null).filter(Boolean))
         );
         
         if (showOriginalImages) {
           setImages(prev => {
-            const remaining = prev.filter(img => !classifiedItemIds.has(img.id));
+            // ✅ 修复：确保 prev 是数组
+            const safePrev = Array.isArray(prev) ? prev : [];
+            const remaining = safePrev.filter(img => img && !classifiedItemIds.has(img.id));
             return calculateRadialLayout(remaining);
           });
         } else {
           setOpengraphData(prev => {
-            const remaining = prev.filter(og => !classifiedItemIds.has(og.id));
+            // ✅ 修复：确保 prev 是数组
+            const safePrev = Array.isArray(prev) ? prev : [];
+            const remaining = safePrev.filter(og => og && !classifiedItemIds.has(og.id));
             return calculateRadialLayout(remaining);
           });
         }
@@ -191,15 +234,19 @@ export const useClustering = ({
     
     try {
       setIsClustering(true);
-      let allItems = showOriginalImages ? images : opengraphData;
+      // ✅ 修复：确保数据是数组
+      const safeImages = Array.isArray(images) ? images : [];
+      const safeOpengraphData = Array.isArray(opengraphData) ? opengraphData : [];
+      let allItems = showOriginalImages ? safeImages : safeOpengraphData;
       
-      const clusteredItemIds = clusters
-        .filter(c => c.type === 'manual')
-        .flatMap(c => (c.items || []).map(item => item.id))
-        .filter(Boolean);
+      // ✅ 修复：确保 clusters 是数组
+      const safeClusters = Array.isArray(clusters) ? clusters : [];
+      const clusteredItemIds = safeClusters
+        .filter(c => c && c.type === 'manual')
+        .flatMap(c => (Array.isArray(c.items) ? c.items : []).map(item => item && item.id ? item.id : null).filter(Boolean));
       
       const itemsWithEmbedding = allItems.filter(item => 
-        item.text_embedding || item.image_embedding
+        item && (item.text_embedding || item.image_embedding)
       );
       
       if (itemsWithEmbedding.length < 3) {
@@ -214,7 +261,7 @@ export const useClustering = ({
       );
       
       if (result && result.ok && result.clusters) {
-        const updatedClusters = [...clusters, ...result.clusters];
+        const updatedClusters = [...safeClusters, ...result.clusters];
         const repositionedClusters = calculateMultipleClustersLayout(updatedClusters, {
           canvasWidth: 1440,
           canvasHeight: 1024,
@@ -224,17 +271,21 @@ export const useClustering = ({
         setClusters(repositionedClusters);
         
         const clusteredItemIds = new Set(
-          result.clusters.flatMap(c => (c.items || []).map(item => item.id))
+          result.clusters.flatMap(c => (Array.isArray(c.items) ? c.items : []).map(item => item && item.id ? item.id : null).filter(Boolean))
         );
         
         if (showOriginalImages) {
           setImages(prev => {
-            const remaining = prev.filter(img => !clusteredItemIds.has(img.id));
+            // ✅ 修复：确保 prev 是数组
+            const safePrev = Array.isArray(prev) ? prev : [];
+            const remaining = safePrev.filter(img => img && !clusteredItemIds.has(img.id));
             return calculateRadialLayout(remaining);
           });
         } else {
           setOpengraphData(prev => {
-            const remaining = prev.filter(og => !clusteredItemIds.has(og.id));
+            // ✅ 修复：确保 prev 是数组
+            const safePrev = Array.isArray(prev) ? prev : [];
+            const remaining = safePrev.filter(og => og && !clusteredItemIds.has(og.id));
             return calculateRadialLayout(remaining);
           });
         }

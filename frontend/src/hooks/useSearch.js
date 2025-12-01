@@ -8,10 +8,13 @@ import { searchContent } from "../shared/api";
  * @returns {Object} 搜索相关的状态和方法
  */
 export const useSearch = (opengraphData = []) => {
+  // ✅ 修复：确保 opengraphData 是数组
+  const safeOpengraphData = Array.isArray(opengraphData) ? opengraphData : [];
   // 使用 ref 保存最新的 opengraphData，避免闭包问题（用于本地模糊搜索兜底）
-  const opengraphDataRef = useRef(opengraphData);
+  const opengraphDataRef = useRef(safeOpengraphData);
   useEffect(() => {
-    opengraphDataRef.current = opengraphData;
+    // ✅ 修复：确保存储的是数组
+    opengraphDataRef.current = Array.isArray(opengraphData) ? opengraphData : [];
   }, [opengraphData]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
@@ -21,6 +24,10 @@ export const useSearch = (opengraphData = []) => {
 
   // 本地模糊排序（兜底方案）
   const fuzzyRankLocally = (query, items) => {
+    // ✅ 修复：添加安全检查，确保 items 是数组
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return [];
+    }
     const q = query.toLowerCase().trim();
     const qTokens = q.split(/\s+/).filter(Boolean);
     const scored = items.map((it, idx) => {

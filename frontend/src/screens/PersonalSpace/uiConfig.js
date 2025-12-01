@@ -147,7 +147,7 @@ export const UI_CONFIG = {
 
   // ========== Radial 视图布局 ==========
   radial: {
-    baseRadius: 180,           // 第一层半径（px）
+    baseRadius: 250,           // 第一层半径（px）- 增大内圆半径
     radiusGap: 280,            // 层间距（px）
   },
   radialCamera: {

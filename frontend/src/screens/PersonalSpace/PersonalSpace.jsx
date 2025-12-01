@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import { Component } from "../../components/Component";
 import { SearchBar } from "../../components/SearchBar";
@@ -52,7 +52,34 @@ export const PersonalSpace = () => {
   const [selectedIds, setSelectedIds] = useState(new Set());
   
   // 页面切换状态：'home' | 'petSetting'
-  const [currentPage, setCurrentPage] = useState('home');
+  // ✅ 检查 URL hash，如果包含 #pet-setting，默认打开宠物设置页面
+  const [currentPage, setCurrentPage] = useState(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#pet-setting') {
+      return 'petSetting';
+    }
+    return 'home';
+  });
+  
+  // ✅ 监听 hash 变化，支持从外部打开宠物设置页面
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (window.location.hash === '#pet-setting') {
+        setCurrentPage('petSetting');
+      } else if (window.location.hash === '' || window.location.hash === '#') {
+        setCurrentPage('home');
+      }
+    };
+    
+    // 初始检查
+    handleHashChange();
+    
+    // 监听 hash 变化
+    window.addEventListener('hashchange', handleHashChange);
+    
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, []);
   const [activeTool, setActiveTool] = useState(null); // 'draw' | 'lasso' | 'text' | null
   const containerRef = useRef(null);
   
@@ -133,12 +160,28 @@ export const PersonalSpace = () => {
   // 搜索相关状态（使用 hook）
   // 注意：对于 masonry 视图，搜索应该基于所有 sessions 的数据
   // 对于 radial 视图，搜索基于当前 session 的数据
-  const allOpengraphData = sessions.flatMap(s => s.opengraphData || []);
+  // ✅ 修复：添加安全检查，防止 sessions 为 null/undefined
+  // ✅ 关键修复：使用 useMemo 确保计算只在 sessions 变化时执行，避免在初始化时访问 null
+  const allOpengraphData = useMemo(() => {
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    return safeSessions.flatMap(s => {
+      if (!s || typeof s !== 'object') return [];
+      const ogData = s.opengraphData;
+      return Array.isArray(ogData) ? ogData : [];
+    });
+  }, [sessions]);
   const currentSession = getCurrentSession();
   const currentSessionOpengraphData = currentSession ? (currentSession.opengraphData || []) : [];
   
   // 根据视图模式选择搜索数据源
-  const searchDataSource = viewMode === 'masonry' ? allOpengraphData : currentSessionOpengraphData;
+  // ✅ 修复：确保 searchDataSource 是数组
+  // ✅ 关键修复：使用 useMemo 确保计算只在依赖变化时执行
+  const searchDataSource = useMemo(() => {
+    if (viewMode === 'masonry') {
+      return Array.isArray(allOpengraphData) ? allOpengraphData : [];
+    }
+    return Array.isArray(currentSessionOpengraphData) ? currentSessionOpengraphData : [];
+  }, [viewMode, allOpengraphData, currentSessionOpengraphData]);
   
   const {
     searchQuery,
@@ -153,17 +196,28 @@ export const PersonalSpace = () => {
   
   // Radial 视图使用的数据（当前 session）
   // 如果当前 session 有数据，使用 session 数据；否则使用旧的 opengraphData（向后兼容）
-  const radialOpengraphData = viewMode === 'radial' 
-    ? (currentSessionOpengraphData.length > 0 ? currentSessionOpengraphData : opengraphData)
-    : opengraphData;
+  // ✅ 修复：添加安全检查，确保 opengraphData 是数组
+  // ✅ 关键修复：使用 useMemo 确保计算只在依赖变化时执行
+  const radialOpengraphData = useMemo(() => {
+    if (viewMode === 'radial') {
+      if (Array.isArray(currentSessionOpengraphData) && currentSessionOpengraphData.length > 0) {
+        return currentSessionOpengraphData;
+      }
+      return Array.isArray(opengraphData) ? opengraphData : [];
+    }
+    return Array.isArray(opengraphData) ? opengraphData : [];
+  }, [viewMode, currentSessionOpengraphData, opengraphData]);
 
   // 当切换到 radial 视图或切换 session 时，同步更新 clusters 和 opengraphData
   useEffect(() => {
-    if (viewMode === 'radial' && radialOpengraphData.length > 0) {
+    // ✅ 修复：添加安全检查，确保 radialOpengraphData 是数组
+    if (viewMode === 'radial' && Array.isArray(radialOpengraphData) && radialOpengraphData.length > 0) {
       // 计算放射状布局位置
       const positionedOG = calculateRadialLayout(radialOpengraphData, {
         centerX: 720,
         centerY: 512,
+        baseRadius: UI_CONFIG.radial.baseRadius,
+        radiusGap: UI_CONFIG.radial.radiusGap,
       }).map((og, index) => ({
         ...og,
         id: og.id || `og-${index}-${Date.now()}`,
@@ -202,7 +256,9 @@ export const PersonalSpace = () => {
       
       // 更新 clusters：如果有现有聚类，保留；否则创建默认聚类
       setClusters(prev => {
-        if (prev.length === 0) {
+        // ✅ 修复：确保 prev 是数组
+        const safePrev = Array.isArray(prev) ? prev : [];
+        if (safePrev.length === 0) {
           // 创建默认聚类包含所有卡片（items 需要包含 x, y 坐标，供 Spring 动画使用）
           return [{
             id: 'default-cluster',
@@ -223,12 +279,14 @@ export const PersonalSpace = () => {
           // 重要：需要从 positionedOG 中获取最新的 x, y 坐标
           // 同时，对于不在现有聚类中的新 items，需要添加到默认聚类或创建新聚类
           const existingItemIds = new Set(
-            prev.flatMap(c => (c.items || []).map(item => item.id))
+            safePrev.flatMap(c => (Array.isArray(c.items) ? c.items : []).map(item => item && item.id ? item.id : null).filter(Boolean))
           );
           const newItems = positionedOGWithCoords.filter(og => !existingItemIds.has(og.id));
           
-          return prev.map(cluster => {
-            const updatedItems = cluster.items
+          return safePrev.map(cluster => {
+            // ✅ 修复：添加安全检查，确保 cluster.items 是数组
+            const clusterItems = Array.isArray(cluster.items) ? cluster.items : [];
+            const updatedItems = clusterItems
               .filter(item => positionedOGWithCoords.some(og => og.id === item.id))
               .map(item => {
                 // 从 positionedOGWithCoords 中获取最新的位置信息
@@ -267,7 +325,7 @@ export const PersonalSpace = () => {
           }] : []);
         }
       });
-    } else if (viewMode === 'radial' && radialOpengraphData.length === 0) {
+    } else if (viewMode === 'radial' && (!Array.isArray(radialOpengraphData) || radialOpengraphData.length === 0)) {
       // 如果切换到 radial 视图但没有数据，清空 clusters
       setClusters([]);
       setOpengraphData([]);
@@ -286,8 +344,10 @@ export const PersonalSpace = () => {
     if (typeof chrome !== 'undefined' && chrome.storage) {
       chrome.storage.local.get(['opengraphData', 'currentSessionId', 'recent_opengraph'], (result) => {
         try {
+          // ✅ 修复：添加安全检查，确保 sessions 是数组
+          const safeSessions = Array.isArray(sessions) ? sessions : [];
           // 如果有 recent_opengraph 但没有 sessions，尝试使用它
-          if (sessions.length === 0 && result.recent_opengraph && result.recent_opengraph.length > 0) {
+          if (safeSessions.length === 0 && result.recent_opengraph && Array.isArray(result.recent_opengraph) && result.recent_opengraph.length > 0) {
             console.log('[PersonalSpace] Found recent_opengraph, creating session from it...', result.recent_opengraph.length, 'items');
             const validOG = result.recent_opengraph.filter(item => 
               item && 
@@ -303,6 +363,8 @@ export const PersonalSpace = () => {
               const positionedOG = calculateRadialLayout(validOG, {
                 centerX: 720,
                 centerY: 512,
+                baseRadius: UI_CONFIG.radial.baseRadius,
+                radiusGap: UI_CONFIG.radial.radiusGap,
               }).map((og, index) => ({
                 ...og,
                 id: og.id || `og-${index}-${Date.now()}`,
@@ -312,7 +374,9 @@ export const PersonalSpace = () => {
               
               setTimeout(() => {
                 setClusters(prev => {
-                  if (prev.length === 0) {
+                  // ✅ 修复：确保 prev 是数组
+                  const safePrev = Array.isArray(prev) ? prev : [];
+                  if (safePrev.length === 0) {
                     return [{
                       id: 'default-cluster',
                       name: '未分类',
@@ -323,14 +387,14 @@ export const PersonalSpace = () => {
                       item_count: positionedOG.length,
                     }];
                   }
-                  return prev;
+                  return safePrev;
                 });
               }, 100);
             }
           }
           
           // 如果有旧的 opengraphData 但没有 sessions，迁移到第一个 session
-          if (sessions.length === 0 && result.opengraphData) {
+          if (safeSessions.length === 0 && result.opengraphData) {
             const ogData = Array.isArray(result.opengraphData) 
               ? result.opengraphData 
               : (result.opengraphData.data || []);
@@ -365,7 +429,9 @@ export const PersonalSpace = () => {
                 // 创建默认聚类
                 setTimeout(() => {
                   setClusters(prev => {
-                    if (prev.length === 0) {
+                    // ✅ 修复：确保 prev 是数组
+                    const safePrev = Array.isArray(prev) ? prev : [];
+                    if (safePrev.length === 0) {
                       return [{
                         id: 'default-cluster',
                         name: '未分类',
@@ -376,7 +442,7 @@ export const PersonalSpace = () => {
                         item_count: positionedOG.length,
                       }];
                     }
-                    return prev;
+                    return safePrev;
                   });
                 }, 100);
               }
@@ -384,8 +450,8 @@ export const PersonalSpace = () => {
           }
           
           // 设置当前 session（如果有）
-          if (result.currentSessionId && sessions.length > 0) {
-            const sessionExists = sessions.some(s => s.id === result.currentSessionId);
+          if (result.currentSessionId && safeSessions.length > 0) {
+            const sessionExists = safeSessions.some(s => s && s.id === result.currentSessionId);
             if (sessionExists) {
               setCurrentSessionId(result.currentSessionId);
             }
@@ -395,14 +461,16 @@ export const PersonalSpace = () => {
         }
       });
     }
-  }, [isSessionsLoading, sessions.length, createSession, setCurrentSessionId]);
+  }, [isSessionsLoading, sessions, createSession, setCurrentSessionId]); // ✅ 修复：使用 sessions 而不是 sessions.length，避免 null.length 错误
 
   // Spring 动画：更新卡片位置
   const updateCardPosition = useCallback((cardId, x, y) => {
     // 只有在启用 Spring 动画时才更新位置
     // 如果只有默认聚类，不应该更新位置（直接使用计算好的位置）
-    const shouldUpdate = viewMode === 'radial' && clusters.length > 0 && 
-      !(clusters.length === 1 && clusters[0].id === 'default-cluster' && clusters[0].type === 'default');
+    // ✅ 修复：添加安全检查
+    const safeClusters = Array.isArray(clusters) ? clusters : [];
+    const shouldUpdate = viewMode === 'radial' && safeClusters.length > 0 && 
+      !(safeClusters.length === 1 && safeClusters[0] && safeClusters[0].id === 'default-cluster' && safeClusters[0].type === 'default');
     
     if (!shouldUpdate) {
       // 禁用 Spring 动画时，不更新位置
@@ -411,41 +479,47 @@ export const PersonalSpace = () => {
     
     // 更新 opengraphData 或 images 中对应卡片的位置
     if (showOriginalImages) {
-      setImages(prev => prev.map(item => {
+      setImages(prev => Array.isArray(prev) ? prev.map(item => {
         if (item.id === cardId) {
           return { ...item, x, y };
         }
         return item;
-      }));
+      }) : []);
     } else {
-      setOpengraphData(prev => prev.map(item => {
+      setOpengraphData(prev => Array.isArray(prev) ? prev.map(item => {
         if (item.id === cardId) {
           return { ...item, x, y };
         }
         return item;
-      }));
+      }) : []);
     }
   }, [showOriginalImages, viewMode, clusters]);
 
   // Spring 动画：更新聚类中心位置
   const updateClusterCenter = useCallback((clusterId, x, y) => {
     // 更新聚类状态
-    setClusters(prev => prev.map(c => {
-      if (c.id === clusterId) {
-        return { ...c, center: { x, y } };
-      }
-      return c;
-    }));
+    setClusters(prev => {
+      // ✅ 修复：确保 prev 是数组
+      const safePrev = Array.isArray(prev) ? prev : [];
+      return safePrev.map(c => {
+        if (c && c.id === clusterId) {
+          return { ...c, center: { x, y } };
+        }
+        return c;
+      });
+    });
   }, []);
 
   // 使用 Spring 动画系统（每帧更新聚类圆心和卡片位置）
   // 注意：只有在 radial 视图且有聚类时才启用 Spring 动画
   // 如果没有聚类（只有默认聚类），直接使用计算好的位置，不需要 Spring 动画
-  const shouldUseSpringAnimation = viewMode === 'radial' && clusters.length > 0 && 
-    !(clusters.length === 1 && clusters[0].id === 'default-cluster' && clusters[0].type === 'default');
+  // ✅ 修复：添加安全检查
+  const safeClusters = Array.isArray(clusters) ? clusters : [];
+  const shouldUseSpringAnimation = viewMode === 'radial' && safeClusters.length > 0 && 
+    !(safeClusters.length === 1 && safeClusters[0] && safeClusters[0].id === 'default-cluster' && safeClusters[0].type === 'default');
   
   useClusterSpringAnimation(
-    shouldUseSpringAnimation ? clusters : [],
+    shouldUseSpringAnimation ? safeClusters : [],
     updateCardPosition,
     updateClusterCenter
   );
@@ -476,15 +550,25 @@ export const PersonalSpace = () => {
             ...item,
             similarity: undefined,
           }));
-          const originalData = calculateRadialLayout(cleanedData);
+          const originalData = calculateRadialLayout(cleanedData, {
+            centerX: 720,
+            centerY: 512,
+            baseRadius: UI_CONFIG.radial.baseRadius,
+            radiusGap: UI_CONFIG.radial.radiusGap,
+          });
           setOpengraphData(originalData);
-        } else if (opengraphData.length > 0) {
+        } else if (Array.isArray(opengraphData) && opengraphData.length > 0) {
           // 如果没有 session 数据，使用旧的 opengraphData
           const cleanedData = opengraphData.map(item => ({
             ...item,
             similarity: undefined,
           }));
-          const originalData = calculateRadialLayout(cleanedData);
+          const originalData = calculateRadialLayout(cleanedData, {
+            centerX: 720,
+            centerY: 512,
+            baseRadius: UI_CONFIG.radial.baseRadius,
+            radiusGap: UI_CONFIG.radial.radiusGap,
+          });
           setOpengraphData(originalData);
         }
       } else {
@@ -528,7 +612,12 @@ export const PersonalSpace = () => {
           ...item,
           similarity: undefined,
         }));
-        const originalData = calculateRadialLayout(cleanedData);
+        const originalData = calculateRadialLayout(cleanedData, {
+          centerX: 720,
+          centerY: 512,
+          baseRadius: UI_CONFIG.radial.baseRadius,
+          radiusGap: UI_CONFIG.radial.radiusGap,
+        });
         setOpengraphData(originalData);
       }
     } else {
@@ -540,11 +629,22 @@ export const PersonalSpace = () => {
   // 处理宠物设定空间入口点击
   const handlePetSettingsClick = useCallback(() => {
     setCurrentPage('petSetting');
+    // ✅ 修复：同步更新 URL hash，确保刷新后状态一致
+    if (typeof window !== 'undefined') {
+      window.location.hash = '#pet-setting';
+    }
   }, []);
   
   // 处理返回主页（点击洗衣房图标）
   const handleBackToHome = useCallback(() => {
     setCurrentPage('home');
+    // ✅ 修复：清除 URL hash，确保刷新后回到主页
+    if (typeof window !== 'undefined') {
+      // 使用 history.replaceState 避免触发 hashchange 事件（因为我们已经手动更新了状态）
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      // 或者直接设置为空 hash
+      // window.location.hash = '';
+    }
   }, []);
 
   // 处理选中
@@ -574,13 +674,16 @@ export const PersonalSpace = () => {
   const handleDragEnd = (id, x, y) => {
     // 如果是 OpenGraph 图片
     if (id.startsWith('og-')) {
-      setOpengraphData(prev =>
-        prev.map(og =>
-          og.id === id ? { ...og, x, y } : og
-        )
-      );
+      setOpengraphData(prev => {
+        // ✅ 修复：确保 prev 是数组
+        const safePrev = Array.isArray(prev) ? prev : [];
+        return safePrev.map(og =>
+          og && og.id === id ? { ...og, x, y } : og
+        );
+      });
       // 记录到历史
-      const prevOG = opengraphData.find(og => og.id === id);
+      const safeOpengraphData = Array.isArray(opengraphData) ? opengraphData : [];
+      const prevOG = safeOpengraphData.find(og => og && og.id === id);
       if (prevOG) {
         addToHistory({ 
           type: 'opengraph-move', 
@@ -594,13 +697,16 @@ export const PersonalSpace = () => {
       }
     } else {
       // 原有图片
-      setImages(prev =>
-        prev.map(img =>
-          img.id === id ? { ...img, x, y } : img
-        )
-      );
+      setImages(prev => {
+        // ✅ 修复：确保 prev 是数组
+        const safePrev = Array.isArray(prev) ? prev : [];
+        return safePrev.map(img =>
+          img && img.id === id ? { ...img, x, y } : img
+        );
+      });
       // 记录到历史
-      const prevImg = images.find(img => img.id === id);
+      const safeImages = Array.isArray(images) ? images : [];
+      const prevImg = safeImages.find(img => img && img.id === id);
       if (prevImg) {
         addToHistory({ 
           type: 'image-move', 
@@ -678,7 +784,9 @@ export const PersonalSpace = () => {
       const handleSessionDelete = useCallback((sessionId, selectedCardIds = null) => {
         if (selectedCardIds && selectedCardIds.length > 0) {
           // 删除选中的卡片
-          const session = sessions.find(s => s.id === sessionId);
+          // ✅ 修复：添加安全检查
+          const safeSessions = Array.isArray(sessions) ? sessions : [];
+          const session = safeSessions.find(s => s && s.id === sessionId);
           if (session) {
             const updatedData = session.opengraphData.filter(item => !selectedCardIds.includes(item.id));
             updateSession(sessionId, { opengraphData: updatedData });
@@ -691,7 +799,9 @@ export const PersonalSpace = () => {
 
       // 处理 Session 全部打开
       const handleSessionOpenAll = useCallback((sessionId, selectedCardIds = null) => {
-        const session = sessions.find(s => s.id === sessionId);
+        // ✅ 修复：添加安全检查
+        const safeSessions = Array.isArray(sessions) ? sessions : [];
+        const session = safeSessions.find(s => s && s.id === sessionId);
         if (!session) return;
 
         const urlsToOpen = selectedCardIds && selectedCardIds.length > 0
@@ -713,11 +823,13 @@ export const PersonalSpace = () => {
 
       // 调试日志
       useEffect(() => {
+        // ✅ 修复：添加安全检查
+        const safeSessions = Array.isArray(sessions) ? sessions : [];
         console.log('[PersonalSpace] Sessions state:', {
-          sessionsCount: sessions.length,
+          sessionsCount: safeSessions.length,
           isLoading: isSessionsLoading,
           currentSessionId,
-          sessions: sessions.map(s => ({
+          sessions: safeSessions.map(s => ({
             id: s.id,
             name: s.name,
             itemCount: s.opengraphData?.length || 0,
@@ -812,8 +924,10 @@ export const PersonalSpace = () => {
             onCardDoubleClick={handleCardDoubleClick}
             onDelete={(ogId) => {
               setOpengraphData(prev => {
-                const prevOG = [...prev];
-                const newOG = prev.filter(og => og.id !== ogId);
+                // ✅ 修复：确保 prev 是数组
+                const safePrev = Array.isArray(prev) ? prev : [];
+                const prevOG = [...safePrev];
+                const newOG = safePrev.filter(og => og && og.id !== ogId);
                 addToHistory({ 
                   type: 'opengraph-delete', 
                   action: 'delete', 
@@ -822,7 +936,7 @@ export const PersonalSpace = () => {
                 });
                 return newOG;
               });
-              if (selectedIds.has(ogId)) {
+              if (selectedIds && selectedIds.has(ogId)) {
                 const newSelectedIds = new Set(selectedIds);
                 newSelectedIds.delete(ogId);
                 setSelectedIds(newSelectedIds);

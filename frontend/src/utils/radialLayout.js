@@ -26,8 +26,9 @@ export const calculateRadialLayout = (items, options = {}) => {
   
   // 按照文档要求：baseRadius = 40, radiusGap = 70（但为了视觉效果更好，大幅增加间距）
   // 不限制每层卡片数，越往外层卡片越多
-  const baseRadius = 180; // 增大第一层半径，避免卡片叠在一起
-  const radiusGap = 280;  // 大幅增加层间距，让各层之间更宽松
+  // 从 uiConfig 读取配置，如果没有则使用默认值
+  const baseRadius = options.baseRadius ?? 250; // 增大第一层半径，避免卡片叠在一起
+  const radiusGap = options.radiusGap ?? 280;  // 大幅增加层间距，让各层之间更宽松
   
   const positioned = [];
   let cardIdx = 0;

@@ -52,6 +52,259 @@ async function captureTabScreenshot(tabId) {
 }
 
 /**
+ * 创建右键菜单
+ */
+function createContextMenus() {
+  // 移除旧菜单（如果存在）
+  chrome.contextMenus.removeAll(() => {
+    // 创建图片右键菜单
+    chrome.contextMenus.create({
+      id: 'save-image-to-tab-cleaner',
+      title: '收藏到 Tab Cleaner',
+      contexts: ['image'],
+    });
+    
+    console.log('[Background] ✅ Context menus created');
+  });
+}
+
+// 扩展安装时创建菜单
+chrome.runtime.onInstalled.addListener(() => {
+  createContextMenus();
+});
+
+// 启动时创建菜单
+createContextMenus();
+
+/**
+ * 处理右键菜单点击
+ */
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  console.log('[Background] Context menu clicked:', info.menuItemId);
+  
+  if (info.menuItemId === 'save-image-to-tab-cleaner') {
+    handleSaveImageFromContextMenu({ imageUrl: info.srcUrl }, { tab }, () => {});
+  }
+});
+
+/**
+ * 处理从右键菜单保存图片
+ */
+async function handleSaveImageFromContextMenu(req, sender, sendResponse) {
+  try {
+    const imageUrl = req.imageUrl;
+    const tab = sender.tab;
+    
+    if (!imageUrl) {
+      sendResponse({ success: false, error: 'No image URL' });
+      return;
+    }
+    
+    console.log('[Background] Saving image from context menu:', imageUrl);
+    
+    // 发送消息给 content script
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      action: 'save-image-from-context-menu',
+      imageUrl: imageUrl,
+    });
+    
+    if (response && response.success) {
+      console.log('[Background] Image saved successfully');
+      
+      // 显示通知（可选）
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('static/img/icon-128.png'),
+        title: 'Tab Cleaner',
+        message: '图片已保存',
+      });
+      
+      sendResponse({ success: true });
+    } else {
+      sendResponse({ success: false, error: response?.error || 'Save failed' });
+    }
+  } catch (error) {
+    console.error('[Background] Failed to save image:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * 处理保存采集的图片（拖拽、悬停、截图等）
+ */
+async function handleSaveCapturedImage(req, sender, sendResponse) {
+  try {
+    const ogData = req.data;
+    
+    if (!ogData || !ogData.image) {
+      sendResponse({ success: false, error: 'No image data' });
+      return;
+    }
+    
+    console.log('[Background] Saving captured image:', ogData.url);
+    
+    // 获取或创建当前 session
+    const storageResult = await chrome.storage.local.get(['sessions', 'currentSessionId']);
+    const sessions = storageResult.sessions || [];
+    let currentSessionId = storageResult.currentSessionId;
+    
+    // 如果没有 session，创建一个新的
+    if (!currentSessionId || sessions.length === 0) {
+      const newSession = {
+        id: `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        name: '洗衣筐1',
+        createdAt: Date.now(),
+        opengraphData: [],
+        tabCount: 0,
+      };
+      sessions.unshift(newSession);
+      currentSessionId = newSession.id;
+      await chrome.storage.local.set({ 
+        sessions,
+        currentSessionId 
+      });
+    }
+    
+    // 找到当前 session
+    const sessionIndex = sessions.findIndex(s => s.id === currentSessionId);
+    if (sessionIndex === -1) {
+      sendResponse({ success: false, error: 'Session not found' });
+      return;
+    }
+    
+    const session = sessions[sessionIndex];
+    
+    // 检查是否已存在（去重）
+    const existingIndex = session.opengraphData.findIndex(item => item.url === ogData.url);
+    
+    if (existingIndex !== -1) {
+      // 更新现有项
+      session.opengraphData[existingIndex] = {
+        ...session.opengraphData[existingIndex],
+        ...ogData,
+        timestamp: Date.now(),
+      };
+    } else {
+      // 添加新项
+      session.opengraphData.unshift({
+        ...ogData,
+        id: `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      });
+      session.tabCount = session.opengraphData.length;
+    }
+    
+    // 保存到 storage
+    sessions[sessionIndex] = session;
+    await chrome.storage.local.set({ sessions });
+    
+    console.log('[Background] ✅ Captured image saved to session:', currentSessionId);
+    
+    // 异步发送到后端生成 embedding（如果配置了 API）
+    const apiUrl = API_CONFIG.getBaseUrlSync();
+    if (apiUrl) {
+      (async () => {
+        try {
+          const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
+          const embedResponse = await fetch(embeddingUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              opengraph_items: [ogData]
+            }),
+          });
+          
+          if (embedResponse.ok) {
+            const embedData = await embedResponse.json();
+            if (embedData.data && embedData.data.length > 0) {
+              // 更新 session 中的 embedding 数据
+              const updatedSessions = await chrome.storage.local.get(['sessions']);
+              const updatedSessionList = updatedSessions.sessions || [];
+              const updatedSessionIdx = updatedSessionList.findIndex(s => s.id === currentSessionId);
+              
+              if (updatedSessionIdx !== -1) {
+                const updatedSession = updatedSessionList[updatedSessionIdx];
+                const embedItem = embedData.data[0];
+                const itemIndex = updatedSession.opengraphData.findIndex(item => item.url === ogData.url);
+                
+                if (itemIndex !== -1 && (embedItem.text_embedding || embedItem.image_embedding)) {
+                  updatedSession.opengraphData[itemIndex] = {
+                    ...updatedSession.opengraphData[itemIndex],
+                    text_embedding: embedItem.text_embedding,
+                    image_embedding: embedItem.image_embedding,
+                  };
+                  
+                  updatedSessionList[updatedSessionIdx] = updatedSession;
+                  await chrome.storage.local.set({ sessions: updatedSessionList });
+                  console.log('[Background] ✅ Embedding generated for captured image');
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.warn('[Background] Failed to generate embedding for captured image:', error);
+        }
+      })();
+    }
+    
+    sendResponse({ success: true });
+  } catch (error) {
+    console.error('[Background] Failed to save captured image:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * 处理截图选择请求（框选截图）
+ * @param {Object} req - 请求对象
+ * @param {Object} sender - 发送者信息
+ * @param {Function} sendResponse - 响应函数
+ */
+async function handleScreenshotSelection(req, sender, sendResponse) {
+  try {
+    const { bounds } = req;
+    const tabId = sender.tab?.id;
+    
+    if (!tabId) {
+      sendResponse({ success: false, error: 'No tab ID' });
+      return;
+    }
+    
+    console.log('[Background] 📸 Capturing screenshot selection:', bounds);
+    
+    // 获取当前窗口
+    const currentWindow = await chrome.windows.getCurrent();
+    
+    // 确保标签页是活动的
+    await chrome.tabs.update(tabId, { active: true });
+    
+    // 等待标签页激活
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // 截图整个可见区域
+    const fullScreenshot = await chrome.tabs.captureVisibleTab(currentWindow.id, {
+      format: 'png',
+      quality: 100, // 高质量
+    });
+    
+    // 返回全屏截图，让 content script 裁剪
+    sendResponse({
+      success: true,
+      dataUrl: fullScreenshot,
+      needsCrop: true, // 标记需要裁剪
+      bounds: bounds,
+    });
+    
+    console.log('[Background] ✅ Screenshot captured, needs crop');
+  } catch (error) {
+    console.error('[Background] ❌ Screenshot selection failed:', error);
+    sendResponse({
+      success: false,
+      error: error.message || 'Screenshot failed',
+    });
+  }
+}
+
+/**
  * 为文档类标签页截图（在关闭之前）
  */
 async function captureDocTabScreenshots(tabs) {
@@ -377,6 +630,38 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   //   return true;
   // }
   
+  // 处理截图选择请求
+  if (req.action === "capture-screenshot-selection") {
+    handleScreenshotSelection(req, sender, sendResponse);
+    return true; // 异步响应
+  }
+  
+  // 注册右键菜单
+  if (req.action === "register-context-menu") {
+    createContextMenus();
+    sendResponse({ success: true });
+    return true;
+  }
+  
+  // 处理右键菜单点击
+  if (req.action === "save-image-from-context-menu") {
+    handleSaveImageFromContextMenu(req, sender, sendResponse);
+    return true; // 异步响应
+  }
+  
+  // 处理前端日志上报（image capture / screenshot）
+  if (req.action === "image-capture-log") {
+    console.log("[Image Capture Log][BG]", req.type, req.payload);
+    sendResponse && sendResponse({ success: true });
+    return true;
+  }
+  
+  // 处理保存采集的图片（从 image_capture_enhanced.js 或 screenshot_capture.js）
+  if (req.action === "save-captured-image") {
+    handleSaveCapturedImage(req, sender, sendResponse);
+    return true; // 异步响应
+  }
+  
   // 处理打开个人空间消息
   if (req.action === "open-personalspace") {
     console.log("[Tab Cleaner Background] Opening personal space...");
@@ -393,6 +678,28 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       });
     } catch (error) {
       console.error("[Tab Cleaner Background] Error opening personal space:", error);
+      sendResponse({ ok: false, error: error.message });
+    }
+    return true; // 异步响应
+  }
+  
+  // 处理桌宠设置按钮（redirect到个人空间的桌宠切换页面）
+  if (req.action === "pet-setting") {
+    console.log("[Tab Cleaner Background] Opening pet setting page...");
+    try {
+      // 打开个人空间，并传递参数指示打开宠物设置页面
+      chrome.tabs.create({
+        url: chrome.runtime.getURL("personalspace.html#pet-setting")
+      }, (tab) => {
+        if (chrome.runtime.lastError) {
+          console.error("[Tab Cleaner Background] Failed to create tab:", chrome.runtime.lastError);
+          sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+        } else {
+          sendResponse({ ok: true, tabId: tab?.id });
+        }
+      });
+    } catch (error) {
+      console.error("[Tab Cleaner Background] Error opening pet setting:", error);
       sendResponse({ ok: false, error: error.message });
     }
     return true; // 异步响应
@@ -1158,7 +1465,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           await new Promise(resolve => setTimeout(resolve, minAnimationTime - elapsedTime));
         }
         
-        // 关闭当前 tab
+        // ✅ 关闭当前 tab
         try {
           await chrome.tabs.remove(currentTab.id);
         } catch (error) {
@@ -1170,6 +1477,16 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           await chrome.tabs.sendMessage(currentTab.id, { action: 'hide-cleaning-animation' });
         } catch (e) {
           // 标签页可能已经关闭，忽略错误
+        }
+
+        // ✅ 打开个人空间（redirect）
+        try {
+          await chrome.tabs.create({
+            url: chrome.runtime.getURL("personalspace.html")
+          });
+          console.log('[Tab Cleaner Background] ✓ Personal space opened after cleaning current tab');
+        } catch (tabError) {
+          console.warn('[Tab Cleaner Background] Failed to open personal space:', tabError);
         }
 
         sendResponse({ ok: true, message: "Current tab cleaned and archived" });

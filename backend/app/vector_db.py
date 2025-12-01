@@ -5,6 +5,7 @@
 import os
 import asyncpg
 import json
+import asyncio
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 from datetime import datetime
@@ -228,6 +229,12 @@ async def init_schema():
                         text_embedding vector(1024),
                         image_embedding vector(1024),
                         metadata JSONB,
+                        -- Caption 相关字段
+                        image_caption TEXT,
+                        caption_embedding vector(1024),
+                        dominant_colors TEXT[],
+                        style_tags TEXT[],
+                        object_tags TEXT[],
                         status TEXT DEFAULT 'active' CHECK (status IN ('active', 'deleted')),
                         deleted_at TIMESTAMP,
                         created_at TIMESTAMP DEFAULT NOW(),
@@ -236,6 +243,46 @@ async def init_schema():
                     );
                 """)
                 print(f"[VectorDB] ✓ Created new table: {ACTIVE_TABLE}")
+                
+                # 创建 Caption 相关索引
+                await _create_index(
+                    conn,
+                    "dominant_colors GIN index",
+                    f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_dominant_colors_gin ON {ACTIVE_TABLE} USING GIN (dominant_colors);"
+                )
+                
+                await _create_index(
+                    conn,
+                    "style_tags GIN index",
+                    f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_style_tags_gin ON {ACTIVE_TABLE} USING GIN (style_tags);"
+                )
+                
+                await _create_index(
+                    conn,
+                    "object_tags GIN index",
+                    f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_object_tags_gin ON {ACTIVE_TABLE} USING GIN (object_tags);"
+                )
+                
+                await _create_index(
+                    conn,
+                    "caption_embedding index",
+                    f"""
+                    CREATE INDEX idx_{ACTIVE_TABLE_NAME}_caption_embedding
+                    ON {ACTIVE_TABLE}
+                    USING ann(caption_embedding)
+                    WITH (
+                        distancemeasure = cosine,
+                        hnsw_m           = 64,
+                        pq_enable        = 0
+                    );
+                    """
+                )
+                
+                await _create_index(
+                    conn,
+                    "image_caption fulltext index",
+                    f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_image_caption_fts ON {ACTIVE_TABLE} USING GIN (to_tsvector('english', COALESCE(image_caption, '')));"
+                )
             else:
                 print(f"[VectorDB] ✓ Table {ACTIVE_TABLE} already exists")
                 # 确保 user_id 列存在
@@ -338,6 +385,12 @@ async def upsert_opengraph_item(
     text_embedding: Optional[List[float]] = None,
     image_embedding: Optional[List[float]] = None,
     metadata: Optional[Dict] = None,
+    # Caption 相关字段
+    image_caption: Optional[str] = None,
+    caption_embedding: Optional[List[float]] = None,
+    dominant_colors: Optional[List[str]] = None,
+    style_tags: Optional[List[str]] = None,
+    object_tags: Optional[List[str]] = None,
 ) -> bool:
     """
     插入或更新 OpenGraph 数据
@@ -395,30 +448,73 @@ async def upsert_opengraph_item(
             # 将 embedding 列表转换为 ADBPG 需要的字符串格式
             text_vec = to_vector_str(text_embedding)
             image_vec = to_vector_str(image_embedding)
+            caption_vec = to_vector_str(caption_embedding)
             
-            # 使用 INSERT ... ON CONFLICT 实现 upsert
-            # 如果记录已存在且被软删除，恢复为 active
-            await conn.execute(f"""
-                INSERT INTO {ACTIVE_TABLE} (
-                    user_id, url, title, description, image, site_name,
-                    tab_id, tab_title, text_embedding, image_embedding, metadata, 
-                    status, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector(1024), $10::vector(1024), $11::jsonb, 'active', NOW())
-                ON CONFLICT (user_id, url) DO UPDATE SET
-                    title = EXCLUDED.title,
-                    description = EXCLUDED.description,
-                    image = EXCLUDED.image,
-                    site_name = EXCLUDED.site_name,
-                    tab_id = EXCLUDED.tab_id,
-                    tab_title = EXCLUDED.tab_title,
-                    text_embedding = EXCLUDED.text_embedding,
-                    image_embedding = EXCLUDED.image_embedding,
-                    metadata = EXCLUDED.metadata,
-                    status = 'active',
-                    deleted_at = NULL,
-                    updated_at = NOW();
-            """, user_id, url, title, description, image, site_name,
-                tab_id, tab_title, text_vec, image_vec, metadata_json)
+            # 检查新字段是否存在（向后兼容）
+            has_caption_fields = await conn.fetchval(f"""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns 
+                    WHERE table_schema = '{NAMESPACE}'
+                      AND table_name = '{ACTIVE_TABLE_NAME}'
+                      AND column_name = 'image_caption'
+                );
+            """)
+            
+            if has_caption_fields:
+                # 使用新字段
+                await conn.execute(f"""
+                    INSERT INTO {ACTIVE_TABLE} (
+                        user_id, url, title, description, image, site_name,
+                        tab_id, tab_title, text_embedding, image_embedding, metadata,
+                        image_caption, caption_embedding, dominant_colors, style_tags, object_tags,
+                        status, updated_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector(1024), $10::vector(1024), $11::jsonb,
+                        $12, $13::vector(1024), $14, $15, $16,
+                        'active', NOW())
+                    ON CONFLICT (user_id, url) DO UPDATE SET
+                        title = EXCLUDED.title,
+                        description = EXCLUDED.description,
+                        image = EXCLUDED.image,
+                        site_name = EXCLUDED.site_name,
+                        tab_id = EXCLUDED.tab_id,
+                        tab_title = EXCLUDED.tab_title,
+                        text_embedding = EXCLUDED.text_embedding,
+                        image_embedding = EXCLUDED.image_embedding,
+                        metadata = EXCLUDED.metadata,
+                        image_caption = EXCLUDED.image_caption,
+                        caption_embedding = EXCLUDED.caption_embedding,
+                        dominant_colors = EXCLUDED.dominant_colors,
+                        style_tags = EXCLUDED.style_tags,
+                        object_tags = EXCLUDED.object_tags,
+                        status = 'active',
+                        deleted_at = NULL,
+                        updated_at = NOW();
+                """, user_id, url, title, description, image, site_name,
+                    tab_id, tab_title, text_vec, image_vec, metadata_json,
+                    image_caption, caption_vec, dominant_colors, style_tags, object_tags)
+            else:
+                # 降级到旧版本（只使用 metadata）
+                await conn.execute(f"""
+                    INSERT INTO {ACTIVE_TABLE} (
+                        user_id, url, title, description, image, site_name,
+                        tab_id, tab_title, text_embedding, image_embedding, metadata, 
+                        status, updated_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector(1024), $10::vector(1024), $11::jsonb, 'active', NOW())
+                    ON CONFLICT (user_id, url) DO UPDATE SET
+                        title = EXCLUDED.title,
+                        description = EXCLUDED.description,
+                        image = EXCLUDED.image,
+                        site_name = EXCLUDED.site_name,
+                        tab_id = EXCLUDED.tab_id,
+                        tab_title = EXCLUDED.tab_title,
+                        text_embedding = EXCLUDED.text_embedding,
+                        image_embedding = EXCLUDED.image_embedding,
+                        metadata = EXCLUDED.metadata,
+                        status = 'active',
+                        deleted_at = NULL,
+                        updated_at = NOW();
+                """, user_id, url, title, description, image, site_name,
+                    tab_id, tab_title, text_vec, image_vec, metadata_json)
             
             return True
     except Exception as e:
@@ -632,36 +728,57 @@ async def search_by_image_embedding(
         return []
 
 
-async def batch_upsert_items(items: List[Dict], user_id: Optional[str]) -> int:
+async def batch_upsert_items(items: List[Dict], user_id: Optional[str], batch_size: int = 20) -> int:
     """
-    批量插入或更新 OpenGraph 数据
+    批量插入或更新 OpenGraph 数据（优化版本：使用并发和批量处理）
     
     Args:
         items: OpenGraph 数据列表（每个包含 url, title, description 等字段）
+        user_id: 用户 ID
+        batch_size: 批量大小（默认 20，控制并发数）
     
     Returns:
         成功插入/更新的数量
     """
+    if not items:
+        return 0
+    
     # ✅ 规范化所有项
     from search.normalize import normalize_opengraph_items
     normalized_items = normalize_opengraph_items(items)
     
-    success_count = 0
-    for item in normalized_items:
-        if await upsert_opengraph_item(
-            user_id=user_id,
-            url=item.get("url"),
-            title=item.get("title"),
-            description=item.get("description"),
-            image=item.get("image"),
-            site_name=item.get("site_name"),
-            tab_id=item.get("tab_id"),
-            tab_title=item.get("tab_title"),
-            text_embedding=item.get("text_embedding"),
-            image_embedding=item.get("image_embedding"),
-            metadata=item.get("metadata"),
-        ):
-            success_count += 1
+    # 使用信号量控制并发数
+    semaphore = asyncio.Semaphore(batch_size)
+    
+    async def upsert_one(item: Dict) -> bool:
+        async with semaphore:
+            return await upsert_opengraph_item(
+                user_id=user_id,
+                url=item.get("url"),
+                title=item.get("title"),
+                description=item.get("description"),
+                image=item.get("image"),
+                site_name=item.get("site_name"),
+                tab_id=item.get("tab_id"),
+                tab_title=item.get("tab_title"),
+                text_embedding=item.get("text_embedding"),
+                image_embedding=item.get("image_embedding"),
+                metadata=item.get("metadata"),
+                # Caption 相关字段（如果提供）
+                image_caption=item.get("image_caption"),
+                caption_embedding=item.get("caption_embedding"),
+                dominant_colors=item.get("dominant_colors"),
+                style_tags=item.get("style_tags"),
+                object_tags=item.get("object_tags"),
+            )
+    
+    # 并发处理所有项
+    tasks = [upsert_one(item) for item in normalized_items]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # 统计成功数量
+    success_count = sum(1 for r in results if r is True)
+    
     return success_count
 
 

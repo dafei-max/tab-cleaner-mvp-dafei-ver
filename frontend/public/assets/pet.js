@@ -56,12 +56,12 @@
     const config = {
       bubbles: {
         count: 50,                    // 泡泡数量（充满整个页面）
-        minSize: 15,                  // 最小尺寸（px）
-        maxSize: 40,                  // 最大尺寸（px）
+        minSize: 30,                  // 最小尺寸（px）- 放大泡泡
+        maxSize: 200,                  // 最大尺寸（px）- 放大泡泡
         minDelay: 0,                  // 最小延迟（秒）
         maxDelay: 2,                  // 最大延迟（秒）
         animationDuration: 3,         // 动画持续时间（秒）
-        spreadRadius: 120,            // 扩散半径（%，相对于视口）
+        spreadRadius: 200,            // 扩散半径（%，相对于视口），略微加大
       },
       background: {
         startColor: 'rgba(135, 206, 250, 0.85)',  // 水蓝色（边缘）
@@ -396,17 +396,37 @@
     try {
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
         const result = await new Promise((resolve) => {
-          chrome.storage.local.get(['petVisible', 'petPosition'], (items) => {
+          chrome.storage.local.get(['petVisible', 'petPosition', 'selectedPet'], (items) => {
             resolve(items);
           });
         });
         
-        const shouldBeVisible = result.petVisible === true;
+        // ✅ 修复：初次安装时，如果 petVisible 未设置，默认显示宠物（小象）
+        let shouldBeVisible = result.petVisible === true;
+        const isFirstInstall = result.petVisible === undefined;
+        
+        if (isFirstInstall) {
+          console.log('[Tab Cleaner Pet] 🎉 First install detected, showing pet by default (elephant)');
+          shouldBeVisible = true;
+          // 设置默认值：显示宠物，默认小象
+          await new Promise((resolve) => {
+            chrome.storage.local.set({
+              petVisible: true,
+              selectedPet: DEFAULT_PET_ID, // 默认小象
+            }, () => {
+              console.log('[Tab Cleaner Pet] ✅ Default pet state saved');
+              resolve();
+            });
+          });
+        }
+        
         petStateLoaded = true;
         
         console.log('[Tab Cleaner Pet] Loaded pet state from storage:', {
           petVisible: shouldBeVisible,
-          petPosition: result.petPosition
+          petPosition: result.petPosition,
+          selectedPet: result.selectedPet || DEFAULT_PET_ID,
+          isFirstInstall: isFirstInstall
         });
         
         // ✅ v2.2: 根据存储状态立即显示或隐藏（模块已加载，响应更快）
@@ -1075,6 +1095,55 @@
           }
           setButtonsVisible(!isButtonsVisible);
         });
+
+        // 首次展示时给一个拖拽提示气泡
+        try {
+          if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+            chrome.storage.local.get(['petDragHintShown'], (items) => {
+              if (items.petDragHintShown) return;
+              const main = shadow.querySelector('.desktop-pet-main');
+              if (!main) return;
+
+              const hint = document.createElement('div');
+              hint.textContent = '拖拽网页图片到我这里即可收藏';
+              hint.style.cssText = `
+                position: absolute;
+                bottom: 210px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(15,23,42,0.92);
+                color: #F9FAFB;
+                padding: 6px 12px;
+                border-radius: 999px;
+                font-size: 12px;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                box-shadow: 0 6px 18px rgba(15,23,42,0.4);
+                z-index: 9999;
+                opacity: 0;
+                pointer-events: none;
+                white-space: nowrap;
+                transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+              `;
+
+              main.appendChild(hint);
+
+              requestAnimationFrame(() => {
+                hint.style.opacity = '1';
+                hint.style.transform = 'translateX(-50%) translateY(-4px)';
+              });
+
+              setTimeout(() => {
+                hint.style.opacity = '0';
+                hint.style.transform = 'translateX(-50%) translateY(0)';
+                setTimeout(() => hint.remove(), 250);
+              }, 3500);
+
+              chrome.storage.local.set({ petDragHintShown: true }, () => {});
+            });
+          }
+        } catch (e) {
+          // 忽略提示错误
+        }
       }
 
       if (actionButtons && actionButtons.length > 0) {

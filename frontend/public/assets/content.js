@@ -918,6 +918,33 @@
       // 告诉 Chrome：这个 listener 会异步调用 sendResponse
       return true;
     }
+    
+    // 处理从右键菜单保存图片
+    if (req.action === "save-image-from-context-menu") {
+      const imageUrl = req.imageUrl;
+      if (imageUrl && window.__TAB_CLEANER_IMAGE_CAPTURE) {
+        window.__TAB_CLEANER_IMAGE_CAPTURE.captureImage(imageUrl);
+        sendResponse?.({ success: true });
+      } else {
+        sendResponse?.({ success: false, error: 'Image capture not initialized' });
+      }
+      return true;
+    }
+    
+    // 处理保存采集的图片（从 image_capture_enhanced.js）
+    // 注意：image_capture_enhanced.js 直接发送到 background.js，不需要通过 content.js
+    // 这里保留是为了兼容性，但通常不会被调用
+    if (req.action === "save-captured-image") {
+      // 转发到 background.js
+      chrome.runtime.sendMessage({
+        action: 'save-captured-image',
+        data: req.data,
+      }, (response) => {
+        sendResponse?.(response);
+      });
+      return true;
+    }
+    
     return false;
   });
 

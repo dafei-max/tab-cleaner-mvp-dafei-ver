@@ -15,7 +15,37 @@ export const ScrollSpyIndicator = ({ sessions, containerRef, activeSessionId, on
     
     const sessionElement = containerRef.current.querySelector(`[data-session-id="${sessionId}"]`);
     if (sessionElement) {
-      sessionElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // 对于最后一个 session，使用 'end' 确保滚动到底部
+      const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+      const isLastSession = sessionIndex === sessions.length - 1;
+      
+      // 使用 'end' 对于最后两个 session，确保能滚动到底部
+      const blockValue = (isLastSession || sessionIndex >= sessions.length - 2) ? 'end' : 'start';
+      
+      sessionElement.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: blockValue,
+        inline: 'nearest'
+      });
+      
+      // 对于最后两个 session，额外添加一些底部 padding，确保完全可见
+      if (isLastSession || sessionIndex >= sessions.length - 2) {
+        setTimeout(() => {
+          const container = containerRef.current;
+          if (container) {
+            const scrollHeight = container.scrollHeight;
+            const clientHeight = container.clientHeight;
+            const maxScroll = scrollHeight - clientHeight;
+            // 如果当前滚动位置没有到达底部，继续滚动到底部
+            if (container.scrollTop < maxScroll - 50) {
+              container.scrollTo({
+                top: maxScroll,
+                behavior: 'smooth'
+              });
+            }
+          }
+        }, 300); // 等待 scrollIntoView 完成后再检查
+      }
     }
   };
 
@@ -27,7 +57,9 @@ export const ScrollSpyIndicator = ({ sessions, containerRef, activeSessionId, on
 
   // 监听可见 session，自动更新激活状态
   useEffect(() => {
-    if (!containerRef?.current || !sessions.length) return;
+    // ✅ 修复：确保 sessions 是数组
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    if (!containerRef?.current || !safeSessions.length) return;
 
     const container = containerRef.current;
     const sections = Array.from(container.querySelectorAll('[data-session-id]'));
@@ -37,19 +69,48 @@ export const ScrollSpyIndicator = ({ sessions, containerRef, activeSessionId, on
       (entries) => {
         const visibleEntries = entries
           .filter(entry => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+          .sort((a, b) => {
+            // 优先选择 intersectionRatio 更大的
+            if (Math.abs(b.intersectionRatio - a.intersectionRatio) > 0.1) {
+              return b.intersectionRatio - a.intersectionRatio;
+            }
+            // 如果 intersectionRatio 相近，选择更靠近视口顶部的
+            const rectA = a.boundingClientRect;
+            const rectB = b.boundingClientRect;
+            const containerRect = container.getBoundingClientRect();
+            const topA = rectA.top - containerRect.top;
+            const topB = rectB.top - containerRect.top;
+            return topA - topB;
+          });
+        
         if (visibleEntries.length === 0) {
           return;
         }
+        
         const newActiveId = visibleEntries[0].target.dataset.sessionId;
-        setObservedSessionId(prev => (prev === newActiveId ? prev : newActiveId));
+        
+        // 防止抖动：只有在 intersectionRatio 足够大时才更新
+        const topEntry = visibleEntries[0];
+        if (topEntry.intersectionRatio < 0.1) {
+          return; // 如果可见度太低，不更新
+        }
+        
+        setObservedSessionId(prev => {
+          // 防止频繁切换：如果当前已经是这个 session，不更新
+          if (prev === newActiveId) {
+            return prev;
+          }
+          return newActiveId;
+        });
+        
         if (onActiveSessionChange && newActiveId !== activeSessionId) {
           onActiveSessionChange(newActiveId);
         }
       },
       {
         root: container,
-        threshold: [0.25, 0.5, 0.75],
+        rootMargin: '-10% 0px -10% 0px', // 添加边距，减少抖动
+        threshold: [0.1, 0.25, 0.5, 0.75, 0.9], // 更细粒度的阈值
       }
     );
 
@@ -57,7 +118,9 @@ export const ScrollSpyIndicator = ({ sessions, containerRef, activeSessionId, on
     return () => observer.disconnect();
   }, [sessions, containerRef, onActiveSessionChange, activeSessionId]);
 
-  if (!sessions || sessions.length === 0) {
+  // ✅ 修复：确保 sessions 是数组
+  const safeSessions = Array.isArray(sessions) ? sessions : [];
+  if (!safeSessions || safeSessions.length === 0) {
     return null;
   }
 
@@ -77,7 +140,7 @@ export const ScrollSpyIndicator = ({ sessions, containerRef, activeSessionId, on
         alignItems: 'center',
       }}
     >
-      {sessions.map((session, index) => (
+      {safeSessions.map((session, index) => (
         <button
           key={session.id}
           onClick={() => {

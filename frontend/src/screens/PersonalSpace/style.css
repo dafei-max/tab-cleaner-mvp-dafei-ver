@@ -15,7 +15,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden; /* 改为 hidden，使用内部拖拽而不是滚动条 */
-  cursor: none !important;
+  /* cursor: none !important; */ /* ✅ 移除特殊cursor */
   user-select: none; /* 防止拖拽时选中文本 */
 }
 

@@ -25,7 +25,13 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["assets/pet.js", "assets/content.js"],
+      "js": [
+        "assets/opengraph_local_v2.js",
+        "assets/image_capture_enhanced.js",
+        "assets/screenshot_capture.js",
+        "assets/pet.js",
+        "assets/content.js"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     }
@@ -34,12 +40,17 @@
     "tabs",
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "identity",
+    "contextMenus",
+    "notifications"
   ],
   "host_permissions": ["<all_urls>"],
   "web_accessible_resources": [
     {
       "resources": [
+        "personalspace.html",
+        "sidepanel.html",
         "assets/*.js",
         "assets/*.css",
         "assets/card.html",

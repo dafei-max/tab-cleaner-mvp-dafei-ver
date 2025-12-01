@@ -46,9 +46,16 @@ export async function shareSession() {
 
 // 搜索相关 API
 export async function generateEmbeddings(opengraphItems) {
+  // 获取用户ID
+  const { getOrCreateUserId } = await import("../utils/userId");
+  const userId = await getOrCreateUserId();
+  
   const resp = await fetch(API + "/search/embedding", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      "X-User-ID": userId  // 发送用户ID
+    },
     body: JSON.stringify({ opengraph_items: opengraphItems })
   });
   if (!resp.ok) {
@@ -59,9 +66,16 @@ export async function generateEmbeddings(opengraphItems) {
 }
 
 export async function searchContent(query, topK = 20) {
+  // 获取用户ID
+  const { getOrCreateUserId } = await import("../utils/userId");
+  const userId = await getOrCreateUserId();
+  
   const resp = await fetch(API + "/search/query", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      "X-User-ID": userId  // 发送用户ID
+    },
     body: JSON.stringify({
       query: query,
       top_k: topK

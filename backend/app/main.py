@@ -20,7 +20,7 @@ app = FastAPI(title="Tab Cleaner MVP", version="0.0.1")
 
 @app.on_event("startup")
 async def startup_event():
-    """应用启动时初始化向量数据库"""
+    """应用启动时初始化向量数据库和 Caption 工作线程"""
     try:
         # 检查是否配置了数据库连接
         db_host = os.getenv("ADBPG_HOST", "")
@@ -41,6 +41,16 @@ async def startup_event():
                 traceback.print_exc()
         else:
             print("[Startup] ADBPG_HOST not configured, skipping vector database initialization")
+        
+        # 启动 Caption 自动生成工作线程
+        try:
+            from search.auto_caption import start_caption_worker
+            start_caption_worker()
+            print("[Startup] ✓ Caption worker started")
+        except Exception as caption_error:
+            print(f"[Startup] ⚠ Failed to start caption worker: {caption_error}")
+            import traceback
+            traceback.print_exc()
     except Exception as e:
         print(f"[Startup] ⚠ Startup event error (non-critical): {e}")
         # 不阻止应用启动
@@ -364,6 +374,26 @@ async def generate_embeddings(
                 saved_count = await batch_upsert_items(items_to_store, user_id=normalized_user_id)
                 if saved_count > 0:
                     print(f"[API] ✓ Stored {saved_count}/{len(items_to_store)} items to vector DB")
+                    
+                    # 4. 异步触发 Caption 生成任务（只处理有图片且没有 Caption 的项）
+                    try:
+                        from search.auto_caption import batch_enqueue_caption_tasks
+                        # 过滤出需要生成 Caption 的项（有图片但没有 Caption）
+                        items_for_caption = [
+                            item for item in items_to_store
+                            if item.get("image") and not item.get("image_caption")
+                        ]
+                        if items_for_caption:
+                            await batch_enqueue_caption_tasks(
+                                normalized_user_id,
+                                items_for_caption,
+                                max_items=50  # 每次最多处理 50 个，避免队列过载
+                            )
+                            print(f"[API] ✓ Enqueued {len(items_for_caption)} caption generation tasks")
+                    except Exception as caption_error:
+                        print(f"[API] ⚠ Failed to enqueue caption tasks: {caption_error}")
+                        import traceback
+                        traceback.print_exc()
                 else:
                     print(f"[API] ⚠ Failed to store items to vector DB (saved_count=0)")
             except Exception as e:
@@ -420,21 +450,19 @@ async def search_content(
     user_id: Optional[str] = Header(None, alias="X-User-ID")
 ):
     """
-    搜索相关内容（从向量数据库检索）
+    搜索相关内容（使用三阶段漏斗搜索）
     
     请求参数:
     - query: 查询文本（必需）
-    - top_k: 返回前 K 个结果（可选，默认 20）
+    - top_k: 返回前 K 个结果（可选，默认 20，实际返回数量可能为 1-20）
     
     返回:
     - 按相关性排序的OpenGraph数据列表（包含similarity分数）
+    - 结果数量动态调整（1-20 个），根据质量智能过滤
     """
     try:
         if not request.query or not request.query.strip():
             raise HTTPException(status_code=400, detail="query parameter is required")
-        
-        top_k = request.top_k or 20
-        print(f"[API] Search request: query='{request.query}', top_k={top_k}")
         
         # 检查数据库配置
         db_host = os.getenv("ADBPG_HOST", "")
@@ -444,51 +472,31 @@ async def search_content(
                 detail="Vector database not configured. Please set ADBPG_HOST environment variable."
             )
         
-        # 1. 查询增强：优化查询文本，提高检索准确度
+        # 使用三阶段漏斗搜索
         normalized_user_id = (user_id or "anonymous").strip() or "anonymous"
-        from search.query_enhance import enhance_query
-        from search.embed import embed_text
-        from vector_db import VectorDBClient
+        print(f"[API] Search request: query='{request.query}', user_id='{normalized_user_id}'")
         
-        # 增强查询文本（设计师找图场景，默认偏向视觉查询）
-        enhanced_query = enhance_query(
-            request.query, 
-            enable_synonym_expansion=True,
-            default_to_visual=True  # 设计师找图场景，默认偏向视觉
-        )
+        from search.funnel_search import search_with_funnel
+        from search.threshold_filter import FilterMode
         
-        # 使用增强后的查询生成 embedding
-        query_embedding = await embed_text(enhanced_query)
-        if not query_embedding:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to generate query embedding"
-            )
-        
-        print(f"[API] Generated query embedding (dimension: {len(query_embedding)})")
-        
-        # 2. 根据用户维度检索（融合文本与图像相似度）
-        expanded_top_k = top_k * 3  # 获取更多候选项用于过滤
-        client = VectorDBClient()
-        db_results = await client.search_by_vector(
-            query_vec=query_embedding,
+        # 调用漏斗搜索（不限制数量，只根据质量阈值过滤）
+        search_results = await search_with_funnel(
             user_id=normalized_user_id,
-            top_k=expanded_top_k,
-            min_similarity=0.25
+            query_text=request.query,
+            filter_mode=FilterMode.BALANCED,  # 平衡模式：返回高质量和中等质量结果
+            max_results=None,  # 不限制数量，返回所有符合质量阈值的结果
+            use_caption=True,  # 启用 Caption 搜索
         )
         
-        if not db_results:
-            print(f"[API] No results found in database for user={normalized_user_id}, query='{request.query}'")
+        if not search_results:
+            print(f"[API] No results found for user={normalized_user_id}, query='{request.query}'")
             return {"ok": True, "results": []}
         
-        print(f"[API] Found {len(db_results)} candidate results for user={normalized_user_id}")
+        print(f"[API] Found {len(search_results)} results (dynamic filtering)")
         
-        final_results = db_results[:top_k]
-        print(f"[API] Selected top {len(final_results)} results after user filtering")
-        
-        # 5. 格式化返回结果（保持与前端 useSearch 兼容）
+        # 格式化返回结果（保持与前端 useSearch 兼容）
         results = []
-        for item in final_results:
+        for item in search_results:
             results.append({
                 "url": item.get("url", ""),
                 "title": item.get("title") or item.get("tab_title", ""),
@@ -497,24 +505,32 @@ async def search_content(
                 "site_name": item.get("site_name", ""),
                 "tab_id": item.get("tab_id"),
                 "tab_title": item.get("tab_title"),
-                "similarity": float(item.get("similarity", 0.0))
+                "similarity": float(item.get("similarity", 0.0)),
+                # 添加质量标签（可选，前端可以使用）
+                "quality": item.get("quality", "medium"),
+                # 添加视觉匹配信息（可选）
+                "visual_match": item.get("visual_match", False),
             })
         
         # 打印相似度范围（用于调试）
         if results:
             similarities = [r.get("similarity", 0.0) for r in results]
-            print(f"[API] Similarity range: min={min(similarities):.6f}, max={max(similarities):.6f}")
+            print(f"[API] Similarity range: min={min(similarities):.6f}, max={max(similarities):.6f}, count={len(results)}")
         
-        # 4. 返回 JSON 响应
+        # 返回 JSON 响应
         return {
             "ok": True,
-            "results": results
+            "results": results,
+            "count": len(results),  # 返回实际结果数量
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"[API] Error searching: {e}")
+        print(f"[API] CRITICAL ERROR in search_content: {type(e).__name__}: {str(e)}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        error_detail = f"{type(e).__name__}: {str(e)}"
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 # 聚类 API
