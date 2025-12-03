@@ -546,13 +546,45 @@ async def _coarse_recall_visual_attributes(
             param_idx = 2
             
             if colors:
-                # 颜色匹配（使用数组包含操作符）
+                # ✅ 增强颜色匹配：支持同义词匹配
+                # 例如：查询"黄色"时，应该匹配 "yellow", "gold", "amber", "lemon" 等
                 color_conditions = []
+                
+                # 颜色同义词映射（确保所有同义词都能匹配）
+                COLOR_SYNONYMS = {
+                    "yellow": ["yellow", "gold", "amber", "lemon", "golden"],
+                    "gold": ["yellow", "gold", "amber", "lemon", "golden"],
+                    "amber": ["yellow", "gold", "amber", "lemon", "golden"],
+                    "lemon": ["yellow", "gold", "amber", "lemon", "golden"],
+                    "blue": ["blue", "azure", "navy", "cobalt", "sky blue"],
+                    "azure": ["blue", "azure", "navy", "cobalt", "sky blue"],
+                    "navy": ["blue", "azure", "navy", "cobalt", "sky blue"],
+                    "red": ["red", "crimson", "scarlet", "burgundy"],
+                    "crimson": ["red", "crimson", "scarlet", "burgundy"],
+                    "green": ["green", "emerald", "olive", "lime"],
+                    "emerald": ["green", "emerald", "olive", "lime"],
+                    "orange": ["orange", "tangerine", "coral"],
+                    "purple": ["purple", "violet", "lavender", "plum"],
+                    "pink": ["pink", "rose", "blush", "magenta"],
+                }
+                
+                # 收集所有需要匹配的颜色（包括同义词）
+                all_colors_to_match = set()
                 for color in colors:
+                    color_lower = color.lower()
+                    all_colors_to_match.add(color_lower)
+                    # 添加同义词
+                    if color_lower in COLOR_SYNONYMS:
+                        all_colors_to_match.update(COLOR_SYNONYMS[color_lower])
+                
+                # 为每个颜色（包括同义词）创建匹配条件
+                for color_to_match in all_colors_to_match:
                     color_conditions.append(f"${param_idx} = ANY(dominant_colors)")
-                    params.append(color.lower())
+                    params.append(color_to_match)
                     param_idx += 1
-                conditions.append(f"({' OR '.join(color_conditions)})")
+                
+                if color_conditions:
+                    conditions.append(f"({' OR '.join(color_conditions)})")
             
             if styles:
                 # 风格匹配
@@ -569,20 +601,27 @@ async def _coarse_recall_visual_attributes(
             where_clause = " AND ".join(conditions)
             params.append(top_k)
             
+            # ✅ 简化：直接使用数组交集操作符计算 visual_score
+            # 如果 dominant_colors 与查询颜色有交集，给高分
+            if colors:
+                # 使用 all_colors_to_match（包含同义词）构建数组
+                color_array_str = ','.join([f"'{c}'" for c in all_colors_to_match])
+                color_score_case = f"WHEN dominant_colors && ARRAY[{color_array_str}]::TEXT[] THEN 0.7 ELSE 0.0"
+            else:
+                color_score_case = "0.0"
+            
+            if styles:
+                style_array_str = ','.join([f"'{s.lower()}'" for s in styles])
+                style_score_case = f"WHEN style_tags && ARRAY[{style_array_str}]::TEXT[] THEN 0.3 ELSE 0.0"
+            else:
+                style_score_case = "0.0"
+            
             query = f"""
                 SELECT user_id, url, title, description, image, site_name,
                        tab_id, tab_title, metadata,
                        image_caption, caption_embedding, dominant_colors, style_tags, object_tags,
-                       CASE 
-                           WHEN dominant_colors && ARRAY[{','.join([f'${i+2}' for i, c in enumerate(colors)])}]::TEXT[] 
-                                THEN 0.7
-                           ELSE 0.0
-                       END +
-                       CASE 
-                           WHEN style_tags && ARRAY[{','.join([f'${len(colors)+i+2}' for i, s in enumerate(styles)])}]::TEXT[] 
-                                THEN 0.3
-                           ELSE 0.0
-                       END AS visual_score
+                       CASE {color_score_case} END +
+                       CASE {style_score_case} END AS visual_score
                 FROM {ACTIVE_TABLE}
                 WHERE status = 'active'
                   AND user_id = $1
@@ -960,6 +999,17 @@ async def search_with_funnel(
             user_id, search_query, top_k=80  # ✅ 使用增强后的查询
         ))
     
+    # ✅ 检测是否是颜色查询
+    from .query_enhance import enhance_visual_query
+    visual_attrs = enhance_visual_query(query_text)
+    is_color_query = len(visual_attrs.get("colors", [])) > 0
+    
+    # ✅ 如果是颜色查询，优先使用视觉属性搜索
+    if is_color_query:
+        print(f"[Funnel] 🎨 Color query detected: {visual_attrs.get('colors')}, prioritizing visual attributes search")
+        # ✅ 优先级1c: 视觉属性搜索（颜色查询时优先级最高）
+        recall_tasks.append(_coarse_recall_visual_attributes(user_id, search_query, top_k=100))  # ✅ 颜色查询时提高召回数量
+    
     # ✅ 优先级2a: Caption Embedding 向量搜索（语义搜索，更智能）
     # 使用AI增强后的查询（如果可用）
     if use_caption and search_query:
@@ -973,8 +1023,9 @@ async def search_with_funnel(
         if ai_enhanced and search_query != query_text:
             recall_tasks.append(_coarse_recall_caption_keyword(user_id, query_text, top_k=40))  # 原始查询作为补充
     
-    # ✅ 优先级3: 视觉属性搜索（颜色、风格等视觉特征）
-    recall_tasks.append(_coarse_recall_visual_attributes(user_id, search_query, top_k=50))  # ✅ 使用增强后的查询
+    # ✅ 优先级3: 视觉属性搜索（非颜色查询时使用，颜色查询时已在上面处理）
+    if not is_color_query:
+        recall_tasks.append(_coarse_recall_visual_attributes(user_id, search_query, top_k=50))  # ✅ 使用增强后的查询
     
     # ✅ 优先级4: 设计师网站专门召回（小红书、Pinterest、Behance等）
     recall_tasks.append(_coarse_recall_designer_sites(user_id, search_query, top_k=100))  # ✅ 使用增强后的查询
@@ -1036,7 +1087,12 @@ async def search_with_funnel(
         
         # 2. 标签匹配过滤：如果查询有明确的视觉属性（颜色/物体/风格），检查结果是否匹配
         # 例如：查询"植物"应该返回有 "plant" 标签或 "green" 颜色的结果
-        if query_colors or query_objects or query_styles:
+        # ⚠️ 特别说明：
+        # - 对于「纯颜色查询」（只有颜色，没有物体/风格），这里不做 tag mismatch 过滤，
+        #   只在后面用颜色标签做排序，避免把本来是黄色但被识别成 gold/amber 的卡片全过滤掉。
+        pure_color_query = bool(query_colors) and not query_objects and not query_styles
+
+        if (query_colors or query_objects or query_styles) and not pure_color_query:
             item_colors = item.get("dominant_colors", []) or []
             item_objects = item.get("object_tags", []) or []
             item_styles = item.get("style_tags", []) or []
@@ -1075,7 +1131,7 @@ async def search_with_funnel(
                 has_style_match = any(qs in item_styles for qs in query_styles)
             
             # ✅ 简化：只检查明显冲突的情况，不再严格过滤
-            # 对于物体查询（如"椅子"），如果没有物体标签匹配，不应该直接过滤，而是保留让 AI 判断
+            # 对于物体/风格查询，如果没有标签匹配，不应该直接过滤，而是保留让 AI 判断
             # 只对明显冲突的颜色进行过滤
             COLOR_CONFLICTS = {
                 "green": ["red", "crimson", "scarlet", "burgundy"],
@@ -1118,7 +1174,7 @@ async def search_with_funnel(
             filter_reason = ""
             
             # ✅ 简化过滤逻辑：只过滤明显冲突的情况
-            # 对于物体查询（如"椅子"），如果没有物体标签匹配，不应该直接过滤，而是保留让 AI 判断
+            # 对于物体查询（如"椅子"）和颜色+物体/风格混合查询，如果没有标签匹配，不应该直接过滤，而是保留让 AI 判断
             if has_color_conflict:
                 # 颜色冲突：查询是绿色，但结果是红色（最严格，直接过滤）
                 should_filter = True
