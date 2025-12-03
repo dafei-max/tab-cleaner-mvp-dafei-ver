@@ -236,12 +236,14 @@ async def generate_embeddings(
     """
     try:
         normalized_user_id = (user_id or "anonymous").strip() or "anonymous"
+        # ✅ 详细日志：显示接收到的用户ID
+        print(f"[API] 📥 Received request with {len(request.opengraph_items)} items for embedding generation")
+        print(f"[API] 🔍 Endpoint: /api/v1/search/embedding")
+        print(f"[API] 👤 User ID from header: '{user_id}' → normalized: '{normalized_user_id}'")
+        
         if not request.opengraph_items:
             print("[API] ⚠️ No opengraph_items provided in request")
             return {"ok": True, "saved": 0, "data": []}
-        
-        print(f"[API] 📥 Received request with {len(request.opengraph_items)} items for embedding generation")
-        print(f"[API] 🔍 Endpoint: /api/v1/search/embedding")
         
         # ✅ 添加详细日志：打印第一个 item 的字段
         if len(request.opengraph_items) > 0:
@@ -476,7 +478,9 @@ async def search_content(
         
         # 使用三阶段漏斗搜索
         normalized_user_id = (user_id or "anonymous").strip() or "anonymous"
-        print(f"[API] Search request: query='{request.query}', user_id='{normalized_user_id}'")
+        # ✅ 详细日志：显示接收到的用户ID
+        print(f"[API] Search request: query='{request.query}'")
+        print(f"[API] 👤 User ID from header: '{user_id}' → normalized: '{normalized_user_id}'")
         if request.query_image_url or request.query_image_base64:
             print(f"[API] Image search enabled: query_image_url={bool(request.query_image_url)}, query_image_base64={bool(request.query_image_base64)}")
         
