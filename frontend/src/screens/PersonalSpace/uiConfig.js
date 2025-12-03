@@ -46,7 +46,7 @@ export const UI_CONFIG = {
 
   // ========== Marker Bar (Scroll Spy Indicator) ==========
   markerBar: {
-    right: 200,                // 距离右边的距离（px）
+    right: 50,                // 距离右边的距离（px）
     dotSize: 10,               // 小圆点大小（px）
     borderWidth: 1,            // 描边宽度（px）
     borderColor: 'rgba(135, 206, 235, 0.8)',  // 水蓝色描边
@@ -141,18 +141,22 @@ export const UI_CONFIG = {
 
   // ========== Masonry 布局间距 ==========
   masonry: {
-    gutter: 30,                 // 列间距（px）
+    maxWidth: 1800,             // 容器最大宽度（px）- ✅ 与masonryConfig.js同步
+    gutter: 24,                 // 列间距（px）- ✅ 与masonryConfig.js同步，从30改为24
     marginBottom: 16,           // 卡片底部间距（px）
   },
 
   // ========== Radial 视图布局 ==========
   radial: {
     baseRadius: 250,           // 第一层半径（px）- 增大内圆半径
-    radiusGap: 280,            // 层间距（px）
+    radiusGap: 280,            // 层间距（px）- 会根据卡片数量动态调整
+    minRadiusGap: 200,         // 最小层间距（避免卡片重叠）
+    maxRadiusGap: 400,         // 最大层间距
+    autoAdjustRadius: true,    // 是否自动调整 radiusGap 避免重叠
   },
   radialCamera: {
-    defaultZoom: 0.7,
-    minZoom: 0.3,
+    defaultZoom: 0.5,          // 降低默认缩放（镜头离画布更远，视野更广）
+    minZoom: 0.2,              // 最小缩放（可以看更远）
     maxZoom: 2.5,
     zoomStep: 0.08,
   },
@@ -185,6 +189,19 @@ export const UI_CONFIG = {
       color: 'rgba(255, 255, 255, 0.95)',  // 文字颜色
       pulseDuration: 2,             // 脉冲动画持续时间（秒）
       fontFamily: "'FZLanTingHei-R-GBK', '方正兰亭', 'Microsoft YaHei', '微软雅黑', sans-serif",  // 字体设置
+    },
+  },
+
+  // ========== 插件卡片（点击插件按钮弹出的卡片） ==========
+  pluginCard: {
+    // 卡片大小
+    width: 320,                  // 卡片宽度（px）
+    height: 485,                 // 卡片高度（px）
+    scale: 0.70,                 // 卡片缩放比例（0-1，值越小卡片越小）
+    // 卡片起始位置（相对于浏览器窗口）
+    position: {
+      top: 0,                   // 距离顶部距离（px）
+      right: 20,                  // 距离右侧距离（px）
     },
   },
 

@@ -158,6 +158,64 @@ def smart_filter_by_visual_attributes(
     return final_results
 
 
+def is_designer_site(item: Dict) -> bool:
+    """
+    判断是否是设计师相关网站
+    """
+    url = (item.get("url") or "").lower()
+    site_name = (item.get("site_name") or "").lower()
+    
+    # 设计师网站列表（扩展）
+    designer_sites = [
+        "pinterest", "behance", "dribbble", "xiaohongshu", "小红书",
+        "站酷", "zcool", "ui.cn", "uisdc", "优设", "youzhan",
+        "unsplash", "pexels", "pixabay", "freepik", "shutterstock",
+        "getty", "deviantart", "artstation", "500px", "flickr",
+        "imgur", "tumblr", "arena", "muzli", "designspiration",
+        "awwwards", "siteinspire", "land-book", "onepagelove",
+        "collectui", "mobbin", "pageflows", "saaslandingpage",
+    ]
+    
+    return any(site in url or site in site_name for site in designer_sites)
+
+
+def boost_designer_sites(results: List[Dict], boost_factor: float = 0.15) -> List[Dict]:
+    """
+    提升设计师网站的优先级（在相似度基础上加分）
+    
+    Args:
+        results: 搜索结果列表
+        boost_factor: 加分幅度（默认0.15，即提升15%）
+    
+    Returns:
+        调整后的结果列表
+    """
+    boosted = []
+    designer_count = 0
+    
+    for item in results:
+        if is_designer_site(item):
+            # 提升相似度分数
+            original_sim = item.get("similarity", 0.0)
+            boosted_sim = min(1.0, original_sim + boost_factor)
+            item["similarity"] = boosted_sim
+            item["designer_boost"] = True
+            item["original_similarity"] = original_sim
+            designer_count += 1
+        else:
+            item["designer_boost"] = False
+        
+        boosted.append(item)
+    
+    if designer_count > 0:
+        print(f"[SmartFilter] Boosted {designer_count} designer sites (boost_factor={boost_factor})")
+    
+    # 重新排序（按新的相似度）
+    boosted.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
+    
+    return boosted
+
+
 def filter_doc_items(results: List[Dict], filter_docs: bool = True) -> List[Dict]:
     """
     过滤掉文档类内容（针对设计师场景）
@@ -203,7 +261,7 @@ def filter_doc_items(results: List[Dict], filter_docs: bool = True) -> List[Dict
     return filtered
 
 
-def smart_filter(
+async def smart_filter(
     results: List[Dict],
     query: str,
     filter_mode: FilterMode = FilterMode.BALANCED,
@@ -221,6 +279,9 @@ def smart_filter(
        - 然后补充其他高质量结果
     4. 对于非视觉查询：
        - 使用常规阈值过滤
+    5. （可选）使用大模型做结果二次审阅：
+       - 看一眼前 N 条结果是否真的符合本次查询
+       - 输出需要保留 / 过滤 / 提升优先级的索引
     
     Args:
         results: 排序后的搜索结果列表
@@ -242,11 +303,47 @@ def smart_filter(
         print("[SmartFilter] All results filtered out (doc content)")
         return []
     
-    # 检测查询意图
-    query_intent = detect_query_intent(query)
+    # 步骤1.5: 提升设计师网站的优先级（在过滤文档之后，排序之前）
+    results = boost_designer_sites(results, boost_factor=0.15)
     
-    print(f"[SmartFilter] Query intent: {query_intent}")
+    # 检测查询意图（支持AI增强）
+    # 优先使用混合策略：规则式 + AI增强（如果可用）
+    try:
+        from .ai_intent_enhance import hybrid_intent_detection
+        # 使用混合意图检测（规则式 + AI，超时2秒）
+        enhanced_intent = await hybrid_intent_detection(
+            query,
+            use_ai=True,
+            ai_timeout=2.0,
+            cache={}  # 可以传入外部缓存
+        )
+        
+        # 转换为兼容格式
+        query_intent = {
+            "has_color": len(enhanced_intent.get("extracted_info", {}).get("colors", [])) > 0,
+            "has_object": len(enhanced_intent.get("extracted_info", {}).get("objects", [])) > 0,
+            "has_style": len(enhanced_intent.get("extracted_info", {}).get("styles", [])) > 0,
+            "is_visual_query": enhanced_intent.get("query_type") in ["visual", "object", "color", "style"],
+            "colors": enhanced_intent.get("extracted_info", {}).get("colors", []),
+            "objects": enhanced_intent.get("extracted_info", {}).get("objects", []),
+            "styles": enhanced_intent.get("extracted_info", {}).get("styles", []),
+            "ai_enhanced": enhanced_intent.get("ai_enhanced", False),
+            "enhanced_query": enhanced_intent.get("enhanced_query", query),
+        }
+        
+        if query_intent.get("ai_enhanced"):
+            print(f"[SmartFilter] Query intent (AI-enhanced): {query_intent}")
+        else:
+            print(f"[SmartFilter] Query intent (rule-based): {query_intent}")
+    except Exception as e:
+        # AI增强失败，回退到规则式方法
+        print(f"[SmartFilter] AI enhancement failed: {e}, using rule-based")
+        query_intent = detect_query_intent(query)
+        query_intent["ai_enhanced"] = False
+        print(f"[SmartFilter] Query intent (rule-based): {query_intent}")
     
+    # ===== 步骤3：根据意图做第一层规则过滤（视觉 / 非视觉） =====
+
     if query_intent["is_visual_query"]:
         # 视觉属性查询：使用智能过滤
         print(f"[SmartFilter] Visual query detected: colors={query_intent['colors']}, objects={query_intent['objects']}, styles={query_intent['styles']}")
@@ -258,26 +355,100 @@ def smart_filter(
             min_similarity=0.10,  # 降低最低相似度阈值：确保有结果返回
         )
         
-        # 如果视觉匹配的结果很多，优先返回它们
+        # 如果视觉匹配的结果很多，优先返回它们（先得到一个 candidate 列表）
         if len(visual_filtered) > 0:
-            # 如果设置了max_results，则限制数量
-            final_results = visual_filtered[:max_results] if max_results is not None else visual_filtered
+            candidate_results = visual_filtered[:max_results] if max_results is not None else visual_filtered
+        else:
+            candidate_results = []
+    else:
+        # 非视觉查询或视觉匹配结果为空：使用常规阈值过滤
+        print(f"[SmartFilter] Using standard threshold filtering")
+        candidate_results = filter_by_threshold(results, mode=filter_mode, max_results=max_results)
+
+    if not candidate_results:
+        return candidate_results
+
+    # ===== 步骤4：使用视觉语言模型（VL）对候选结果做二次审阅（看图片内容判断） =====
+    try:
+        from .ai_intent_enhance import validate_search_results_with_vl
+
+        # 只让 VL 看前 top_n 条（降低成本），但可以影响整个列表
+        top_n = min(len(candidate_results), 12)
+        ai_view = await validate_search_results_with_vl(query, candidate_results, top_n=top_n)
+
+        if ai_view.get("ai_validated"):
+            relevant = set(ai_view.get("relevant_indices", []))
+            to_filter = set(ai_view.get("filter_out_indices", []))
+            to_boost = set(ai_view.get("boost_indices", []))
+
+            print(
+                f"[SmartFilter] AI result review: relevant={len(relevant)}, "
+                f"filter_out={len(to_filter)}, boost={len(to_boost)}"
+            )
+
+            # 4.1 先根据 AI 的建议过滤 / 保留
+            adjusted: List[Dict] = []
+            filtered_by_ai = 0
+            kept_by_ai = 0
             
-            # 添加质量标签
-            thresholds = QUALITY_THRESHOLDS[filter_mode]
-            for item in final_results:
-                score = item.get("similarity", 0.0)
-                if score >= thresholds["high"]:
-                    item["quality"] = "high"
-                elif score >= thresholds["medium"]:
-                    item["quality"] = "medium"
+            for idx, item in enumerate(candidate_results):
+                # AI 明确说要过滤的，直接丢掉
+                if idx in to_filter:
+                    item["ai_filtered"] = True
+                    item["ai_filter_reason"] = "llm_suggested"
+                    filtered_by_ai += 1
+                    continue
+
+                # ✅ 优化逻辑：如果 AI 给了 relevant 列表且不为空，则只保留这些；否则全部保留
+                # 这样即使 AI 验证失败或返回空列表，也不会误过滤所有结果
+                if relevant and len(relevant) > 0:
+                    # AI 明确指定了相关结果，只保留这些
+                    if idx in relevant:
+                        adjusted.append(item)
+                        kept_by_ai += 1
+                    else:
+                        # 不在 relevant 列表中，过滤掉
+                        item["ai_filtered"] = True
+                        item["ai_filter_reason"] = "not_in_relevant_list"
+                        filtered_by_ai += 1
                 else:
-                    item["quality"] = "low"
-            
-            print(f"[SmartFilter] Visual filtering: {len(results)} -> {len(visual_filtered)} -> {len(final_results)}")
-            return final_results
-    
-    # 非视觉查询或视觉匹配结果为空：使用常规阈值过滤
-    print(f"[SmartFilter] Using standard threshold filtering")
-    return filter_by_threshold(results, mode=filter_mode, max_results=max_results)
+                    # AI 没有给出 relevant 列表（验证失败或返回空），保留所有（除了明确要过滤的）
+                    adjusted.append(item)
+                    kept_by_ai += 1
+
+            if not adjusted:
+                # 如果 AI 结果太严格导致空列表，就退回到原始候选
+                print(f"[SmartFilter] ⚠️  AI filtering too strict (filtered all), falling back to original candidates")
+                adjusted = candidate_results
+            else:
+                print(f"[SmartFilter] AI filtering: kept {kept_by_ai}, filtered {filtered_by_ai} items")
+
+            # 4.2 对需要 boost 的结果做轻微加权
+            for idx in to_boost:
+                if 0 <= idx < len(adjusted):
+                    item = adjusted[idx]
+                    score = float(item.get("similarity", 0.0) or 0.0)
+                    boosted_score = min(1.0, score + 0.05)
+                    item["similarity"] = boosted_score
+                    item["ai_boost"] = True
+
+            # 4.3 重新按 similarity 排序
+            adjusted.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
+            candidate_results = adjusted
+    except Exception as e:
+        # AI 验证失败时，直接使用规则结果
+        print(f"[SmartFilter] AI result validation failed: {e}")
+
+    # ===== 步骤5：根据质量阈值打标签（high / medium / low），并返回 =====
+    thresholds = QUALITY_THRESHOLDS[filter_mode]
+    for item in candidate_results:
+        score = item.get("similarity", 0.0)
+        if score >= thresholds["high"]:
+            item["quality"] = "high"
+        elif score >= thresholds["medium"]:
+            item["quality"] = "medium"
+        else:
+            item["quality"] = "low"
+
+    return candidate_results
 

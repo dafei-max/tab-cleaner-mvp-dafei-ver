@@ -147,7 +147,7 @@ export const SessionMasonryGrid = ({
       className="session-masonry-container"
       style={{
         width: '100%',
-        maxWidth: '1440px',
+        maxWidth: '1800px', // ✅ 与masonryConfig.js同步，从1440增加到1800
         margin: '0 auto',
         padding: '0 20px',
         overflowY: 'auto',
@@ -180,7 +180,8 @@ export const SessionMasonryGrid = ({
               style={{
                 marginBottom: '40px',
               }}
-            onMouseEnter={() => onSessionFocus && onSessionFocus(session.id)}
+            // ✅ 已移除 onMouseEnter，避免滚动时频繁触发 onSessionFocus 导致自动跳转
+            // onMouseEnter={() => onSessionFocus && onSessionFocus(session.id)}
             >
               {/* Session 标题栏 */}
               <SessionHeader

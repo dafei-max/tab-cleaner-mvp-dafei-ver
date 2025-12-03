@@ -217,6 +217,8 @@ class EmbeddingRequest(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     top_k: Optional[int] = 20
+    query_image_url: Optional[str] = None  # ✅ 以图搜图：查询图片 URL
+    query_image_base64: Optional[str] = None  # ✅ 以图搜图：查询图片 Base64
 
 
 @app.post("/api/v1/search/embedding")
@@ -475,14 +477,18 @@ async def search_content(
         # 使用三阶段漏斗搜索
         normalized_user_id = (user_id or "anonymous").strip() or "anonymous"
         print(f"[API] Search request: query='{request.query}', user_id='{normalized_user_id}'")
+        if request.query_image_url or request.query_image_base64:
+            print(f"[API] Image search enabled: query_image_url={bool(request.query_image_url)}, query_image_base64={bool(request.query_image_base64)}")
         
         from search.funnel_search import search_with_funnel
         from search.threshold_filter import FilterMode
         
-        # 调用漏斗搜索（不限制数量，只根据质量阈值过滤）
+        # ✅ 调用漏斗搜索（支持以图搜图）
         search_results = await search_with_funnel(
             user_id=normalized_user_id,
             query_text=request.query,
+            query_image_url=request.query_image_url,  # ✅ 以图搜图支持
+            query_image_base64=request.query_image_base64,  # ✅ 以图搜图支持
             filter_mode=FilterMode.BALANCED,  # 平衡模式：返回高质量和中等质量结果
             max_results=None,  # 不限制数量，返回所有符合质量阈值的结果
             use_caption=True,  # 启用 Caption 搜索
@@ -506,6 +512,10 @@ async def search_content(
                 "tab_id": item.get("tab_id"),
                 "tab_title": item.get("tab_title"),
                 "similarity": float(item.get("similarity", 0.0)),
+                # ✅ 添加视觉属性（用于按颜色排序）
+                "dominant_colors": item.get("dominant_colors", []),
+                "style_tags": item.get("style_tags", []),
+                "object_tags": item.get("object_tags", []),
                 # 添加质量标签（可选，前端可以使用）
                 "quality": item.get("quality", "medium"),
                 # 添加视觉匹配信息（可选）

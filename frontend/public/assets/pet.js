@@ -1003,6 +1003,8 @@
         background: "transparent",
         pointerEvents: "auto",
         display: "none",
+        willChange: "transform, left, top", // ✅ 性能优化：启用GPU加速
+        touchAction: "none", // ✅ 性能优化：禁用触摸默认行为，提升移动端体验
       });
 
       const shadow = petContainer.attachShadow({ mode: "open" });

@@ -257,6 +257,12 @@
       
       console.log('[Screenshot Capture] ↩️ Background response:', response);
       
+      if (response && response.duplicate) {
+        console.log('[Screenshot Capture] 🔁 Duplicate screenshot, skip saving');
+        showSuccessNotification('这张截图已经在个人空间里啦');
+        return true;
+      }
+      
       if (!response || typeof response.success === 'undefined') {
         // 乐观兜底：大概率已经保存成功，只是老版本 background 没返回 success 字段
         console.warn('[Screenshot Capture] ⚠️ No explicit success flag from background, assuming success');

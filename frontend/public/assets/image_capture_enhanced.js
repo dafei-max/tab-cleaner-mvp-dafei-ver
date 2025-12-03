@@ -23,9 +23,9 @@
   // ==================== 配置 ====================
   // ✅ V3 优化：降低阈值、减少延迟、增大按钮、增强视觉效果
   const CONFIG = {
-    // 最小图片尺寸 (px) - V3: 从 200 降低到 150，提高覆盖率
-    minImageWidth: 150,
-    minImageHeight: 150,
+    // 最小图片尺寸 (px) - V3: 从 200 → 150，当前再降到 100，进一步提高覆盖率
+    minImageWidth: 100,
+    minImageHeight: 100,
     
     // 悬停延迟 (ms) - V3: 从 150ms 降低到 80ms，响应更快
     hoverDelay: 80,
@@ -154,6 +154,63 @@
   }
 
   /**
+   * ✅ 新增：扫描页面上所有“可采集图片”
+   * 同时覆盖 <img> 和常见的 background-image 容器
+   * 返回数组：[{ type: 'img' | 'background', element, src }]
+   */
+  function findAllImages() {
+    const results = [];
+    const seenElements = new Set();
+
+    // 1. 传统 <img> 标签
+    const imgNodes = document.querySelectorAll('img');
+    imgNodes.forEach((img) => {
+      if (!isValidImage(img)) return;
+      if (seenElements.has(img)) return;
+      seenElements.add(img);
+      results.push({
+        type: 'img',
+        element: img,
+        src: getImageUrl(img),
+      });
+    });
+
+    // 2. 带背景图的常见容器（避免全量扫描所有节点，控制性能）
+    const bgSelectors = [
+      'div[style*="background-image"]',
+      'section[style*="background-image"]',
+      'article[style*="background-image"]',
+      '.cover',
+      '.thumbnail',
+      '.hero',
+      '.banner',
+    ];
+
+    bgSelectors.forEach((selector) => {
+      const nodes = document.querySelectorAll(selector);
+      nodes.forEach((el) => {
+        if (seenElements.has(el)) return;
+        const style = window.getComputedStyle(el);
+        const bg = style.backgroundImage;
+        if (!bg || bg === 'none' || !bg.includes('url(')) return;
+
+        const match = bg.match(/url\((\"|')?(.*?)(\"|')?\)/i);
+        const url = match && match[2] ? match[2] : null;
+        if (!url || !isValidBackgroundImage(el, url)) return;
+
+        seenElements.add(el);
+        results.push({
+          type: 'background',
+          element: el,
+          src: url,
+        });
+      });
+    });
+
+    return results;
+  }
+
+  /**
    * ✅ 新增：视觉穿透查找图片或背景图
    * 使用 document.elementsFromPoint(x, y) 从“鼠标所在像素”向下扎一根针，
    * 在堆叠的元素列表中寻找：
@@ -238,6 +295,55 @@
       }
       return src;
     }
+  }
+
+  /**
+   * ✅ 压缩 dataURL 图片，减小写入 chrome.storage 的体积
+   * - 仅对 data:image/*;base64,... 生效
+   * - 普通 https:// URL 不处理（只是一串短字符串）
+   */
+  async function compressImageIfNeeded(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return imageUrl;
+    
+    // 只处理 data URL，普通 URL 基本不占配额
+    if (!imageUrl.startsWith('data:')) {
+      return imageUrl;
+    }
+    
+    // 已经是较小的 JPEG，直接跳过
+    if (imageUrl.includes('data:image/jpeg') && imageUrl.length < 200000) {
+      return imageUrl;
+    }
+    
+    return new Promise((resolve) => {
+      try {
+        const img = new Image();
+        img.onload = () => {
+          const maxSide = 1200;
+          const ratio = Math.min(1, maxSide / Math.max(img.width, img.height));
+          const targetW = Math.round(img.width * ratio);
+          const targetH = Math.round(img.height * ratio);
+          
+          const canvas = document.createElement('canvas');
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+          
+          const compressed = canvas.toDataURL('image/jpeg', 0.7);
+          console.log(
+            '[Image Capture] 📦 Compressed hover image:',
+            `${(imageUrl.length / 1024).toFixed(1)}KB → ${(compressed.length / 1024).toFixed(1)}KB`
+          );
+          resolve(compressed);
+        };
+        img.onerror = () => resolve(imageUrl);
+        img.src = imageUrl;
+      } catch (e) {
+        console.warn('[Image Capture] Failed to compress hover image:', e);
+        resolve(imageUrl);
+      }
+    });
   }
 
   /**
@@ -1578,15 +1684,18 @@
   /**
    * 保存图片到 Tab Cleaner
    */
-  function captureImage(imageUrl, imageElement = null) {
+  async function captureImage(imageUrl, imageElement = null) {
     console.log('[Image Capture] 💾 Capturing image:', imageUrl);
+    
+    // ✅ 对 dataURL 图片做一次压缩，避免写入过大的 base64
+    const finalImageUrl = await compressImageIfNeeded(imageUrl);
     
     // 构建 OpenGraph 数据
     const ogData = {
       url: window.location.href,
       title: document.title || window.location.href,
       description: '',
-      image: imageUrl,
+      image: finalImageUrl,
       site_name: window.location.hostname.replace(/^www\./, ''),
       success: true,
       is_local_fetch: true,
@@ -1616,6 +1725,15 @@
         action: 'save-captured-image',
         data: ogData,
       }).then(response => {
+        if (response && response.duplicate) {
+          console.log('[Image Capture] 🔁 Duplicate image, skip saving');
+          showNotification('这张图片已经在个人空间里啦', 'info');
+          logEvent('save_skipped_duplicate', {
+            url: imageUrl,
+          });
+          return;
+        }
+        
         if (response && response.success) {
           console.log('[Image Capture] ✅ Image saved successfully');
           showSuccessNotification(imageUrl);
@@ -1813,25 +1931,10 @@
     const HINT_DURATION = 7000; // 7秒
 
     const candidates = new Set();
-
-    // 1. 寻找所有符合条件的 <img>
-    Array.from(document.images).forEach(img => {
-      if (isValidImage(img)) {
-        candidates.add(img);
-      }
-    });
-
-    // 2. 寻找所有带背景图的元素（一次性扫描全局，频率很低，可以接受）
-    const allElements = Array.from(document.querySelectorAll('div, section, article, figure, a, span'));
-    allElements.forEach(el => {
-      const style = window.getComputedStyle(el);
-      const bg = style.backgroundImage;
-      if (bg && bg !== 'none' && bg.includes('url(')) {
-        const match = bg.match(/url\((\"|')?(.*?)(\"|')?\)/i);
-        const url = match && match[2] ? match[2] : null;
-        if (url && isValidBackgroundImage(el, url)) {
-          candidates.add(el);
-        }
+    const items = findAllImages();
+    items.forEach(item => {
+      if (item && item.element) {
+        candidates.add(item.element);
       }
     });
 
@@ -1901,10 +2004,11 @@
       console.log('[Image Capture] ✅ Keyboard shortcuts initialized');
       
       // 5. ✅ 新增：首屏可采集提示（延迟1秒执行，确保页面布局稳定）
-      setTimeout(() => {
-        showCollectibleHints();
-      }, 1000);
-      console.log('[Image Capture] ✅ Collectible hints scheduled');
+      // ⚠️ 临时禁用：会影响网页图片加载性能
+      // setTimeout(() => {
+      //   showCollectibleHints();
+      // }, 1000);
+      // console.log('[Image Capture] ✅ Collectible hints scheduled');
       
       console.log('[Image Capture] ✅ V3 All features initialized successfully');
       console.log(`[Image Capture] 📊 Config: minSize=${CONFIG.minImageWidth}x${CONFIG.minImageHeight}, hoverDelay=${CONFIG.hoverDelay}ms, iconSize=${CONFIG.imageMarker.iconSize}px`);

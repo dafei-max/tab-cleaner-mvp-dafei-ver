@@ -36,8 +36,14 @@ IMAGE_FOCUSED_WEIGHTS = (0.05, 0.95)  # 视觉站（Pinterest/Behance/Dribbble/I
 DOC_FOCUSED_WEIGHTS = (0.6, 0.4)  # 文本站（博客/文档/知乎）：文本 60%，图像 40%（即使文档站也保留图像权重）
 
 # ---- Search thresholds ----
-# 最小相似度阈值（过滤掉几乎无关的结果）
-MIN_SIMILARITY_THRESHOLD = 0.15  # 低于此阈值的搜索结果将被过滤
+# 不同召回路径使用不同的相似度阈值
+# Image embedding 路径：结果质量好但被筛掉，使用更宽松的阈值
+IMAGE_EMBEDDING_THRESHOLD = 0.24 # Image embedding 相似度阈值（24%，更宽松，提高召回率）
+# Caption 关键词路径：可能召回不相关结果，使用更严格的阈值
+# ✅ 优化：降低阈值从 0.75 到 0.65，提高召回率（rank 为 0.5 或 1.0，0.65 会保留完全匹配和部分匹配）
+CAPTION_RANK_THRESHOLD = 0.65 # Caption rank 阈值（65%，降低以提高召回率）
+# 其他路径（文本向量等）使用通用阈值
+MIN_SIMILARITY_THRESHOLD = 0.28  # 通用相似度阈值（28%，略微降低以提高召回率）
 
 
 def get_api_key() -> str:

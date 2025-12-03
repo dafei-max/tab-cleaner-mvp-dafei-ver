@@ -130,6 +130,113 @@ async function handleSaveImageFromContextMenu(req, sender, sendResponse) {
 }
 
 /**
+ * 简单图片指纹：基于 URL / Data URL 做轻量去重
+ */
+function generateImageFingerprint(imageValue) {
+  if (!imageValue || typeof imageValue !== 'string') return null;
+  try {
+    if (imageValue.startsWith('data:')) {
+      // Data URL：只取前 120 个字符即可，高度区分
+      return imageValue.substring(0, 120);
+    }
+    // 普通 URL：去掉 query/hash，只保留 origin + path
+    const url = new URL(imageValue, 'https://dummy-base.invalid');
+    return url.origin + url.pathname;
+  } catch (e) {
+    // 兜底：直接截断字符串
+    return imageValue.substring(0, 120);
+  }
+}
+
+/**
+ * 简单相似度计算：前缀匹配比例
+ */
+function computeFingerprintSimilarity(a, b) {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const minLen = Math.min(a.length, b.length);
+  let same = 0;
+  for (let i = 0; i < minLen; i++) {
+    if (a[i] === b[i]) same++;
+  }
+  return same / Math.max(a.length, b.length);
+}
+
+/**
+ * ✅ 存储配额管理：检查图片是否需要压缩（在 content script 中压缩，这里只做检查）
+ * 注意：background.js 是 service worker，无法使用 Image/Canvas，压缩应在 content script 中完成
+ */
+function shouldCompressImage(imageData) {
+  if (!imageData || typeof imageData !== 'string') return false;
+  
+  // 如果不是 data URL，不需要压缩
+  if (!imageData.startsWith('data:')) return false;
+  
+  // 如果已经是压缩过的（JPEG 0.7），且小于 200KB，不需要压缩
+  if (imageData.includes('data:image/jpeg') && imageData.length < 200000) {
+    return false;
+  }
+  
+  // 如果超过 300KB，需要压缩
+  return imageData.length > 300000;
+}
+
+/**
+ * ✅ 存储配额管理：清理旧数据，限制每个 session 的卡片数量
+ */
+function cleanupSessionData(session, maxItemsPerSession = 200) {
+  if (!session || !session.opengraphData) return session;
+  
+  // 如果超过限制，只保留最新的 N 个
+  if (session.opengraphData.length > maxItemsPerSession) {
+    console.log(`[Background] 🧹 Cleaning session: ${session.opengraphData.length} → ${maxItemsPerSession} items`);
+    session.opengraphData = session.opengraphData.slice(0, maxItemsPerSession);
+    session.tabCount = session.opengraphData.length;
+  }
+  
+  return session;
+}
+
+/**
+ * ✅ 存储配额管理：清理所有 sessions 的旧数据
+ */
+function cleanupAllSessions(sessions, maxSessions = 10, maxItemsPerSession = 120) {
+  // 只保留最新的 N 个 sessions
+  const limitedSessions = sessions.slice(0, maxSessions);
+  
+  // 清理每个 session 的旧数据
+  return limitedSessions.map(session => cleanupSessionData(session, maxItemsPerSession));
+}
+
+/**
+ * ✅ 存储配额管理：安全保存（带重试和自动清理）
+ */
+async function safeStorageSet(data, maxRetries = 2) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      await chrome.storage.local.set(data);
+      return { success: true };
+    } catch (error) {
+      const isQuotaError = error.message && error.message.includes('quota');
+      
+      if (isQuotaError && attempt < maxRetries) {
+        console.warn(`[Background] ⚠️ Storage quota exceeded (attempt ${attempt + 1}/${maxRetries + 1}), cleaning old data...`);
+        
+        // 如果是 sessions 数据，清理旧数据
+        if (data.sessions && Array.isArray(data.sessions)) {
+          const cleanedSessions = cleanupAllSessions(data.sessions, 10, 120);
+          data.sessions = cleanedSessions;
+          continue; // 重试
+        }
+      }
+      
+      // 最后一次尝试失败，或非配额错误
+      throw error;
+    }
+  }
+}
+
+/**
  * 处理保存采集的图片（拖拽、悬停、截图等）
  */
 async function handleSaveCapturedImage(req, sender, sendResponse) {
@@ -142,6 +249,13 @@ async function handleSaveCapturedImage(req, sender, sendResponse) {
     }
     
     console.log('[Background] Saving captured image:', ogData.url);
+    
+    // ✅ 存储配额管理：检查图片大小，如果过大则警告（压缩应在 content script 中完成）
+    if (shouldCompressImage(ogData.image)) {
+      console.warn(`[Background] ⚠️ Large image detected (${(ogData.image.length / 1024).toFixed(1)}KB), should be compressed in content script`);
+      // 注意：这里不压缩，因为 service worker 无法使用 Image/Canvas
+      // 压缩应该在 image_capture_enhanced.js 或 screenshot_capture.js 中完成
+    }
     
     // 获取或创建当前 session
     const storageResult = await chrome.storage.local.get(['sessions', 'currentSessionId']);
@@ -159,7 +273,7 @@ async function handleSaveCapturedImage(req, sender, sendResponse) {
       };
       sessions.unshift(newSession);
       currentSessionId = newSession.id;
-      await chrome.storage.local.set({ 
+      await safeStorageSet({ 
         sessions,
         currentSessionId 
       });
@@ -173,8 +287,30 @@ async function handleSaveCapturedImage(req, sender, sendResponse) {
     }
     
     const session = sessions[sessionIndex];
+
+    // 先基于"图片指纹"做一次智能去重（覆盖 dataURL / 普通 URL）
+    const imageFingerprint = generateImageFingerprint(ogData.image);
+    if (imageFingerprint) {
+      const DUP_THRESHOLD = 0.98; // 98% 以上认为是重复
+      for (const item of session.opengraphData) {
+        if (!item) continue;
+        const existingImage = item.image || item.imageUrl || null;
+        const existingFp = item.imageFingerprint || generateImageFingerprint(existingImage);
+        if (!existingFp) continue;
+        const sim = computeFingerprintSimilarity(imageFingerprint, existingFp);
+        if (sim >= DUP_THRESHOLD) {
+          console.log('[Background] 🔁 Duplicate image detected, skip saving');
+          sendResponse({
+            success: false,
+            error: 'Duplicate image',
+            duplicate: true,
+          });
+          return;
+        }
+      }
+    }
     
-    // 检查是否已存在（去重）
+    // URL 维度的旧去重逻辑（兼容之前的数据结构）
     const existingIndex = session.opengraphData.findIndex(item => item.url === ogData.url);
     
     if (existingIndex !== -1) {
@@ -182,20 +318,26 @@ async function handleSaveCapturedImage(req, sender, sendResponse) {
       session.opengraphData[existingIndex] = {
         ...session.opengraphData[existingIndex],
         ...ogData,
+        imageFingerprint: imageFingerprint || session.opengraphData[existingIndex].imageFingerprint || null,
         timestamp: Date.now(),
       };
     } else {
       // 添加新项
       session.opengraphData.unshift({
         ...ogData,
+        imageFingerprint,
         id: `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       });
       session.tabCount = session.opengraphData.length;
     }
     
-    // 保存到 storage
+    // ✅ 存储配额管理：清理当前 session 的旧数据（限制每个 session 最多 120 个卡片）
+    cleanupSessionData(session, 120);
+    
+    // ✅ 存储配额管理：在写入前，对所有 sessions 做一次全局清理（最多 10 个 session，每个 120 条）
     sessions[sessionIndex] = session;
-    await chrome.storage.local.set({ sessions });
+    const cleanedSessionsBeforeSave = cleanupAllSessions(sessions, 10, 120);
+    await safeStorageSet({ sessions: cleanedSessionsBeforeSave });
     
     console.log('[Background] ✅ Captured image saved to session:', currentSessionId);
     

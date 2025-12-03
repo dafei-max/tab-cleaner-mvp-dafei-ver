@@ -42,4 +42,5 @@ dependencies = [
     "alibabacloud-gpdb20160503==3.5.0",
     "alibabacloud-tea-openapi==0.3.8",
     "asyncpg>=0.30.0",
+    "jieba>=0.42.1",
 ]

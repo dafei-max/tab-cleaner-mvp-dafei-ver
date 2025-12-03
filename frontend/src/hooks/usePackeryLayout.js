@@ -30,13 +30,46 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
   const draggabillyInstancesRef = useRef(new Map()); // 存储每个卡片的拖拽实例
   const imageLoadHandlersRef = useRef(new Map()); // 存储图片加载事件处理器
   const resizeHandlerRef = useRef(null);
+  const draggableFailedRef = useRef(false); // ✅ 修复：标记拖拽功能是否失败
 
   // 更新布局（带防抖）
   const updateLayout = useCallback(() => {
     if (masonryInstanceRef.current) {
+      // ✅ 调试：记录布局更新前的状态
+      const itemElements = masonryInstanceRef.current.getItemElements 
+        ? masonryInstanceRef.current.getItemElements() 
+        : [];
+      const itemsCount = masonryInstanceRef.current.items 
+        ? masonryInstanceRef.current.items.length 
+        : 0;
+      
+      console.log(`[DEBUG-MASONRY] 准备更新布局... 
+        - 当前元素数量 (getItemElements): ${itemElements.length}
+        - Masonry items 数量: ${itemsCount}`);
+      
+      if (masonryRef.current) {
+        console.log(`[DEBUG-MASONRY] 布局更新前容器状态:
+          - offsetHeight: ${masonryRef.current.offsetHeight}px
+          - scrollHeight: ${masonryRef.current.scrollHeight}px
+          - clientHeight: ${masonryRef.current.clientHeight}px`);
+      }
+      
       setTimeout(() => {
         masonryInstanceRef.current?.layout();
+        
+        // ✅ 调试：记录布局更新后的状态
+        if (masonryRef.current) {
+          console.log(`[DEBUG-MASONRY] 📏 布局更新完成。
+            - 容器实际高度 (offsetHeight): ${masonryRef.current.offsetHeight}px
+            - 容器滚动高度 (scrollHeight): ${masonryRef.current.scrollHeight}px
+            - 容器可视高度 (clientHeight): ${masonryRef.current.clientHeight}px
+            - 可滚动距离: ${masonryRef.current.scrollHeight - masonryRef.current.clientHeight}px
+            - Masonry 实例内的 items 数量: ${masonryInstanceRef.current.items?.length || 0}
+          `);
+        }
       }, MASONRY_CONFIG.layout.imageLoadDelay);
+    } else {
+      console.warn(`[DEBUG-MASONRY] ❌ 尝试更新布局，但实例不存在`);
     }
   }, []);
 
@@ -48,8 +81,10 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
   // 处理图片加载
   const handleImageLoad = useCallback((img, totalImages, loadedImagesRef) => {
     return () => {
+      // ✅ 修复：添加空值检查
+      if (!loadedImagesRef || !loadedImagesRef.current) return;
       loadedImagesRef.current++;
-      if (loadedImagesRef.current >= totalImages) {
+      if (loadedImagesRef.current >= totalImages && totalImages > 0) {
         updateLayout();
       }
     };
@@ -58,31 +93,68 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
   // 处理图片加载错误
   const handleImageError = useCallback((img, totalImages, loadedImagesRef) => {
     return () => {
+      // ✅ 修复：添加空值检查
+      if (!loadedImagesRef || !loadedImagesRef.current) return;
       // 图片加载失败，使用占位图
-      MASONRY_CONFIG.imageLoading.onError(img);
+      if (img && MASONRY_CONFIG.imageLoading && MASONRY_CONFIG.imageLoading.onError) {
+        try {
+          MASONRY_CONFIG.imageLoading.onError(img);
+        } catch (error) {
+          console.error('[usePackeryLayout] Error in onError handler:', error);
+        }
+      }
       loadedImagesRef.current++;
-      if (loadedImagesRef.current >= totalImages) {
+      if (loadedImagesRef.current >= totalImages && totalImages > 0) {
         updateLayout();
       }
     };
-  }, []);
+  }, [updateLayout]);
 
   // 初始化拖拽功能
   const initDraggable = useCallback((itemElement) => {
-    if (!MASONRY_CONFIG.draggable.enabled) return;
+    // ✅ 修复：如果之前失败过，不再尝试初始化
+    if (draggableFailedRef.current) {
+      return;
+    }
+
+    // ✅ 修复：添加更严格的空值检查
+    if (!itemElement || !MASONRY_CONFIG.draggable || !MASONRY_CONFIG.draggable.enabled) {
+      return;
+    }
 
     // 如果已经初始化过，跳过
     if (draggabillyInstancesRef.current.has(itemElement)) {
       return;
     }
 
-    const draggie = new Draggabilly(itemElement, {
-      handle: MASONRY_CONFIG.draggable.handle,
-      axis: MASONRY_CONFIG.draggable.axis,
-      containment: MASONRY_CONFIG.draggable.containment,
-      cursor: MASONRY_CONFIG.draggable.cursor,
-      opacity: MASONRY_CONFIG.draggable.opacity,
-    });
+    try {
+      // ✅ 修复：先验证配置项并设置默认值
+      const draggableConfig = {
+        handle: MASONRY_CONFIG.draggable.handle || null,
+        axis: MASONRY_CONFIG.draggable.axis || null,
+        containment: MASONRY_CONFIG.draggable.containment !== undefined ? MASONRY_CONFIG.draggable.containment : false,
+        cursor: MASONRY_CONFIG.draggable.cursor || 'move',
+        opacity: MASONRY_CONFIG.draggable.opacity !== undefined ? MASONRY_CONFIG.draggable.opacity : 1,
+      };
+
+      // ✅ 修复：只添加有效的配置项（null 值不传入）
+      const finalConfig = {};
+      if (draggableConfig.handle !== null && draggableConfig.handle !== undefined) {
+        finalConfig.handle = draggableConfig.handle;
+      }
+      if (draggableConfig.axis !== null && draggableConfig.axis !== undefined) {
+        finalConfig.axis = draggableConfig.axis;
+      }
+      if (draggableConfig.containment !== false) {
+        finalConfig.containment = draggableConfig.containment;
+      }
+      finalConfig.cursor = draggableConfig.cursor;
+      finalConfig.opacity = draggableConfig.opacity;
+
+      // ✅ 修复：添加调试日志
+      console.log('[usePackeryLayout] Initializing Draggabilly with config:', finalConfig);
+
+      const draggie = new Draggabilly(itemElement, finalConfig);
 
     // 绑定 Masonry 拖拽（使用 Packery 的 bindDraggabillyEvents 方法）
     // 注意：Masonry 本身不支持拖拽，但可以通过 Draggabilly 实现
@@ -94,24 +166,40 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
       }
     });
 
-    // 存储拖拽实例
-    draggabillyInstancesRef.current.set(itemElement, draggie);
-
     // 拖拽开始
     draggie.on('dragStart', () => {
-      itemElement.style.zIndex = MASONRY_CONFIG.draggable.zIndex;
+      if (itemElement) {
+        itemElement.style.zIndex = MASONRY_CONFIG.draggable.zIndex;
+      }
     });
 
     // 拖拽结束
     draggie.on('dragEnd', () => {
-      itemElement.style.zIndex = '';
+      if (itemElement) {
+        itemElement.style.zIndex = '';
+      }
       // 拖拽结束后重新布局
       updateLayout();
     });
+
+      // 存储拖拽实例
+      draggabillyInstancesRef.current.set(itemElement, draggie);
+    } catch (error) {
+      console.error('[usePackeryLayout] Error initializing Draggabilly:', error);
+      console.error('[usePackeryLayout] Element:', itemElement);
+      console.error('[usePackeryLayout] Config:', MASONRY_CONFIG.draggable);
+      
+      // ✅ 修复：设置失败标记，防止后续继续尝试
+      draggableFailedRef.current = true;
+      console.warn('[usePackeryLayout] Draggable functionality disabled due to initialization error');
+      
+      // ✅ 修复：不抛出错误，让页面继续渲染（只是没有拖拽功能）
+    }
   }, [updateLayout]);
 
   useEffect(() => {
-    if (viewMode === 'masonry' && opengraphData && opengraphData.length > 0) {
+    // ✅ 修复：添加更严格的空值检查
+    if (viewMode === 'masonry' && opengraphData && Array.isArray(opengraphData) && opengraphData.length > 0) {
       // 等待 DOM 更新，确保 masonryRef.current 已绑定
       const initMasonry = () => {
         if (!masonryRef.current) {
@@ -120,24 +208,48 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
           return;
         }
 
-        console.log('[usePackeryLayout] Initializing Masonry with Packery drag with', opengraphData.length, 'items');
+        // ✅ 修复：确保 opengraphData 存在且是数组
+        const safeDataLength = (opengraphData && Array.isArray(opengraphData)) ? opengraphData.length : 0;
+        console.log('[usePackeryLayout] Initializing Masonry with Packery drag with', safeDataLength, 'items');
         
         // 销毁旧的实例
         if (masonryInstanceRef.current) {
           // 销毁所有拖拽实例
           draggabillyInstancesRef.current.forEach((draggie) => {
-            draggie.destroy();
+            try {
+              if (draggie && typeof draggie.destroy === 'function') {
+                draggie.destroy();
+              }
+            } catch (error) {
+              console.error('[usePackeryLayout] Error destroying Draggabilly instance:', error);
+            }
           });
           draggabillyInstancesRef.current.clear();
 
-          masonryInstanceRef.current.destroy();
+          try {
+            if (masonryInstanceRef.current && typeof masonryInstanceRef.current.destroy === 'function') {
+              masonryInstanceRef.current.destroy();
+            }
+          } catch (error) {
+            console.error('[usePackeryLayout] Error destroying Masonry instance:', error);
+          }
           masonryInstanceRef.current = null;
         }
 
         // 清理旧的图片事件监听器
-        imageLoadHandlersRef.current.forEach(({ loadHandler, errorHandler }, img) => {
-          img.removeEventListener('load', loadHandler);
-          img.removeEventListener('error', errorHandler);
+        imageLoadHandlersRef.current.forEach((handlerData, img) => {
+          if (img && handlerData) {
+            try {
+              if (handlerData.loadHandler) {
+                img.removeEventListener('load', handlerData.loadHandler);
+              }
+              if (handlerData.errorHandler) {
+                img.removeEventListener('error', handlerData.errorHandler);
+              }
+            } catch (error) {
+              console.error('[usePackeryLayout] Error removing image event listeners:', error);
+            }
+          }
         });
         imageLoadHandlersRef.current.clear();
 
@@ -176,22 +288,31 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
         });
 
         // 处理图片加载
-        const images = masonryRef.current.querySelectorAll('.masonry-item img');
-        const totalImages = images.length;
+        const images = masonryRef.current ? masonryRef.current.querySelectorAll('.masonry-item img') : [];
+        const totalImages = images ? images.length : 0;
         const loadedImagesRef = { current: 0 };
 
         if (totalImages === 0) {
           // 如果没有图片，立即布局并初始化拖拽
           updateLayout();
           setTimeout(() => {
-            const items = masonryRef.current.querySelectorAll('.masonry-item');
-            items.forEach(initDraggable);
+            if (masonryRef.current) {
+              const items = masonryRef.current.querySelectorAll('.masonry-item');
+              if (items && items.length > 0) {
+                items.forEach((item) => {
+                  if (item) {
+                    initDraggable(item);
+                  }
+                });
+              }
+            }
           }, 100);
         } else {
           // 重置计数器
           loadedImagesRef.current = 0;
 
-          images.forEach((img) => {
+          if (images && images.length > 0) {
+            images.forEach((img) => {
             // 创建事件处理器
             const loadHandler = handleImageLoad(img, totalImages, loadedImagesRef);
             const errorHandler = handleImageError(img, totalImages, loadedImagesRef);
@@ -203,12 +324,20 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
             if (img.complete && img.naturalHeight !== 0) {
               // 图片已加载完成
               loadedImagesRef.current++;
-              if (loadedImagesRef.current >= totalImages) {
+                if (loadedImagesRef.current >= totalImages) {
                 updateLayout();
                 // 所有图片加载完成后初始化拖拽
                 setTimeout(() => {
-                  const items = masonryRef.current.querySelectorAll('.masonry-item');
-                  items.forEach(initDraggable);
+                  if (masonryRef.current) {
+                    const items = masonryRef.current.querySelectorAll('.masonry-item');
+                    if (items && items.length > 0) {
+                      items.forEach((item) => {
+                        if (item) {
+                          initDraggable(item);
+                        }
+                      });
+                    }
+                  }
                 }, 100);
               }
             } else {
@@ -218,12 +347,17 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
 
               // 设置超时处理
               setTimeout(() => {
-                if (!img.complete || img.naturalHeight === 0) {
-                  errorHandler();
+                if (img && (!img.complete || img.naturalHeight === 0)) {
+                  try {
+                    errorHandler();
+                  } catch (error) {
+                    console.error('[usePackeryLayout] Error in image error handler:', error);
+                  }
                 }
-              }, MASONRY_CONFIG.imageLoading.timeout);
+              }, MASONRY_CONFIG.imageLoading.timeout || 5000);
             }
           });
+          }
         }
 
         // 监听窗口大小变化（响应式）
@@ -249,28 +383,127 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
         window.addEventListener('resize', handleResize);
         resizeHandlerRef.current = handleResize;
 
-        // 监听新元素添加（用于动态添加卡片）
-        const observer = new MutationObserver(() => {
-          const items = masonryRef.current.querySelectorAll('.masonry-item');
-          items.forEach((item) => {
-            if (!draggabillyInstancesRef.current.has(item)) {
-              initDraggable(item);
+        // ✅ 修复：监听新元素添加，并通知 Masonry 重新布局
+        const observer = new MutationObserver((mutations) => {
+          try {
+            if (!masonryRef.current) return;
+            
+            // ✅ 调试：记录 MutationObserver 触发
+            let totalAddedNodes = 0;
+            mutations.forEach(mutation => {
+              totalAddedNodes += mutation.addedNodes.length;
+            });
+            
+            if (totalAddedNodes > 0) {
+              console.log(`[DEBUG-MASONRY] 🔄 MutationObserver 检测到 ${totalAddedNodes} 个新节点`);
             }
-          });
+            
+            // 1. 检查是否有真正的节点添加
+            let hasNewItems = false;
+            mutations.forEach(mutation => {
+              if (mutation.addedNodes.length > 0) {
+                hasNewItems = true;
+              }
+            });
+
+            // 2. 初始化新元素的拖拽，并收集新元素
+            const items = masonryRef.current.querySelectorAll('.masonry-item');
+            const newItems = [];
+            
+            if (items && items.length > 0) {
+              items.forEach((item) => {
+                if (item && !draggabillyInstancesRef.current.has(item)) {
+                  initDraggable(item);
+                  // ✅ 检查是否是 Masonry 的新元素
+                  if (masonryInstanceRef.current) {
+                    try {
+                      // 尝试获取 Masonry 已知的元素列表
+                      const knownItems = masonryInstanceRef.current.getItemElements 
+                        ? masonryInstanceRef.current.getItemElements() 
+                        : [];
+                      // 如果 Masonry 不知道这个元素，标记为新元素
+                      if (!knownItems.includes(item)) {
+                        newItems.push(item);
+                      }
+                    } catch (error) {
+                      // 如果获取失败，假设是新元素（更安全）
+                      newItems.push(item);
+                    }
+                  }
+                }
+              });
+            }
+
+            // 3. ✅ 关键修复：通知 Masonry 有新元素加入并重新布局
+            if (masonryInstanceRef.current && (hasNewItems || newItems.length > 0)) {
+              console.log(`[DEBUG-MASONRY] 🔧 准备更新 Masonry:
+                - 检测到新节点: ${hasNewItems}
+                - 新元素数量: ${newItems.length}
+                - 当前所有元素数量: ${items.length}`);
+              
+              // 延迟执行，确保 DOM 完全更新
+              setTimeout(() => {
+                if (masonryInstanceRef.current) {
+                  try {
+                    // 如果有新元素，使用 appended 方法添加
+                    if (newItems.length > 0 && masonryInstanceRef.current.appended) {
+                      console.log(`[DEBUG-MASONRY] ➕ 使用 appended 添加 ${newItems.length} 个新元素`);
+                      masonryInstanceRef.current.appended(newItems);
+                    } else {
+                      // 如果没有 appended 方法或没有新元素，直接重新布局
+                      console.log(`[DEBUG-MASONRY] 🔄 直接调用 layout() 重新布局`);
+                      masonryInstanceRef.current.layout();
+                    }
+                    
+                    // 布局后再次检查容器高度
+                    if (masonryRef.current) {
+                      console.log(`[DEBUG-MASONRY] ✅ 布局更新后:
+                        - offsetHeight: ${masonryRef.current.offsetHeight}px
+                        - scrollHeight: ${masonryRef.current.scrollHeight}px`);
+                    }
+                  } catch (error) {
+                    // 如果 appended 失败，直接重新布局
+                    console.warn('[DEBUG-MASONRY] ⚠️ Masonry update failed, using layout instead:', error);
+                    if (masonryInstanceRef.current) {
+                      masonryInstanceRef.current.layout();
+                    }
+                  }
+                }
+              }, 50); // 延迟 50ms，确保 DOM 更新完成
+            }
+          } catch (error) {
+            console.error('[usePackeryLayout] Error in MutationObserver:', error);
+          }
         });
 
-        observer.observe(masonryRef.current, {
-          childList: true,
-          subtree: true,
-        });
+        if (masonryRef.current) {
+          try {
+            observer.observe(masonryRef.current, {
+              childList: true,
+              subtree: true,
+            });
+          } catch (error) {
+            console.error('[usePackeryLayout] Error observing mutations:', error);
+          }
+        }
       };
       
       // 清理函数
       const cleanup = () => {
         // 清理图片事件监听器
-        imageLoadHandlersRef.current.forEach(({ loadHandler, errorHandler }, img) => {
-          img.removeEventListener('load', loadHandler);
-          img.removeEventListener('error', errorHandler);
+        imageLoadHandlersRef.current.forEach((handlerData, img) => {
+          if (img && handlerData) {
+            try {
+              if (handlerData.loadHandler) {
+                img.removeEventListener('load', handlerData.loadHandler);
+              }
+              if (handlerData.errorHandler) {
+                img.removeEventListener('error', handlerData.errorHandler);
+              }
+            } catch (error) {
+              console.error('[usePackeryLayout] Error removing event listeners in cleanup:', error);
+            }
+          }
         });
         imageLoadHandlersRef.current.clear();
 

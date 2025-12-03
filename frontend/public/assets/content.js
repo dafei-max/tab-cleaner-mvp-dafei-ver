@@ -58,6 +58,18 @@
     }
   }
 
+  // ✅ 插件卡片配置（与 uiConfig.js 中的 pluginCard 配置同步）
+  // 注意：如需修改，请同时更新 frontend/src/screens/PersonalSpace/uiConfig.js 中的 pluginCard 配置
+  const PLUGIN_CARD_CONFIG = {
+    width: 320,                  // 卡片宽度（px）
+    height: 485,                 // 卡片高度（px）
+    scale: 0.70,                 // 卡片缩放比例（0-1）
+    position: {
+      top: 0,                   // 距离顶部距离（px）
+      right: 25,                  // 距离右侧距离（px）
+    },
+  };
+
   async function loadCardHTMLFromTemplate() {
     try {
       const url = asset("assets/card.html");
@@ -85,9 +97,13 @@
   }
 
   function buildInlineOverrides(guideCss, mainCss, backgroundUrl) {
+    // ✅ 使用配置中的缩放比例
+    const cardScale = PLUGIN_CARD_CONFIG.scale;
+    
     return `
       <style>
         :host { all: initial; display:block; --tc-radius: 28px; background: transparent !important; }
+        :host { --tc-card-scale: ${cardScale}; } /* ✅ 动态设置卡片缩放比例 */
         *, *::before, *::after { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
         ${guideCss}
         ${mainCss}
@@ -274,9 +290,9 @@
     cardContainer = document.createElement("div");
     cardContainer.id = "tab-cleaner-card-container";
     
-    // 计算位置：右上角，插件图标下方（通常图标在工具栏右侧，距离顶部约10px，距离右侧约20px）
-    const topOffset = 60; // 插件图标下方约60px
-    const rightOffset = 20; // 距离右侧20px
+    // ✅ 使用配置中的位置参数
+    const topOffset = PLUGIN_CARD_CONFIG.position.top;
+    const rightOffset = PLUGIN_CARD_CONFIG.position.right;
     
     Object.assign(cardContainer.style, {
       position: "fixed",
@@ -285,8 +301,8 @@
       left: "auto",
       bottom: "auto",
       zIndex: String(2147483647),
-      width: "320px",
-      height: "485px",
+      width: `${PLUGIN_CARD_CONFIG.width}px`,      // ✅ 使用配置中的宽度
+      height: `${PLUGIN_CARD_CONFIG.height}px`,    // ✅ 使用配置中的高度
       background: "transparent",
       pointerEvents: "auto", // 改为 auto，确保可交互
       boxShadow: "none",

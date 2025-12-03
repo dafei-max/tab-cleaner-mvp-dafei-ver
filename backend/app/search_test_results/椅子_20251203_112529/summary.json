@@ -1,0 +1,22 @@
+{
+  "query": "椅子",
+  "user_id": "anonymous",
+  "filter_mode": "balanced",
+  "timestamp": "20251203_112529",
+  "stages": {
+    "coarse_recall": {
+      "total_raw": 31,
+      "after_doc_filter": 29,
+      "unique": 19,
+      "by_recall_path_raw": {
+        "text_to_image_vector": 15,
+        "caption_keyword": 16
+      }
+    },
+    "ai_filtering": {
+      "input": 19,
+      "output": 10,
+      "filtered": 9
+    }
+  }
+}

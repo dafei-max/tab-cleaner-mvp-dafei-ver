@@ -2,7 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SessionMasonryGrid } from '../SessionMasonryGrid';
 import { RadialCanvas } from '../RadialCanvas';
-import { ScrollSpyIndicator } from '../ScrollSpyIndicator';
+// import { ScrollSpyIndicator } from '../ScrollSpyIndicator'; // 已禁用，避免影响正常滚动
 
 /**
  * 视图容器组件
@@ -74,15 +74,15 @@ export const ViewContainer = ({
             containerRef={sessionContainerRef}
             onSessionFocus={onSessionFocus}
           />
-          {/* Scroll Spy Indicator */}
-          {safeSessions.length > 1 && (
+          {/* Scroll Spy Indicator - 已禁用，避免影响正常滚动 */}
+          {/* {safeSessions.length > 1 && (
             <ScrollSpyIndicator 
               sessions={safeSessions} 
               containerRef={sessionContainerRef}
               activeSessionId={currentSessionId}
               onActiveSessionChange={onSessionFocus}
             />
-          )}
+          )} */}
         </motion.div>
       ) : (
         <motion.div

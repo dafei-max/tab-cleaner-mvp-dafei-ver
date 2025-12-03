@@ -1,0 +1,19 @@
+{
+  "query": "天空",
+  "user_id": "anonymous",
+  "filter_mode": "balanced",
+  "timestamp": "20251202_162546",
+  "stages": {
+    "coarse_recall": {
+      "total_raw": 180,
+      "after_doc_filter": 151,
+      "unique": 142
+    },
+    "fine_ranking": {
+      "count": 142
+    },
+    "ai_filtering": {
+      "count": 127
+    }
+  }
+}

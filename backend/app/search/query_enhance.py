@@ -49,6 +49,24 @@ STYLE_MAP = {
     "日式": ["japanese", "zen", "muji style"],
 }
 
+# 物体映射（中英文，用于从查询中提取物体标签）
+OBJECT_MAP = {
+    "植物": ["plant", "tree", "flower", "foliage", "greenery", "vegetation"],
+    "椅子": ["chair", "seat", "seating"],
+    "桌子": ["table", "desk"],
+    "沙发": ["sofa", "couch"],
+    "床": ["bed"],
+    "灯": ["lamp", "light", "lighting"],
+    "书架": ["shelf", "bookshelf"],
+    "镜子": ["mirror"],
+    "地毯": ["rug", "carpet"],
+    "枕头": ["pillow"],
+    "窗帘": ["curtain", "drape"],
+    "花瓶": ["vase"],
+    "画": ["painting", "art", "picture"],
+    "雕塑": ["sculpture"],
+}
+
 # 中英文同义词映射（简单版本，可以根据需要扩展）
 SYNONYM_MAP = {
     "椅子": ["chair", "seat", "seating", "furniture"],
@@ -175,15 +193,16 @@ def enhance_query(query: str, enable_synonym_expansion: bool = True, default_to_
 
 def enhance_visual_query(query: str) -> Dict[str, any]:
     """
-    增强视觉查询，提取颜色、风格等属性
+    增强视觉查询，提取颜色、风格、物体等属性
     
     Returns:
         {
-            "original": "蓝色椅子",
-            "enhanced": "蓝色椅子 blue azure chair design",
-            "colors": ["blue", "azure"],
+            "original": "绿色植物",
+            "enhanced": "绿色植物 green emerald plant tree design",
+            "colors": ["green", "emerald"],
             "styles": [],
-            "keywords": ["椅子", "chair"]
+            "objects": ["plant", "tree", "flower"],
+            "keywords": ["植物"]
         }
     """
     result = {
@@ -191,6 +210,7 @@ def enhance_visual_query(query: str) -> Dict[str, any]:
         "enhanced": query,
         "colors": [],
         "styles": [],
+        "objects": [],
         "keywords": []
     }
     
@@ -213,9 +233,15 @@ def enhance_visual_query(query: str) -> Dict[str, any]:
             result["styles"].extend(style_en_list)
             enhanced_words.update(style_en_list)
     
-    # 提取关键词（去掉颜色/风格词）
+    # 检测物体
+    for object_cn, object_en_list in OBJECT_MAP.items():
+        if object_cn in query:
+            result["objects"].extend(object_en_list)
+            enhanced_words.update(object_en_list)
+    
+    # 提取关键词（去掉颜色/风格/物体词）
     for word in query.split():
-        if word not in COLOR_MAP and word not in STYLE_MAP:
+        if word not in COLOR_MAP and word not in STYLE_MAP and word not in OBJECT_MAP:
             result["keywords"].append(word)
     
     result["enhanced"] = " ".join(enhanced_words)
@@ -224,6 +250,7 @@ def enhance_visual_query(query: str) -> Dict[str, any]:
     print(f"[Query Enhance] Enhanced: '{result['enhanced']}'")
     print(f"[Query Enhance] Colors: {result['colors']}")
     print(f"[Query Enhance] Styles: {result['styles']}")
+    print(f"[Query Enhance] Objects: {result['objects']}")
     
     return result
 

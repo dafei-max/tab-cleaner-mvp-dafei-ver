@@ -1,0 +1,22 @@
+{
+  "query": "绿色植物",
+  "user_id": "anonymous",
+  "filter_mode": "balanced",
+  "timestamp": "20251203_111559",
+  "stages": {
+    "coarse_recall": {
+      "total_raw": 30,
+      "after_doc_filter": 28,
+      "unique": 24,
+      "by_recall_path_raw": {
+        "text_to_image_vector": 24,
+        "caption_keyword": 6
+      }
+    },
+    "ai_filtering": {
+      "input": 24,
+      "output": 12,
+      "filtered": 12
+    }
+  }
+}

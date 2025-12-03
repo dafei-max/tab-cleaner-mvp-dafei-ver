@@ -373,6 +373,36 @@ async def init_schema():
         raise
 
 
+def _normalize_url_for_storage(url: str) -> str:
+    """
+    标准化 URL 用于存储和去重（移除查询参数、锚点、尾随斜杠）
+    
+    Args:
+        url: 原始 URL
+    
+    Returns:
+        标准化后的 URL
+    """
+    if not url:
+        return url
+    try:
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(url)
+        # 移除查询参数、锚点、尾随斜杠
+        normalized = urlunparse((
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path.rstrip('/'),
+            '',  # params
+            '',  # query - 移除查询参数
+            ''   # fragment - 移除锚点
+        )).lower()
+        return normalized
+    except Exception as e:
+        # 如果解析失败，返回原始 URL（小写）
+        return url.lower()
+
+
 async def upsert_opengraph_item(
     user_id: Optional[str],
     url: str,
@@ -395,8 +425,11 @@ async def upsert_opengraph_item(
     """
     插入或更新 OpenGraph 数据
     
+    ✅ 自动去重：使用标准化 URL（移除查询参数、锚点）作为唯一标识
+    这样可以避免同一个页面因为查询参数不同而被重复存储
+    
     Args:
-        url: 网页 URL（唯一标识）
+        url: 网页 URL（会自动标准化用于去重）
         title: 标题
         description: 描述
         image: 图片 URL 或 Base64（必须是字符串，不能是数组）
@@ -411,6 +444,8 @@ async def upsert_opengraph_item(
         是否成功
     """
     try:
+        # ✅ 标准化 URL 用于去重（移除查询参数、锚点、尾随斜杠）
+        normalized_url = _normalize_url_for_storage(url)
         # ✅ 类型验证和规范化
         # 确保 image 是字符串，不是数组
         if image is not None:
@@ -489,7 +524,7 @@ async def upsert_opengraph_item(
                         status = 'active',
                         deleted_at = NULL,
                         updated_at = NOW();
-                """, user_id, url, title, description, image, site_name,
+                """, user_id, normalized_url, title, description, image, site_name,
                     tab_id, tab_title, text_vec, image_vec, metadata_json,
                     image_caption, caption_vec, dominant_colors, style_tags, object_tags)
             else:
@@ -513,7 +548,7 @@ async def upsert_opengraph_item(
                         status = 'active',
                         deleted_at = NULL,
                         updated_at = NOW();
-                """, user_id, url, title, description, image, site_name,
+                """, user_id, normalized_url, title, description, image, site_name,
                     tab_id, tab_title, text_vec, image_vec, metadata_json)
             
             return True
@@ -728,9 +763,80 @@ async def search_by_image_embedding(
         return []
 
 
+async def search_by_caption_embedding(
+    user_id: Optional[str],
+    query_embedding: List[float],
+    top_k: int = 20,
+    threshold: float = 0.0
+) -> List[Dict]:
+    """
+    根据 Caption embedding 进行相似度搜索（严格按用户隔离）
+    
+    Args:
+        user_id: 用户ID
+        query_embedding: 查询文本的 embedding 向量（1024维）
+        top_k: 返回前 K 个结果
+        threshold: 相似度阈值（0-1）
+    
+    Returns:
+        相似度排序的结果列表
+    """
+    try:
+        normalized_user = _normalize_user_id(user_id)
+        pool = await get_pool()
+        
+        async with pool.acquire() as conn:
+            # 检查 caption_embedding 字段是否存在
+            has_caption_embedding = await conn.fetchval(f"""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns 
+                    WHERE table_schema = '{NAMESPACE}'
+                      AND table_name = '{ACTIVE_TABLE_NAME}'
+                      AND column_name = 'caption_embedding'
+                );
+            """)
+            
+            if not has_caption_embedding:
+                print(f"[VectorDB] caption_embedding column not found, skipping caption embedding search")
+                return []
+            
+            query_vec = to_vector_str(query_embedding)
+            
+            rows = await conn.fetch(f"""
+                SELECT user_id, url, title, description, image, site_name,
+                       tab_id, tab_title, text_embedding, image_embedding, metadata,
+                       image_caption, caption_embedding, dominant_colors, style_tags, object_tags,
+                       1 - (caption_embedding <=> $1::vector(1024)) AS similarity
+                FROM {ACTIVE_TABLE}
+                WHERE status = 'active'
+                  AND user_id = $2
+                  AND caption_embedding IS NOT NULL
+                  AND (1 - (caption_embedding <=> $1::vector(1024))) >= $3
+                ORDER BY caption_embedding <=> $1::vector(1024)
+                LIMIT $4;
+            """, query_vec, normalized_user, threshold, top_k)
+            
+            results = []
+            for row in rows:
+                item = _row_to_dict(row)
+                results.append(item)
+            
+            return results
+    except Exception as e:
+        print(f"[VectorDB] Error searching by caption embedding: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+
 async def batch_upsert_items(items: List[Dict], user_id: Optional[str], batch_size: int = 20) -> int:
     """
     批量插入或更新 OpenGraph 数据（优化版本：使用并发和批量处理）
+    
+    ✅ 在保存前自动过滤：
+    1. 文档类内容（使用 is_doc_like 过滤）
+    2. 重复的 caption（如果数据库中已有相同的 caption，跳过）
+    3. 重复的 image（如果数据库中已有相同的 image，跳过）
     
     Args:
         items: OpenGraph 数据列表（每个包含 url, title, description 等字段）
@@ -746,6 +852,186 @@ async def batch_upsert_items(items: List[Dict], user_id: Optional[str], batch_si
     # ✅ 规范化所有项
     from search.normalize import normalize_opengraph_items
     normalized_items = normalize_opengraph_items(items)
+    
+    # ✅ 步骤 1: 过滤文档类内容（从源头阻止）
+    from search.preprocess import is_doc_like
+    filtered_items = []
+    doc_filtered_count = 0
+    
+    for item in normalized_items:
+        if is_doc_like(item):
+            doc_filtered_count += 1
+            url = item.get("url", "N/A")
+            title = item.get("title", "N/A")
+            print(f"[VectorDB] 🚫 过滤文档类内容: {url[:60]}... (标题: {title[:40]}...)")
+            continue
+        filtered_items.append(item)
+    
+    if doc_filtered_count > 0:
+        print(f"[VectorDB] 📊 文档类内容过滤: {doc_filtered_count} 项被过滤，剩余 {len(filtered_items)} 项")
+    
+    if not filtered_items:
+        print(f"[VectorDB] ⚠️  所有项都被过滤，没有可保存的数据")
+        return 0
+    
+    # ✅ 步骤 2: 检查重复的 caption 和 image（批量查询一次数据库）
+    pool = await get_pool()
+    duplicate_caption_count = 0
+    duplicate_image_count = 0
+    final_items = []
+    
+    try:
+        async with pool.acquire() as conn:
+            # 收集所有需要检查的 caption 和 image
+            caption_map = {}  # normalized_caption -> List[item]
+            image_map = {}    # image -> List[item]
+            
+            for item in filtered_items:
+                # 收集 caption
+                caption = item.get("image_caption") or (item.get("metadata") or {}).get("caption")
+                if caption:
+                    normalized_caption = caption.strip().lower()
+                    if normalized_caption not in caption_map:
+                        caption_map[normalized_caption] = []
+                    caption_map[normalized_caption].append(item)
+                
+                # 收集 image
+                image = item.get("image")
+                if image:
+                    if image not in image_map:
+                        image_map[image] = []
+                    image_map[image].append(item)
+            
+            # 批量查询数据库中已有的 caption
+            existing_caption_set = set()
+            if caption_map:
+                caption_values = list(caption_map.keys())
+                caption_query = f"""
+                    SELECT DISTINCT LOWER(TRIM(COALESCE(image_caption, metadata->>'caption', ''))) as normalized_caption
+                    FROM {ACTIVE_TABLE}
+                    WHERE status = 'active'
+                      AND user_id = $1
+                      AND (
+                        LOWER(TRIM(COALESCE(image_caption, ''))) = ANY($2::text[])
+                        OR LOWER(TRIM(COALESCE(metadata->>'caption', ''))) = ANY($2::text[])
+                      )
+                """
+                existing_captions = await conn.fetch(caption_query, user_id, caption_values)
+                existing_caption_set = {row['normalized_caption'] for row in existing_captions if row['normalized_caption']}
+            
+            # 批量查询数据库中已有的 image
+            existing_image_set = set()
+            if image_map:
+                image_values = list(image_map.keys())
+                image_query = f"""
+                    SELECT DISTINCT image
+                    FROM {ACTIVE_TABLE}
+                    WHERE status = 'active'
+                      AND user_id = $1
+                      AND image = ANY($2::text[])
+                """
+                existing_images = await conn.fetch(image_query, user_id, image_values)
+                existing_image_set = {row['image'] for row in existing_images if row['image']}
+            
+            # 对每个项，检查是否应该被过滤（caption 或 image 重复）
+            items_to_skip = set()  # 存储要跳过的 URL
+            
+            # 检查 caption 重复
+            for normalized_caption, items in caption_map.items():
+                if normalized_caption in existing_caption_set:
+                    duplicate_caption_count += len(items)
+                    for item in items:
+                        url = item.get("url", "")
+                        if url:
+                            items_to_skip.add(url)
+                            print(f"[VectorDB] 🚫 过滤重复 Caption: {url[:60]}... (Caption: {normalized_caption[:40]}...)")
+            
+            # 检查 image 重复
+            for image, items in image_map.items():
+                if image in existing_image_set:
+                    for item in items:
+                        url = item.get("url", "")
+                        if url and url not in items_to_skip:
+                            items_to_skip.add(url)
+                            duplicate_image_count += 1
+                            print(f"[VectorDB] 🚫 过滤重复 Image: {url[:60]}...")
+            
+            # 构建最终列表（排除被过滤的项）
+            for item in filtered_items:
+                url = item.get("url", "")
+                if url not in items_to_skip:
+                    final_items.append(item)
+    
+    except Exception as e:
+        print(f"[VectorDB] ⚠️  检查重复项时出错，继续保存所有过滤后的项: {e}")
+        import traceback
+        traceback.print_exc()
+        final_items = filtered_items
+    
+    if duplicate_caption_count > 0 or duplicate_image_count > 0:
+        print(f"[VectorDB] 📊 重复项过滤: Caption={duplicate_caption_count}, Image={duplicate_image_count}, 剩余 {len(final_items)} 项")
+    
+    if not final_items:
+        print(f"[VectorDB] ⚠️  所有项都被过滤（文档类或重复），没有可保存的数据")
+        return 0
+    
+    # ✅ 步骤 3: 自动补齐 Caption 和视觉属性标签（只对缺失的项）
+    items_to_enrich = []
+    items_already_have_caption = []
+    
+    for item in final_items:
+        # 检查是否已有 caption 和标签
+        has_caption = bool(item.get("image_caption") or (item.get("metadata") or {}).get("caption"))
+        has_colors = bool(item.get("dominant_colors") and len(item.get("dominant_colors", [])) > 0)
+        has_tags = bool(
+            (item.get("style_tags") and len(item.get("style_tags", [])) > 0) or
+            (item.get("object_tags") and len(item.get("object_tags", [])) > 0)
+        )
+        has_image = bool(item.get("image"))
+        
+        # 如果已有完整的 caption 和标签，跳过
+        if has_caption and has_colors and has_tags:
+            items_already_have_caption.append(item)
+            continue
+        
+        # 如果有 image 但缺少 caption 或标签，需要补齐
+        if has_image:
+            items_to_enrich.append(item)
+        else:
+            # 没有 image，无法生成 caption，直接保存
+            items_already_have_caption.append(item)
+    
+    # 批量生成 caption 和标签（只对有 image 且缺失的项）
+    enriched_items = []
+    if items_to_enrich:
+        print(f"[VectorDB] 🔍 自动补齐 Caption 和标签: {len(items_to_enrich)} 项需要补齐")
+        try:
+            from search.caption import batch_enrich_items
+            enriched_items = await batch_enrich_items(
+                items_to_enrich,
+                use_kmeans_colors=True,
+                concurrent=min(5, len(items_to_enrich)),  # 限制并发数，避免 API 限流
+            )
+            print(f"[VectorDB] ✅ 成功补齐 {len(enriched_items)} 项的 Caption 和标签")
+            
+            # 将生成的字段映射到正确的字段名（enrich_item_with_caption 返回的是 "caption"，需要映射到 "image_caption"）
+            for enriched_item in enriched_items:
+                # enrich_item_with_caption 返回 "caption"，需要映射到 "image_caption"
+                if "caption" in enriched_item:
+                    if "image_caption" not in enriched_item or not enriched_item.get("image_caption"):
+                        enriched_item["image_caption"] = enriched_item.get("caption", "")
+        except Exception as e:
+            print(f"[VectorDB] ⚠️  生成 Caption 和标签时出错，继续保存其他字段: {e}")
+            import traceback
+            traceback.print_exc()
+            # 如果生成失败，仍然保存原始项
+            enriched_items = items_to_enrich
+    
+    # 合并：已有完整字段的项 + 新补齐的项
+    all_items_to_save = items_already_have_caption + enriched_items
+    
+    if len(items_to_enrich) > 0:
+        print(f"[VectorDB] 📊 字段补齐统计: 已有完整字段={len(items_already_have_caption)}, 新补齐={len(enriched_items)}, 总计={len(all_items_to_save)}")
     
     # 使用信号量控制并发数
     semaphore = asyncio.Semaphore(batch_size)
@@ -772,8 +1058,8 @@ async def batch_upsert_items(items: List[Dict], user_id: Optional[str], batch_si
                 object_tags=item.get("object_tags"),
             )
     
-    # 并发处理所有项
-    tasks = [upsert_one(item) for item in normalized_items]
+    # 并发处理所有项（使用补齐后的项）
+    tasks = [upsert_one(item) for item in all_items_to_save]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     
     # 统计成功数量
@@ -798,9 +1084,15 @@ class VectorDBClient:
             return await conn.execute(query, *(params or ()))
     
     async def upsert_item(self, item: Dict, user_id: str):
+        """
+        ✅ 自动去重：使用标准化 URL（移除查询参数、锚点）作为唯一标识
+        """
         metadata_json = json.dumps(item.get("metadata") or {})
         text_vec = to_vector_str(item.get("text_embedding"))
         image_vec = to_vector_str(item.get("image_embedding"))
+        # ✅ 标准化 URL 用于去重
+        original_url = item.get("url")
+        normalized_url = _normalize_url_for_storage(original_url) if original_url else None
         await self.execute_query(
             f"""
             INSERT INTO {self.qualified_table} (
@@ -821,7 +1113,7 @@ class VectorDBClient:
             """,
             (
                 _normalize_user_id(user_id),
-                item.get("url"),
+                normalized_url,  # ✅ 使用标准化 URL
                 item.get("title"),
                 item.get("description"),
                 item.get("image"),

@@ -331,20 +331,37 @@ async def enrich_item_with_caption(
     # 去重
     all_objects = list(set(object_tags + rule_based_objects))
     
+    # ✅ 生成 Caption 的 text embedding（用于提高搜索准确率）
+    caption_embedding = None
+    caption_text = qwen_result.get("caption", "")
+    if caption_text:
+        try:
+            from .embed import embed_text
+            caption_embedding = await embed_text(caption_text)
+            if caption_embedding:
+                print(f"[Caption] Generated caption embedding: {len(caption_embedding)} dims")
+        except Exception as e:
+            print(f"[Caption] WARNING: Failed to generate caption embedding: {e}")
+            import traceback
+            traceback.print_exc()
+    
     # 更新项
     enriched_item = {
         **item,
-        "caption": qwen_result.get("caption", ""),
+        "caption": caption_text,
+        "image_caption": caption_text,  # 同时保存为 image_caption（数据库字段名）
+        "caption_embedding": caption_embedding,  # ✅ 新增：Caption 的 text vector
         "dominant_colors": dominant_colors,
         "style_tags": all_styles,
         "object_tags": all_objects,
     }
     
     print(f"[Caption] Enriched item: {item.get('url', 'unknown')[:50]}...")
-    print(f"  - Caption: {qwen_result.get('caption', '')[:50]}...")
+    print(f"  - Caption: {caption_text[:50]}...")
     print(f"  - Colors: {dominant_colors}")
     print(f"  - Styles: {all_styles}")
     print(f"  - Objects: {all_objects}")
+    print(f"  - Caption Embedding: {'Generated' if caption_embedding else 'Failed'}")
     
     return enriched_item
 

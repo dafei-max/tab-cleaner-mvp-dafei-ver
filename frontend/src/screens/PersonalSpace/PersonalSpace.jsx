@@ -218,6 +218,9 @@ export const PersonalSpace = () => {
         centerY: 512,
         baseRadius: UI_CONFIG.radial.baseRadius,
         radiusGap: UI_CONFIG.radial.radiusGap,
+        minRadiusGap: UI_CONFIG.radial.minRadiusGap,
+        maxRadiusGap: UI_CONFIG.radial.maxRadiusGap,
+        autoAdjustRadius: UI_CONFIG.radial.autoAdjustRadius,
       }).map((og, index) => ({
         ...og,
         id: og.id || `og-${index}-${Date.now()}`,
@@ -365,6 +368,9 @@ export const PersonalSpace = () => {
                 centerY: 512,
                 baseRadius: UI_CONFIG.radial.baseRadius,
                 radiusGap: UI_CONFIG.radial.radiusGap,
+                minRadiusGap: UI_CONFIG.radial.minRadiusGap,
+                maxRadiusGap: UI_CONFIG.radial.maxRadiusGap,
+                autoAdjustRadius: UI_CONFIG.radial.autoAdjustRadius,
               }).map((og, index) => ({
                 ...og,
                 id: og.id || `og-${index}-${Date.now()}`,
@@ -419,6 +425,11 @@ export const PersonalSpace = () => {
                 const positionedOG = calculateRadialLayout(validOG, {
                   centerX: 720,
                   centerY: 512,
+                  baseRadius: UI_CONFIG.radial.baseRadius,
+                  radiusGap: UI_CONFIG.radial.radiusGap,
+                  minRadiusGap: UI_CONFIG.radial.minRadiusGap,
+                  maxRadiusGap: UI_CONFIG.radial.maxRadiusGap,
+                  autoAdjustRadius: UI_CONFIG.radial.autoAdjustRadius,
                 }).map((og, index) => ({
                   ...og,
                   id: og.id || `og-${index}-${Date.now()}`,
@@ -555,6 +566,9 @@ export const PersonalSpace = () => {
             centerY: 512,
             baseRadius: UI_CONFIG.radial.baseRadius,
             radiusGap: UI_CONFIG.radial.radiusGap,
+            minRadiusGap: UI_CONFIG.radial.minRadiusGap,
+            maxRadiusGap: UI_CONFIG.radial.maxRadiusGap,
+            autoAdjustRadius: UI_CONFIG.radial.autoAdjustRadius,
           });
           setOpengraphData(originalData);
         } else if (Array.isArray(opengraphData) && opengraphData.length > 0) {
@@ -568,6 +582,9 @@ export const PersonalSpace = () => {
             centerY: 512,
             baseRadius: UI_CONFIG.radial.baseRadius,
             radiusGap: UI_CONFIG.radial.radiusGap,
+            minRadiusGap: UI_CONFIG.radial.minRadiusGap,
+            maxRadiusGap: UI_CONFIG.radial.maxRadiusGap,
+            autoAdjustRadius: UI_CONFIG.radial.autoAdjustRadius,
           });
           setOpengraphData(originalData);
         }
@@ -591,10 +608,114 @@ export const PersonalSpace = () => {
   const handleSearch = async () => {
     const results = await performSearch(searchQuery, calculateRadialLayout);
     if (results && results.length > 0) {
-      // ✅ 简化：搜索结果直接从数据库返回，已经包含所有需要的数据
-      setOpengraphData(results);
-      setShowOriginalImages(false);
-      console.log('[PersonalSpace] Search completed,', results.length, 'results');
+      if (viewMode === 'radial') {
+        // Radial 视图：直接替换 opengraphData
+        setOpengraphData(results);
+        setShowOriginalImages(false);
+        console.log('[PersonalSpace] Search completed (radial),', results.length, 'results');
+      } else {
+        // Masonry 视图：更新 sessions 中每个 item 的 similarity 字段
+        const safeSessions = Array.isArray(sessions) ? sessions : [];
+        
+        // ✅ 改进：创建多个匹配键的 map，支持多种匹配方式
+        // 1. 使用 tab_id 作为主键
+        // 2. 使用 URL（规范化后）作为备选键
+        const normalizeUrl = (url) => {
+          if (!url) return null;
+          try {
+            const urlObj = new URL(url);
+            // 移除尾随斜杠和查询参数，只保留基础 URL
+            return `${urlObj.protocol}//${urlObj.host}${urlObj.pathname.replace(/\/$/, '')}`;
+          } catch {
+            return url;
+          }
+        };
+        
+        const similarityMap = new Map();
+        const urlSimilarityMap = new Map();
+        
+        results.forEach(result => {
+          // 优先使用 tab_id
+          if (result.tab_id && result.similarity !== undefined) {
+            similarityMap.set(result.tab_id, result.similarity);
+          }
+          // 也使用 URL 作为备选（规范化后）
+          if (result.url && result.similarity !== undefined) {
+            const normalizedUrl = normalizeUrl(result.url);
+            if (normalizedUrl) {
+              urlSimilarityMap.set(normalizedUrl, result.similarity);
+            }
+            // 也保存原始 URL
+            urlSimilarityMap.set(result.url, result.similarity);
+          }
+        });
+        
+        console.log('[PersonalSpace] Search results mapping:', {
+          totalResults: results.length,
+          tabIdMatches: similarityMap.size,
+          urlMatches: urlSimilarityMap.size,
+          sampleResults: results.slice(0, 3).map(r => ({
+            tab_id: r.tab_id,
+            url: r.url?.substring(0, 50),
+            similarity: r.similarity
+          }))
+        });
+        
+        let totalMatched = 0;
+        let totalUpdated = 0;
+        
+        // 更新每个 session 的 opengraphData，添加 similarity 字段
+        safeSessions.forEach(session => {
+          if (!session || !Array.isArray(session.opengraphData)) return;
+          
+          const updatedData = session.opengraphData.map(item => {
+            // 尝试多种匹配方式
+            let similarity = undefined;
+            
+            // 1. 优先使用 tab_id 匹配
+            if (item.tab_id && similarityMap.has(item.tab_id)) {
+              similarity = similarityMap.get(item.tab_id);
+            }
+            // 2. 如果 tab_id 不匹配，尝试 URL 匹配
+            else if (item.url) {
+              const normalizedItemUrl = normalizeUrl(item.url);
+              if (normalizedItemUrl && urlSimilarityMap.has(normalizedItemUrl)) {
+                similarity = urlSimilarityMap.get(normalizedItemUrl);
+              } else if (urlSimilarityMap.has(item.url)) {
+                similarity = urlSimilarityMap.get(item.url);
+              }
+            }
+            
+            if (similarity !== undefined) {
+              totalMatched++;
+              return { ...item, similarity };
+            } else {
+              // 清除之前的 similarity（如果存在）
+              const { similarity: _, ...rest } = item;
+              return rest;
+            }
+          });
+          
+          // 只有当数据有变化时才更新
+          const hasChanges = updatedData.some((item, index) => {
+            const original = session.opengraphData[index];
+            return (item.similarity !== undefined) !== (original.similarity !== undefined) ||
+                   (item.similarity !== original.similarity);
+          });
+          
+          if (hasChanges) {
+            totalUpdated++;
+            updateSession(session.id, { opengraphData: updatedData });
+          }
+        });
+        
+        console.log('[PersonalSpace] Search completed (masonry):', {
+          totalResults: results.length,
+          totalSessions: safeSessions.length,
+          matchedItems: totalMatched,
+          updatedSessions: totalUpdated
+        });
+      }
     }
   };
 
@@ -617,6 +738,9 @@ export const PersonalSpace = () => {
           centerY: 512,
           baseRadius: UI_CONFIG.radial.baseRadius,
           radiusGap: UI_CONFIG.radial.radiusGap,
+          minRadiusGap: UI_CONFIG.radial.minRadiusGap,
+          maxRadiusGap: UI_CONFIG.radial.maxRadiusGap,
+          autoAdjustRadius: UI_CONFIG.radial.autoAdjustRadius,
         });
         setOpengraphData(originalData);
       }
@@ -745,19 +869,32 @@ export const PersonalSpace = () => {
       return;
     }
     
-    if (
-      e.target === canvasRef.current || 
-      (e.target.classList && e.target.classList.contains('canvas')) ||
-      (e.target.tagName === 'DIV' && e.target.classList.contains('canvas'))
-    ) {
-      if (!e.target.closest('img') && 
-          !e.target.closest('.tool-button-wrapper') && 
-          !e.target.closest('.canvas-text-element') &&
-          !e.target.closest('input') &&
-          !e.target.closest('svg') &&
-          !e.target.closest('path')) {
-        setSelectedIds(new Set());
-      }
+    // 检查是否点击在空白处（不是卡片、按钮、输入框等）
+    const target = e.target;
+    const isClickOnCard = target.closest('.radial-card') || 
+                          target.closest('.masonry-item') ||
+                          target.closest('img') ||
+                          target.closest('.tool-button-wrapper') || 
+                          target.closest('.canvas-text-element') ||
+                          target.closest('input') ||
+                          target.closest('button') ||
+                          target.closest('a') ||
+                          target.closest('svg') ||
+                          target.closest('path') ||
+                          target.closest('.card-action-button') ||
+                          target.closest('.session-header') ||
+                          target.closest('.search-bar') ||
+                          target.closest('.view-button');
+    
+    // 如果点击在personal-space容器或canvas上，且不是点击在卡片等元素上，则取消选择
+    if (!isClickOnCard && (
+        target === containerRef.current ||
+        target.classList?.contains('personal-space') ||
+        target === canvasRef.current || 
+        (target.classList && target.classList.contains('canvas')) ||
+        (target.tagName === 'DIV' && target.classList.contains('canvas'))
+    )) {
+      setSelectedIds(new Set());
     }
   };
 
@@ -849,7 +986,7 @@ export const PersonalSpace = () => {
       return (
         <>
           {/* 静态天空背景 - 使用 background-space.png */}
-          <FluidGlassCursor />
+          {/* <FluidGlassCursor /> */} {/* ⚠️ 临时禁用：移除自定义cursor样式 */}
           <FlowingSkyBackground />
           {/* 右下角宠物显示 */}
           <PetDisplay />

@@ -1,0 +1,21 @@
+{
+  "query": "蓝色椅子",
+  "user_id": "anonymous",
+  "filter_mode": "balanced",
+  "timestamp": "20251203_111909",
+  "stages": {
+    "coarse_recall": {
+      "total_raw": 76,
+      "after_doc_filter": 71,
+      "unique": 71,
+      "by_recall_path_raw": {
+        "text_to_image_vector": 76
+      }
+    },
+    "ai_filtering": {
+      "input": 71,
+      "output": 1,
+      "filtered": 70
+    }
+  }
+}

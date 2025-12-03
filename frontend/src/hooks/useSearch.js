@@ -79,11 +79,78 @@ export const useSearch = (opengraphData = []) => {
         finalList = fuzzyRankLocally(query, currentOGData || []);
       }
       
-      // 按相似度排序（数据库结果已经排序，但本地模糊搜索需要排序）
+      // ✅ 按颜色排序：优先显示与查询颜色匹配的结果
+      // 从查询中提取颜色关键词（中英文）
+      const extractQueryColors = (queryText) => {
+        const queryLower = queryText.toLowerCase();
+        const queryColors = [];
+        
+        // 中文颜色映射
+        const colorMap = {
+          '红色': ['red', 'crimson', 'firebrick', 'tomato', 'lightsalmon', 'scarlet', 'burgundy'],
+          '绿色': ['green', 'emerald', 'olive', 'lime', 'forestgreen', 'limegreen', 'lightgreen', 'palegreen'],
+          '蓝色': ['blue', 'azure', 'navy', 'cobalt', 'dodgerblue', 'steelblue', 'lightskyblue', 'lightblue'],
+          '黄色': ['yellow', 'gold', 'amber', 'lemon'],
+          '橙色': ['orange', 'darkorange', 'tangerine', 'coral', 'peachpuff'],
+          '紫色': ['purple', 'violet', 'lavender', 'plum', 'blueviolet', 'mediumpurple', 'mediumorchid'],
+          '粉色': ['pink', 'deeppink', 'hotpink', 'lightpink', 'rose', 'blush', 'magenta'],
+          '黑色': ['black', 'dark', 'ebony'],
+          '白色': ['white', 'ivory', 'snow', 'whitesmoke'],
+          '灰色': ['gray', 'grey', 'silver', 'charcoal', 'darkgray', 'lightgray'],
+          '棕色': ['brown', 'saddlebrown', 'sienna', 'tan'],
+        };
+        
+        // 检查中文颜色
+        for (const [cnColor, enColors] of Object.entries(colorMap)) {
+          if (queryText.includes(cnColor)) {
+            queryColors.push(...enColors);
+          }
+        }
+        
+        // 检查英文颜色（直接匹配）
+        const allEnColors = Object.values(colorMap).flat();
+        for (const enColor of allEnColors) {
+          if (queryLower.includes(enColor)) {
+            queryColors.push(enColor);
+          }
+        }
+        
+        return [...new Set(queryColors)]; // 去重
+      };
+      
+      const queryColors = extractQueryColors(query);
+      
+      // 检查结果的颜色是否匹配查询颜色
+      const hasMatchingColor = (item) => {
+        if (queryColors.length === 0) return true; // 查询没有颜色，不筛选
+        const itemColors = (item.dominant_colors || []).map(c => c.toLowerCase());
+        return queryColors.some(qc => itemColors.includes(qc.toLowerCase()));
+      };
+      
+      // 排序：优先显示匹配查询颜色的结果
       finalList.sort((a, b) => {
         const simA = a.similarity ?? 0;
         const simB = b.similarity ?? 0;
-        return simB - simA;
+        const simDiff = simB - simA;
+        
+        // 如果查询有颜色，优先显示匹配颜色的结果
+        if (queryColors.length > 0) {
+          const aMatches = hasMatchingColor(a);
+          const bMatches = hasMatchingColor(b);
+          
+          // 匹配颜色的优先
+          if (aMatches && !bMatches) return -1; // a 匹配，b 不匹配，a 在前
+          if (!aMatches && bMatches) return 1;  // a 不匹配，b 匹配，b 在前
+          
+          // 都匹配或都不匹配时，按相似度排序
+          // 如果相似度差异很小（< 0.05），匹配颜色的稍微优先
+          if (Math.abs(simDiff) < 0.05) {
+            if (aMatches && !bMatches) return -1;
+            if (!aMatches && bMatches) return 1;
+          }
+        }
+        
+        return simDiff; // 按相似度排序
       });
       
       // 计算布局位置（如果提供了 calculateRadialLayout 回调）

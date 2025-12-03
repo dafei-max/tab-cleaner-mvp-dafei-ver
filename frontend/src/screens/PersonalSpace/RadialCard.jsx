@@ -414,7 +414,7 @@ export const RadialCard = ({
   const pageName = getPageName();
 
   const baseOpacity = hasSearchResults && !isSearchResult ? 0.4 : (isDragging ? 0.85 : 1);
-  const baseScale = isDragging ? 1.02 : 1;
+  const baseScale = isDragging ? 1.05 : (isHovered ? 1.03 : 1.02); // ✅ 放大卡片：默认1.02，悬停1.03，拖拽1.05
 
   return (
     <motion.div
@@ -437,6 +437,8 @@ export const RadialCard = ({
         border: isSelected ? '3px solid #1a73e8' : 'none',
         cursor: isDragging ? 'grabbing' : 'grab',
         userSelect: 'none',
+        willChange: isDragging || isAnimating ? 'transform, left, top' : 'auto', // ✅ 性能优化：拖拽/动画时启用GPU加速
+        touchAction: 'none', // ✅ 性能优化：禁用触摸默认行为，提升移动端拖拽体验
         ...getAnimationStyle(),
       }}
       initial={{ opacity: 0, scale: 0 }}

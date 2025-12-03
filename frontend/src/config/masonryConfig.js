@@ -6,7 +6,7 @@
 export const MASONRY_CONFIG = {
   // 容器配置
   container: {
-    maxWidth: 1440,        // 容器最大宽度（px）
+    maxWidth: 1800,        // 容器最大宽度（px）- ✅ 从1440增加到1800，让Masonry View更宽
     padding: 20,           // 左右内边距（px）
     getContainerWidth: () => {
       // 响应式：根据实际容器宽度计算
@@ -24,7 +24,7 @@ export const MASONRY_CONFIG = {
   columns: {
     maxColumns: 7,         // 最大列数
     minColumnWidth: 200,  // 最小列宽（px）
-    gutter: 14,            // 列间距（px）- 减小间距让布局更紧密
+    gutter: 24,            // 列间距（px）- ✅ 从14增加到24，增大gutter
     getColumnWidth: () => {
       const containerWidth = MASONRY_CONFIG.container.getContainerWidth();
       const { maxColumns, gutter } = MASONRY_CONFIG.columns;
@@ -67,7 +67,7 @@ export const MASONRY_CONFIG = {
 
   // 拖拽配置
   draggable: {
-    enabled: true,         // 启用拖拽
+    enabled: false,        // ✅ 禁用拖拽功能（不需要拖拽）
     handle: null,         // 整个卡片可拖拽（null = 整个元素）
     axis: null,           // 不限制方向（null = 任意方向）
     containment: false,    // 不限制拖拽范围

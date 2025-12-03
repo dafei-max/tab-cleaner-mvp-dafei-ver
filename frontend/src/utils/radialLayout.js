@@ -28,7 +28,23 @@ export const calculateRadialLayout = (items, options = {}) => {
   // 不限制每层卡片数，越往外层卡片越多
   // 从 uiConfig 读取配置，如果没有则使用默认值
   const baseRadius = options.baseRadius ?? 250; // 增大第一层半径，避免卡片叠在一起
-  const radiusGap = options.radiusGap ?? 280;  // 大幅增加层间距，让各层之间更宽松
+  let radiusGap = options.radiusGap ?? 280;  // 大幅增加层间距，让各层之间更宽松
+  
+  // ✅ 动态调整 radiusGap 避免卡片重叠
+  if (options.autoAdjustRadius !== false && items.length > 0) {
+    const minRadiusGap = options.minRadiusGap ?? 200;
+    const maxRadiusGap = options.maxRadiusGap ?? 400;
+    // 根据卡片数量动态调整：卡片越多，间距越大
+    const cardCount = items.length;
+    if (cardCount > 50) {
+      radiusGap = Math.min(maxRadiusGap, radiusGap * 1.2); // 卡片多时增大间距
+    } else if (cardCount > 30) {
+      radiusGap = Math.min(maxRadiusGap, radiusGap * 1.1);
+    } else if (cardCount < 10) {
+      radiusGap = Math.max(minRadiusGap, radiusGap * 0.9); // 卡片少时可以减小间距
+    }
+    radiusGap = Math.max(minRadiusGap, Math.min(maxRadiusGap, radiusGap)); // 限制在范围内
+  }
   
   const positioned = [];
   let cardIdx = 0;
