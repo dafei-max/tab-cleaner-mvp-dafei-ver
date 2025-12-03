@@ -244,12 +244,12 @@ const SessionMasonryGridContent = ({
 }) => {
   // 调试：检查数据
   useEffect(() => {
-    console.log('[SessionMasonryGridContent] Session data:', {
-      sessionId: session.id,
-      sessionName: session.name,
-      opengraphDataLength: session.opengraphData?.length || 0,
-      opengraphData: session.opengraphData,
-    });
+    // console.log('[SessionMasonryGridContent] Session data:', {
+    //   sessionId: session.id,
+    //   sessionName: session.name,
+    //   opengraphDataLength: session.opengraphData?.length || 0,
+    //   opengraphData: session.opengraphData,
+    // }); // ✅ 已注释：用于定位搜索问题
   }, [session]);
 
   // usePackeryLayout 返回 { masonryRef, masonryInstanceRef }

@@ -43,15 +43,15 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
         ? masonryInstanceRef.current.items.length 
         : 0;
       
-      console.log(`[DEBUG-MASONRY] 准备更新布局... 
-        - 当前元素数量 (getItemElements): ${itemElements.length}
-        - Masonry items 数量: ${itemsCount}`);
+      // console.log(`[DEBUG-MASONRY] 准备更新布局... 
+      //   - 当前元素数量 (getItemElements): ${itemElements.length}
+      //   - Masonry items 数量: ${itemsCount}`); // ✅ 已注释：用于定位搜索问题
       
       if (masonryRef.current) {
-        console.log(`[DEBUG-MASONRY] 布局更新前容器状态:
-          - offsetHeight: ${masonryRef.current.offsetHeight}px
-          - scrollHeight: ${masonryRef.current.scrollHeight}px
-          - clientHeight: ${masonryRef.current.clientHeight}px`);
+        // console.log(`[DEBUG-MASONRY] 布局更新前容器状态:
+        //   - offsetHeight: ${masonryRef.current.offsetHeight}px
+        //   - scrollHeight: ${masonryRef.current.scrollHeight}px
+        //   - clientHeight: ${masonryRef.current.clientHeight}px`); // ✅ 已注释：用于定位搜索问题
       }
       
       setTimeout(() => {
@@ -59,17 +59,17 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
         
         // ✅ 调试：记录布局更新后的状态
         if (masonryRef.current) {
-          console.log(`[DEBUG-MASONRY] 📏 布局更新完成。
-            - 容器实际高度 (offsetHeight): ${masonryRef.current.offsetHeight}px
-            - 容器滚动高度 (scrollHeight): ${masonryRef.current.scrollHeight}px
-            - 容器可视高度 (clientHeight): ${masonryRef.current.clientHeight}px
-            - 可滚动距离: ${masonryRef.current.scrollHeight - masonryRef.current.clientHeight}px
-            - Masonry 实例内的 items 数量: ${masonryInstanceRef.current.items?.length || 0}
-          `);
+          // console.log(`[DEBUG-MASONRY] 📏 布局更新完成。
+          //   - 容器实际高度 (offsetHeight): ${masonryRef.current.offsetHeight}px
+          //   - 容器滚动高度 (scrollHeight): ${masonryRef.current.scrollHeight}px
+          //   - 容器可视高度 (clientHeight): ${masonryRef.current.clientHeight}px
+          //   - 可滚动距离: ${masonryRef.current.scrollHeight - masonryRef.current.clientHeight}px
+          //   - Masonry 实例内的 items 数量: ${masonryInstanceRef.current.items?.length || 0}
+          // `); // ✅ 已注释：用于定位搜索问题
         }
       }, MASONRY_CONFIG.layout.imageLoadDelay);
     } else {
-      console.warn(`[DEBUG-MASONRY] ❌ 尝试更新布局，但实例不存在`);
+      // console.warn(`[DEBUG-MASONRY] ❌ 尝试更新布局，但实例不存在`); // ✅ 已注释：用于定位搜索问题
     }
   }, []);
 
@@ -210,7 +210,7 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
 
         // ✅ 修复：确保 opengraphData 存在且是数组
         const safeDataLength = (opengraphData && Array.isArray(opengraphData)) ? opengraphData.length : 0;
-        console.log('[usePackeryLayout] Initializing Masonry with Packery drag with', safeDataLength, 'items');
+        // console.log('[usePackeryLayout] Initializing Masonry with Packery drag with', safeDataLength, 'items'); // ✅ 已注释：用于定位搜索问题
         
         // 销毁旧的实例
         if (masonryInstanceRef.current) {
@@ -263,7 +263,7 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
           return;
         }
 
-        console.log('[usePackeryLayout] Initializing with columnWidth:', columnWidth, 'gutter:', gutter);
+        // console.log('[usePackeryLayout] Initializing with columnWidth:', columnWidth, 'gutter:', gutter); // ✅ 已注释：用于定位搜索问题
 
         // 创建隐藏的列宽元素用于 Masonry
         let columnWidthElement = masonryRef.current.querySelector('.masonry-column-width');
@@ -395,7 +395,7 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
             });
             
             if (totalAddedNodes > 0) {
-              console.log(`[DEBUG-MASONRY] 🔄 MutationObserver 检测到 ${totalAddedNodes} 个新节点`);
+              // console.log(`[DEBUG-MASONRY] 🔄 MutationObserver 检测到 ${totalAddedNodes} 个新节点`); // ✅ 已注释：用于定位搜索问题
             }
             
             // 1. 检查是否有真正的节点添加
@@ -436,10 +436,10 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
 
             // 3. ✅ 关键修复：通知 Masonry 有新元素加入并重新布局
             if (masonryInstanceRef.current && (hasNewItems || newItems.length > 0)) {
-              console.log(`[DEBUG-MASONRY] 🔧 准备更新 Masonry:
-                - 检测到新节点: ${hasNewItems}
-                - 新元素数量: ${newItems.length}
-                - 当前所有元素数量: ${items.length}`);
+              // console.log(`[DEBUG-MASONRY] 🔧 准备更新 Masonry:
+              //   - 检测到新节点: ${hasNewItems}
+              //   - 新元素数量: ${newItems.length}
+              //   - 当前所有元素数量: ${items.length}`); // ✅ 已注释：用于定位搜索问题
               
               // 延迟执行，确保 DOM 完全更新
               setTimeout(() => {
@@ -447,23 +447,23 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
                   try {
                     // 如果有新元素，使用 appended 方法添加
                     if (newItems.length > 0 && masonryInstanceRef.current.appended) {
-                      console.log(`[DEBUG-MASONRY] ➕ 使用 appended 添加 ${newItems.length} 个新元素`);
+                      // console.log(`[DEBUG-MASONRY] ➕ 使用 appended 添加 ${newItems.length} 个新元素`); // ✅ 已注释：用于定位搜索问题
                       masonryInstanceRef.current.appended(newItems);
                     } else {
                       // 如果没有 appended 方法或没有新元素，直接重新布局
-                      console.log(`[DEBUG-MASONRY] 🔄 直接调用 layout() 重新布局`);
+                      // console.log(`[DEBUG-MASONRY] 🔄 直接调用 layout() 重新布局`); // ✅ 已注释：用于定位搜索问题
                       masonryInstanceRef.current.layout();
                     }
                     
                     // 布局后再次检查容器高度
                     if (masonryRef.current) {
-                      console.log(`[DEBUG-MASONRY] ✅ 布局更新后:
-                        - offsetHeight: ${masonryRef.current.offsetHeight}px
-                        - scrollHeight: ${masonryRef.current.scrollHeight}px`);
+                      // console.log(`[DEBUG-MASONRY] ✅ 布局更新后:
+                      //   - offsetHeight: ${masonryRef.current.offsetHeight}px
+                      //   - scrollHeight: ${masonryRef.current.scrollHeight}px`); // ✅ 已注释：用于定位搜索问题
                     }
                   } catch (error) {
                     // 如果 appended 失败，直接重新布局
-                    console.warn('[DEBUG-MASONRY] ⚠️ Masonry update failed, using layout instead:', error);
+                    // console.warn('[DEBUG-MASONRY] ⚠️ Masonry update failed, using layout instead:', error); // ✅ 已注释：用于定位搜索问题
                     if (masonryInstanceRef.current) {
                       masonryInstanceRef.current.layout();
                     }

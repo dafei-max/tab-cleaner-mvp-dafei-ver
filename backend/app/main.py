@@ -293,35 +293,34 @@ async def generate_embeddings(
                 if url:
                     processing_urls_for_user.add(url)
         
-        try:
-            # ✅ 步骤 0.5: 检查数据库中已有的 embedding（自动补全逻辑）
-            from vector_db import get_items_by_urls
-            items_already_done = []
-            items_to_process = []
+        # ✅ 步骤 0.5: 检查数据库中已有的 embedding（自动补全逻辑）
+        from vector_db import get_items_by_urls
+        items_already_done = []
+        items_to_process = []
+        
+        db_host = os.getenv("ADBPG_HOST", "")
+        if db_host:
+            print(f"[API] Checking database for existing embeddings...")
             
-            db_host = os.getenv("ADBPG_HOST", "")
-            if db_host:
-                print(f"[API] Checking database for existing embeddings...")
+            # 批量获取所有 URL 的数据
+            urls = [item.get("url") for item in normalized_items if item.get("url")]
+            existing_items_map = {}
+            if urls:
+                existing_items = await get_items_by_urls(normalized_user_id, urls)
+                existing_items_map = {item['url']: item for item in existing_items}
+                print(f"[API] Found {len(existing_items)} items in database")
+            
+            for item in normalized_items:
+                url = item.get("url")
+                if not url:
+                    items_to_process.append(item)
+                    continue
                 
-                # 批量获取所有 URL 的数据
-                urls = [item.get("url") for item in normalized_items if item.get("url")]
-                existing_items_map = {}
-                if urls:
-                    existing_items = await get_items_by_urls(normalized_user_id, urls)
-                    existing_items_map = {item['url']: item for item in existing_items}
-                    print(f"[API] Found {len(existing_items)} items in database")
-                
-                for item in normalized_items:
-                    url = item.get("url")
-                    if not url:
-                        items_to_process.append(item)
-                        continue
-                    
-                    # 检查数据库是否已有完整的 embedding
-                    existing_item = existing_items_map.get(url)
-                    if existing_item:
-                        has_text_emb = existing_item.get("text_embedding") and len(existing_item.get("text_embedding", [])) > 0
-                        has_image_emb = existing_item.get("image_embedding") and len(existing_item.get("image_embedding", [])) > 0
+                # 检查数据库是否已有完整的 embedding
+                existing_item = existing_items_map.get(url)
+                if existing_item:
+                    has_text_emb = existing_item.get("text_embedding") and len(existing_item.get("text_embedding", [])) > 0
+                    has_image_emb = existing_item.get("image_embedding") and len(existing_item.get("image_embedding", [])) > 0
                     
                     # 如果已有完整的 embedding，直接使用
                     if has_text_emb and has_image_emb:
