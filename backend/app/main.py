@@ -6,8 +6,10 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from collections import defaultdict
 import json
 import os
+import asyncio
 # ✅ 已移除：不再从后端抓取 OpenGraph，只接收客户端数据
 # from opengraph import fetch_multiple_opengraph
 from ai_insight import analyze_opengraph_data
@@ -16,6 +18,10 @@ from clustering import create_manual_cluster, classify_by_labels, discover_clust
 from clustering.storage import save_clustering_result, save_multiple_clusters
 
 app = FastAPI(title="Tab Cleaner MVP", version="0.0.1")
+
+# ✅ 请求去重：记录正在处理的 URL（user_id + url）
+_processing_urls = defaultdict(set)  # {user_id: set of urls}
+_processing_lock = asyncio.Lock()
 
 
 @app.on_event("startup")
@@ -266,34 +272,56 @@ async def generate_embeddings(
         normalized_items = normalize_opengraph_items(request.opengraph_items)
         print(f"[API] Normalized {len(normalized_items)} items from {len(request.opengraph_items)} input items")
         
-        # ✅ 步骤 0.5: 检查数据库中已有的 embedding（自动补全逻辑）
-        from vector_db import get_items_by_urls
-        items_already_done = []
-        items_to_process = []
-        
-        db_host = os.getenv("ADBPG_HOST", "")
-        if db_host:
-            print(f"[API] Checking database for existing embeddings...")
+        # ✅ 步骤 0.3: 请求去重 - 检查是否有正在处理的相同URL
+        async with _processing_lock:
+            processing_urls_for_user = _processing_urls[normalized_user_id]
+            urls_to_check = [item.get("url") for item in normalized_items if item.get("url")]
+            duplicate_urls = [url for url in urls_to_check if url in processing_urls_for_user]
             
-            # 批量获取所有 URL 的数据
-            urls = [item.get("url") for item in normalized_items if item.get("url")]
-            existing_items_map = {}
-            if urls:
-                existing_items = await get_items_by_urls(normalized_user_id, urls)
-                existing_items_map = {item['url']: item for item in existing_items}
-                print(f"[API] Found {len(existing_items)} items in database")
+            if duplicate_urls:
+                print(f"[API] ⚠️  Detected {len(duplicate_urls)} URLs already being processed, skipping: {duplicate_urls[:3]}...")
+                # 过滤掉正在处理的URL
+                normalized_items = [item for item in normalized_items 
+                                   if not item.get("url") or item.get("url") not in duplicate_urls]
+                if not normalized_items:
+                    print(f"[API] ⚠️  All items are already being processed, returning early")
+                    return {"ok": True, "saved": 0, "data": [], "skipped": len(duplicate_urls), "reason": "already_processing"}
             
+            # 标记这些URL为正在处理
             for item in normalized_items:
                 url = item.get("url")
-                if not url:
-                    items_to_process.append(item)
-                    continue
+                if url:
+                    processing_urls_for_user.add(url)
+        
+        try:
+            # ✅ 步骤 0.5: 检查数据库中已有的 embedding（自动补全逻辑）
+            from vector_db import get_items_by_urls
+            items_already_done = []
+            items_to_process = []
+            
+            db_host = os.getenv("ADBPG_HOST", "")
+            if db_host:
+                print(f"[API] Checking database for existing embeddings...")
                 
-                # 检查数据库是否已有完整的 embedding
-                existing_item = existing_items_map.get(url)
-                if existing_item:
-                    has_text_emb = existing_item.get("text_embedding") and len(existing_item.get("text_embedding", [])) > 0
-                    has_image_emb = existing_item.get("image_embedding") and len(existing_item.get("image_embedding", [])) > 0
+                # 批量获取所有 URL 的数据
+                urls = [item.get("url") for item in normalized_items if item.get("url")]
+                existing_items_map = {}
+                if urls:
+                    existing_items = await get_items_by_urls(normalized_user_id, urls)
+                    existing_items_map = {item['url']: item for item in existing_items}
+                    print(f"[API] Found {len(existing_items)} items in database")
+                
+                for item in normalized_items:
+                    url = item.get("url")
+                    if not url:
+                        items_to_process.append(item)
+                        continue
+                    
+                    # 检查数据库是否已有完整的 embedding
+                    existing_item = existing_items_map.get(url)
+                    if existing_item:
+                        has_text_emb = existing_item.get("text_embedding") and len(existing_item.get("text_embedding", [])) > 0
+                        has_image_emb = existing_item.get("image_embedding") and len(existing_item.get("image_embedding", [])) > 0
                     
                     # 如果已有完整的 embedding，直接使用
                     if has_text_emb and has_image_emb:
@@ -408,6 +436,17 @@ async def generate_embeddings(
             print(f"[API] ⚠ ADBPG_HOST not configured, skipping database storage")
         elif not items_to_store:
             print(f"[API] ⚠ No items with embeddings to store")
+        
+        # ✅ 清理正在处理的URL标记（无论成功或失败都要清理）
+        async with _processing_lock:
+            processing_urls_for_user = _processing_urls[normalized_user_id]
+            for item in normalized_items:
+                url = item.get("url")
+                if url:
+                    processing_urls_for_user.discard(url)
+            # 如果该用户没有正在处理的URL了，清理空集合（可选）
+            if not processing_urls_for_user:
+                _processing_urls.pop(normalized_user_id, None)
         
         # 4. 格式化返回数据（包括已有的和新生成的）
         result_data = []
