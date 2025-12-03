@@ -399,18 +399,18 @@ async def smart_filter(
                     filtered_by_ai += 1
                     continue
 
-                # ✅ 优化逻辑：如果 AI 给了 relevant 列表且不为空，则只保留这些；否则全部保留
-                # 这样即使 AI 验证失败或返回空列表，也不会误过滤所有结果
+                # ✅ 简化逻辑：只过滤 AI 明确标记为不相关的结果
+                # 如果 AI 给了 relevant 列表，优先保留这些；但如果没有，也保留其他结果（除非明确标记为 to_filter）
                 if relevant and len(relevant) > 0:
-                    # AI 明确指定了相关结果，只保留这些
+                    # AI 明确指定了相关结果，优先保留这些
                     if idx in relevant:
                         adjusted.append(item)
                         kept_by_ai += 1
                     else:
-                        # 不在 relevant 列表中，过滤掉
-                        item["ai_filtered"] = True
-                        item["ai_filter_reason"] = "not_in_relevant_list"
-                        filtered_by_ai += 1
+                        # 不在 relevant 列表中，但也不在 to_filter 中，仍然保留（放宽过滤）
+                        # 只过滤明确标记为 to_filter 的结果
+                        adjusted.append(item)
+                        kept_by_ai += 1
                 else:
                     # AI 没有给出 relevant 列表（验证失败或返回空），保留所有（除了明确要过滤的）
                     adjusted.append(item)

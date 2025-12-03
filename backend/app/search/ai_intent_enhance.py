@@ -494,22 +494,25 @@ async def validate_search_results_with_vl(
         filter_out_indices = []
         boost_indices = []
         
-        # 构建验证 prompt
-        validation_prompt = f"""你是一位专业的设计师搜索助手。请查看这张图片，判断它是否符合用户的搜索意图。
+        # ✅ 简化验证 prompt：只判断图片中是否有查询的物体/内容
+        # 例如：查询"椅子"，只需要判断图片中是否有椅子即可
+        validation_prompt = f"""请查看这张图片，判断图片中是否包含用户查询的内容。
 
 **用户查询**："{query}"
 
-**任务**：
-1. 判断图片内容是否与查询相关（例如：查询"绿色植物"，图片应该包含绿色植物）
-2. 判断图片质量是否适合作为设计灵感（排除纯色图片、代码截图、文档页面等）
-3. 判断图片是否来自设计师网站（Pinterest、Behance、Dribbble等，这些应该优先保留）
+**任务**：只需要判断图片中是否包含查询的内容。
+- 例如：查询"椅子"，图片中有椅子就返回 is_relevant: true
+- 例如：查询"绿色植物"，图片中有绿色植物就返回 is_relevant: true
+- 如果图片中明显没有查询的内容，返回 is_relevant: false
+
+**注意**：
+- 只要图片中有相关内容就保留，不需要判断质量、风格等其他因素
+- 只过滤明显不相关的结果（例如：查询"椅子"但图片中完全没有椅子）
 
 **输出格式**：请以 JSON 格式返回，格式如下：
 {{
-    "is_relevant": true,  // 是否与查询相关
-    "is_high_quality": true,  // 是否是高质量设计内容
-    "should_boost": false,  // 是否应该提升优先级（设计师网站、高质量内容）
-    "reasoning": "图片包含绿色植物，符合查询意图，且来自Pinterest，质量较高"
+    "is_relevant": true,  // 图片中是否包含查询的内容
+    "reasoning": "图片中有椅子"  // 简单说明原因
 }}
 
 **注意**：请确保返回的是有效的 JSON 格式，不要包含任何 markdown 代码块标记。"""
@@ -598,10 +601,11 @@ async def validate_search_results_with_vl(
                     
                     try:
                         result = json.loads(content)
+                        # ✅ 简化：只判断 is_relevant，不再判断质量等其他因素
                         return {
                             "idx": item_idx,
-                            "is_relevant": result.get("is_relevant", False),
-                            "is_high_quality": result.get("is_high_quality", False),
+                            "is_relevant": result.get("is_relevant", True),  # 默认保留，除非明确标记为不相关
+                            "is_high_quality": True,  # 不再判断质量，默认保留
                             "should_boost": result.get("should_boost", False),
                             "reasoning": result.get("reasoning", ""),
                         }

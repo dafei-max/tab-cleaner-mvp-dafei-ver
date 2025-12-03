@@ -1074,8 +1074,9 @@ async def search_with_funnel(
                 # 检查是否有风格匹配（至少有一个查询风格在结果风格中）
                 has_style_match = any(qs in item_styles for qs in query_styles)
             
-            # ✅ 新增：检查是否有冲突的颜色（如果查询明确指定了颜色，但结果是冲突颜色）
-            # 颜色冲突映射（互补色/对比色）
+            # ✅ 简化：只检查明显冲突的情况，不再严格过滤
+            # 对于物体查询（如"椅子"），如果没有物体标签匹配，不应该直接过滤，而是保留让 AI 判断
+            # 只对明显冲突的颜色进行过滤
             COLOR_CONFLICTS = {
                 "green": ["red", "crimson", "scarlet", "burgundy"],
                 "emerald": ["red", "crimson", "scarlet", "burgundy"],
@@ -1116,27 +1117,29 @@ async def search_with_funnel(
             should_filter = False
             filter_reason = ""
             
+            # ✅ 简化过滤逻辑：只过滤明显冲突的情况
+            # 对于物体查询（如"椅子"），如果没有物体标签匹配，不应该直接过滤，而是保留让 AI 判断
             if has_color_conflict:
                 # 颜色冲突：查询是绿色，但结果是红色（最严格，直接过滤）
                 should_filter = True
                 filter_reason = "color_conflict"
-            elif query_objects and not has_object_match and not has_color_match:
-                # 如果查询明确指定了物体（如"植物"），但结果既没有物体标签也没有相关颜色，过滤掉
-                should_filter = True
-                filter_reason = "object_mismatch"
+            # ✅ 放宽：对于物体查询，如果没有标签匹配，保留让 AI 判断（不再过滤）
+            # elif query_objects and not has_object_match and not has_color_match:
+            #     should_filter = True
+            #     filter_reason = "object_mismatch"
             elif query_colors and item_colors and not has_color_match and not has_object_match:
                 # 如果查询明确指定了颜色（如"绿色"），且结果有颜色标签但不是查询颜色，也没有相关物体，过滤掉
                 # 注意：如果结果没有颜色标签，暂时不过滤（可能标签未生成）
                 should_filter = True
                 filter_reason = "color_mismatch_with_tags"
-            elif query_colors and not item_colors and not has_object_match:
-                # 如果查询明确指定了颜色（如"绿色"），但结果既没有颜色标签也没有相关物体，过滤掉
-                should_filter = True
-                filter_reason = "color_mismatch_no_tags"
-            elif query_styles and not has_style_match and not has_color_match and not has_object_match:
-                # 如果查询明确指定了风格，但结果完全不匹配，过滤掉
-                should_filter = True
-                filter_reason = "style_mismatch"
+            # ✅ 放宽：对于颜色查询，如果没有颜色标签，保留让 AI 判断（不再过滤）
+            # elif query_colors and not item_colors and not has_object_match:
+            #     should_filter = True
+            #     filter_reason = "color_mismatch_no_tags"
+            # ✅ 放宽：对于风格查询，如果没有风格匹配，保留让 AI 判断（不再过滤）
+            # elif query_styles and not has_style_match and not has_color_match and not has_object_match:
+            #     should_filter = True
+            #     filter_reason = "style_mismatch"
             
             if should_filter:
                 tag_mismatch_count += 1
