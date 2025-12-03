@@ -20,6 +20,8 @@ sys.path.insert(0, str(parent_dir))
 _caption_task_queue = asyncio.Queue()
 _caption_worker_running = False
 _caption_semaphore = asyncio.Semaphore(3)  # 最多 3 个并发任务
+# ✅ 去重：记录已入队的任务（user_id + url）
+_enqueued_tasks = set()  # Set of (user_id, url) tuples
 
 
 def to_vector_str(vec: Optional[List[float]]) -> Optional[str]:
@@ -152,19 +154,44 @@ async def _process_caption_task(task: Dict):
         print(f"[AutoCaption] Invalid task: missing item or url")
         return
     
+    # ✅ 规范化用户ID
+    normalized_user_id = _normalize_user_id(user_id)
+    
+    # ✅ 从任务集合中移除（标记为正在处理）
+    task_key = (normalized_user_id, url)
+    if task_key in _enqueued_tasks:
+        _enqueued_tasks.discard(task_key)
+    
     # 检查是否有图片
     image = item.get("image")
     if not image:
         print(f"[AutoCaption] Skipping {url[:50]}...: no image")
         return
     
-    # 检查是否已有 Caption
+    # ✅ 先检查传入的 item 中是否有 Caption
     has_caption = item.get("image_caption") or (
         item.get("metadata", {}).get("caption") if isinstance(item.get("metadata"), dict) else None
     )
     if has_caption:
-        print(f"[AutoCaption] Skipping {url[:50]}...: already has caption")
+        print(f"[AutoCaption] Skipping {url[:50]}...: already has caption in item")
         return
+    
+    # ✅ 查询数据库检查是否已有 Caption（避免重复处理）
+    try:
+        from vector_db import get_items_by_urls
+        existing_items = await get_items_by_urls(normalized_user_id, [url])
+        if existing_items and len(existing_items) > 0:
+            existing_item = existing_items[0]
+            # 检查数据库中是否已有 caption
+            db_caption = existing_item.get("image_caption") or (
+                existing_item.get("metadata", {}).get("caption") if isinstance(existing_item.get("metadata"), dict) else None
+            )
+            if db_caption:
+                print(f"[AutoCaption] Skipping {url[:50]}...: already has caption in database")
+                return
+    except Exception as e:
+        print(f"[AutoCaption] Warning: Failed to check database for {url[:50]}...: {e}")
+        # 继续处理，不因为检查失败而跳过
     
     async with _caption_semaphore:
         try:
@@ -267,6 +294,15 @@ async def enqueue_caption_task(user_id: str, item: Dict):
     if not url:
         return
     
+    # ✅ 规范化用户ID
+    normalized_user_id = _normalize_user_id(user_id)
+    
+    # ✅ 去重检查：如果已经入队，跳过
+    task_key = (normalized_user_id, url)
+    if task_key in _enqueued_tasks:
+        print(f"[AutoCaption] Skipping {url[:50]}...: already enqueued")
+        return
+    
     # 检查是否有图片
     image = item.get("image")
     if not image:
@@ -281,7 +317,7 @@ async def enqueue_caption_task(user_id: str, item: Dict):
     
     # 创建任务
     task = {
-        "user_id": user_id,
+        "user_id": normalized_user_id,  # ✅ 使用规范化后的用户ID
         "url": url,
         "item": item,
     }
@@ -289,7 +325,9 @@ async def enqueue_caption_task(user_id: str, item: Dict):
     # 加入队列（非阻塞）
     try:
         _caption_task_queue.put_nowait(task)
-        print(f"[AutoCaption] Enqueued caption task for {url[:50]}...")
+        # ✅ 记录已入队的任务
+        _enqueued_tasks.add(task_key)
+        print(f"[AutoCaption] Enqueued caption task for {url[:50]}... (user_id={normalized_user_id})")
     except asyncio.QueueFull:
         print(f"[AutoCaption] Queue full, skipping {url[:50]}...")
     except Exception as e:

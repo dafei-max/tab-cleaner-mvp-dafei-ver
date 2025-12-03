@@ -211,6 +211,9 @@ export const SessionCard = ({
       return;
     }
     
+    // ✅ 阻止事件冒泡，避免触发容器的点击事件（取消选择）
+    e.stopPropagation();
+    
     // 在 masonry 视图中，单次点击只触发选中
     if (variant === 'masonry' && isSelectable) {
       handleSelect(e);

@@ -155,7 +155,7 @@ export const UI_CONFIG = {
     autoAdjustRadius: true,    // 是否自动调整 radiusGap 避免重叠
   },
   radialCamera: {
-    defaultZoom: 0.5,          // 降低默认缩放（镜头离画布更远，视野更广）
+    defaultZoom: 0.3,          // 降低默认缩放（镜头离画布更远，视野更广）
     minZoom: 0.2,              // 最小缩放（可以看更远）
     maxZoom: 2.5,
     zoomStep: 0.08,

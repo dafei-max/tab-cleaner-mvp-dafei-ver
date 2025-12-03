@@ -4,6 +4,20 @@
 importScripts('api_config.js');
 
 /**
+ * ✅ 获取用户ID（用于发送到后端）
+ * 从 Chrome Storage 读取，如果没有则返回 'anonymous'
+ */
+async function getUserId() {
+  try {
+    const stored = await chrome.storage.local.get(['user_id']);
+    return stored.user_id || 'anonymous';
+  } catch (error) {
+    console.warn('[Background] Failed to get user ID:', error);
+    return 'anonymous';
+  }
+}
+
+/**
  * 判断 URL 是否为文档类网页（应使用截图）
  */
 function isDocLikeUrl(url) {
@@ -346,10 +360,15 @@ async function handleSaveCapturedImage(req, sender, sendResponse) {
     if (apiUrl) {
       (async () => {
         try {
+          // ✅ 获取用户ID并添加到请求头
+          const userId = await getUserId();
           const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
           const embedResponse = await fetch(embeddingUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'X-User-ID': userId  // ✅ 添加用户ID header
+            },
             body: JSON.stringify({
               opengraph_items: [ogData]
             }),
@@ -1106,11 +1125,14 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
               
               const normalizedItem = normalizeItem(item);
               
+              // ✅ 获取用户ID并添加到请求头
+              const userId = await getUserId();
               const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
               const response = await fetch(embeddingUrl, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
+                  'X-User-ID': userId  // ✅ 添加用户ID header
                 },
                 body: JSON.stringify({
                   opengraph_items: [normalizedItem]
@@ -1317,6 +1339,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
               };
               
               // 批量生成 embedding（每批 5 个，避免过载）
+              // ✅ 获取用户ID（在循环外获取一次，避免重复调用）
+              const userId = await getUserId();
               const batchSize = 5;
               for (let i = 0; i < successfulItems.length; i += batchSize) {
                 const batch = successfulItems.slice(i, i + batchSize);
@@ -1327,7 +1351,10 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                   const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
                   const embedResponse = await fetch(embeddingUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                      'Content-Type': 'application/json',
+                      'X-User-ID': userId  // ✅ 添加用户ID header
+                    },
                     body: JSON.stringify({
                       opengraph_items: normalizedBatch
                     }),
@@ -1575,11 +1602,18 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         if (existingSessions.length === 0) {
           // 如果没有 sessions，创建一个新的
           const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          // ✅ 确保新卡片有时间戳
+          const newItem = {
+            ...item,
+            timestamp: Date.now(),
+            created_at: Date.now(),
+            id: item.id || `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          };
           const newSession = {
             id: sessionId,
             name: '洗衣筐1',
             createdAt: Date.now(),
-            opengraphData: [item],
+            opengraphData: [newItem],
             tabCount: 1,
           };
           await chrome.storage.local.set({ 
@@ -1589,7 +1623,15 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         } else {
           // 归档到最新的 session（第一个，因为按时间倒序）
           const latestSession = existingSessions[0];
-          const updatedData = [...(latestSession.opengraphData || []), item];
+          // ✅ 确保新卡片有时间戳，并添加到数组开头（排在最前面）
+          const newItem = {
+            ...item,
+            timestamp: Date.now(),
+            created_at: Date.now(),
+            id: item.id || `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          };
+          // ✅ 新卡片添加到数组开头，确保排在最前面
+          const updatedData = [newItem, ...(latestSession.opengraphData || [])];
           const updatedSession = {
             ...latestSession,
             opengraphData: updatedData,
@@ -1937,6 +1979,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
               };
 
               // 批量生成 embedding（每批 5 个，避免过载）
+              // ✅ 获取用户ID（在循环外获取一次，避免重复调用）
+              const userId = await getUserId();
               const batchSize = 5;
               for (let i = 0; i < successfulItems.length; i += batchSize) {
                 const batch = successfulItems.slice(i, i + batchSize);
@@ -1947,7 +1991,10 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                   const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
                   const embedResponse = await fetch(embeddingUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                      'Content-Type': 'application/json',
+                      'X-User-ID': userId  // ✅ 添加用户ID header
+                    },
                     body: JSON.stringify({
                       opengraph_items: normalizedBatch
                     }),
@@ -2039,11 +2086,18 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         if (existingSessions.length === 0) {
           // 创建新 session
           const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          // ✅ 确保新卡片有时间戳
+          const newOgData = {
+            ...ogData,
+            timestamp: Date.now(),
+            created_at: Date.now(),
+            id: ogData.id || `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          };
           const newSession = {
             id: sessionId,
             name: '洗衣筐1',
             createdAt: Date.now(),
-            opengraphData: [ogData],
+            opengraphData: [newOgData],
             tabCount: 1,
           };
           await chrome.storage.local.set({ 
@@ -2051,9 +2105,17 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
             currentSessionId: sessionId,
           });
         } else {
-          // 添加到最新 session
+          // ✅ 添加到最新 session，新卡片排在最前面
           const latestSession = existingSessions[0];
-          const updatedData = [...(latestSession.opengraphData || []), ogData];
+          // ✅ 确保新卡片有时间戳
+          const newOgData = {
+            ...ogData,
+            timestamp: Date.now(),
+            created_at: Date.now(),
+            id: ogData.id || `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          };
+          // ✅ 新卡片添加到数组开头，确保排在最前面
+          const updatedData = [newOgData, ...(latestSession.opengraphData || [])];
           const updatedSession = {
             ...latestSession,
             opengraphData: updatedData,
@@ -2101,11 +2163,14 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
             
             const normalizedOgData = normalizeItem(ogData);
             
+            // ✅ 获取用户ID并添加到请求头
+            const userId = await getUserId();
             const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
             
             // ✅ 添加详细日志
             console.log(`[Tab Cleaner Background] 📤 Sending preview item to backend:`, {
               url: embeddingUrl,
+              userId: userId,  // ✅ 记录用户ID
               item: {
                 url: normalizedOgData.url,
                 hasTitle: !!(normalizedOgData.title),
@@ -2116,7 +2181,10 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
             
             fetch(embeddingUrl, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 
+                'Content-Type': 'application/json',
+                'X-User-ID': userId  // ✅ 添加用户ID header
+              },
               body: JSON.stringify({
                 opengraph_items: [normalizedOgData]
               }),
@@ -2194,10 +2262,13 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         };
         
         const normalizedItem = normalizeItem(ogData);
+        // ✅ 获取用户ID并添加到请求头
+        const userId = await getUserId();
         const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
         
         console.log('[Tab Cleaner Background] 📤 Sending OG data to backend for embedding:', {
           url: embeddingUrl,
+          userId: userId,  // ✅ 记录用户ID
           item: {
             url: normalizedItem.url,
             hasTitle: !!(normalizedItem.title),
@@ -2208,7 +2279,10 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         
         const response = await fetch(embeddingUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-User-ID': userId  // ✅ 添加用户ID header
+          },
           body: JSON.stringify({
             opengraph_items: [normalizedItem]
           }),

@@ -141,6 +141,14 @@ export const SessionMasonryGrid = ({
     setSessionSelectedCounts(counts);
   }, [sessions, selectedCardIds]);
 
+  // ✅ 处理点击空白处取消所有选择
+  const handleContainerClick = (e) => {
+    // 如果点击的不是卡片（包括卡片内的任何元素），取消所有选择
+    if (!e.target.closest('.masonry-item')) {
+      setSelectedCardIds(new Set());
+    }
+  };
+
   return (
     <div
       ref={actualContainerRef}
@@ -154,6 +162,7 @@ export const SessionMasonryGrid = ({
         overflowX: 'visible',
         height: `${viewportHeight}px`,
       }}
+      onClick={handleContainerClick}
     >
       {sortedSessions && sortedSessions.length > 0 ? (
         sortedSessions.map((session, sessionIndex) => {

@@ -81,8 +81,8 @@
     // 生成泡泡（充满整个页面）
     const bubbles = Array.from({ length: config.bubbles.count }, (_, i) => {
       const size = Math.random() * (config.bubbles.maxSize - config.bubbles.minSize) + config.bubbles.minSize;
-      const left = Math.random() * 100; // 0-100%
-      const bottom = Math.random() * 20; // 从底部 0-20% 开始
+      const left = Math.random() * 100; // 0-100% - 覆盖整个宽度
+      const bottom = Math.random() * 100; // 0-100% - 从整个底部区域开始，覆盖全屏
       const delay = Math.random() * (config.bubbles.maxDelay - config.bubbles.minDelay) + config.bubbles.minDelay;
       return `<span style="left: ${left}%; bottom: ${bottom}%; width: ${size}px; height: ${size}px; animation-delay: ${delay}s;"></span>`;
     }).join('');
@@ -93,9 +93,9 @@
     cleaningOverlay.innerHTML = `
       <div class="cleaning-content">
         <div class="cleaning-text">正在清理标签页...</div>
-        <div class="cleaning-bubbles">
-          ${bubbles}
-        </div>
+      </div>
+      <div class="cleaning-bubbles">
+        ${bubbles}
       </div>
     `;
     
@@ -104,20 +104,30 @@
     style.id = 'tab-cleaner-cleaning-overlay-style';
     style.textContent = `
       #tab-cleaner-cleaning-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        min-width: 100vw !important;
+        min-height: 100vh !important;
+        max-width: 100vw !important;
+        max-height: 100vh !important;
+        margin: 0 !important;
+        padding: 0 !important;
         /* ✅ 水蓝色到白色的径向渐变背景，有呼吸感 */
-        background: radial-gradient(circle at center, ${config.background.endColor} 0%, ${config.background.startColor} ${config.background.gradientRadius});
+        background: radial-gradient(circle at center, ${config.background.endColor} 0%, ${config.background.startColor} ${config.background.gradientRadius}) !important;
         backdrop-filter: blur(8px);
-        z-index: 999999;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        pointer-events: all;
+        z-index: 2147483647 !important; /* 使用最大 z-index 值 */
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        pointer-events: all !important;
         animation: fadeIn 0.3s ease-in, breathe ${config.background.breatheDuration}s ease-in-out infinite;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
       }
       
       @keyframes fadeIn {
@@ -140,7 +150,8 @@
       #tab-cleaner-cleaning-overlay .cleaning-content {
         position: relative;
         text-align: center;
-        z-index: 1;
+        z-index: 2;
+        pointer-events: none;
       }
       
       #tab-cleaner-cleaning-overlay .cleaning-text {
@@ -159,13 +170,20 @@
       }
       
       #tab-cleaner-cleaning-overlay .cleaning-bubbles {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        pointer-events: none;
-        overflow: hidden;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        min-width: 100vw !important;
+        min-height: 100vh !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        pointer-events: none !important;
+        overflow: hidden !important;
+        z-index: 1 !important;
       }
       
       #tab-cleaner-cleaning-overlay .cleaning-bubbles span {
@@ -203,7 +221,32 @@
       oldStyle.remove();
     }
     document.head.appendChild(style);
-    document.body.appendChild(cleaningOverlay);
+    
+    // ✅ 确保添加到 body，而不是其他容器
+    // 如果 body 不存在，等待 DOM 加载完成
+    if (document.body) {
+      document.body.appendChild(cleaningOverlay);
+    } else {
+      // 等待 DOM 加载完成
+      const observer = new MutationObserver((mutations, obs) => {
+        if (document.body) {
+          document.body.appendChild(cleaningOverlay);
+          obs.disconnect();
+        }
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+      // 超时保护：如果 1 秒后 body 还没出现，直接添加到 document.documentElement
+      setTimeout(() => {
+        if (!cleaningOverlay.parentNode) {
+          if (document.body) {
+            document.body.appendChild(cleaningOverlay);
+          } else {
+            document.documentElement.appendChild(cleaningOverlay);
+          }
+        }
+        observer.disconnect();
+      }, 1000);
+    }
     
     // ✅ 调试：检查样式是否正确应用
     const computedStyle = window.getComputedStyle(cleaningOverlay);
