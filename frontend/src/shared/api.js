@@ -1,6 +1,6 @@
 // API 配置 - 默认使用 Railway 生产环境
 // 如果需要本地开发，可以通过 chrome.storage.local.set({ use_local_api: true }) 切换
-const RAILWAY_API_URL = 'https://tab-cleaner-mvp-production.up.railway.app';
+const RAILWAY_API_URL = 'https://tab-cleaner-mvp-app-production.up.railway.app';
 const LOCAL_API_URL = 'http://localhost:8000';
 
 // 获取 API 基础 URL

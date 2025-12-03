@@ -2,12 +2,12 @@
  * API 配置模块
  * 支持本地开发和生产环境切换
  * 
- * Railway 生产环境: https://tab-cleaner-mvp-production.up.railway.app
+ * Railway 生产环境: https://tab-cleaner-mvp-app-production.up.railway.app
  * 本地开发环境: http://localhost:8000
  */
 
 // Railway 生产环境地址
-const RAILWAY_API_URL = 'https://tab-cleaner-mvp-production.up.railway.app';
+const RAILWAY_API_URL = 'https://tab-cleaner-mvp-app-production.up.railway.app';
 const LOCAL_API_URL = 'http://localhost:8000';
 
 // 获取 API 基础 URL

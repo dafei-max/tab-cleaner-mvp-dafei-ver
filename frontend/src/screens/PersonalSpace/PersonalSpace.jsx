@@ -1418,7 +1418,7 @@ export const PersonalSpace = () => {
                   
                   // 调用后端 AI 洞察 API
                   // 使用 Railway 生产环境地址
-                  const apiUrl = 'https://tab-cleaner-mvp-production.up.railway.app';
+                  const apiUrl = 'https://tab-cleaner-mvp-app-production.up.railway.app';
                   const response = await fetch(`${apiUrl}/api/v1/ai/insight`, {
                     method: 'POST',
                     headers: {
