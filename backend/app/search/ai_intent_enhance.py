@@ -14,6 +14,12 @@ from .config import get_api_key
 
 
 # ========== AI Prompt 配置 ==========
+# 注意：prompt 已迁移到 ai_prompt_config.py，这里保留向后兼容
+from .ai_prompt_config import (
+    get_intent_analysis_prompt as _get_intent_analysis_prompt,
+    get_result_validation_prompt as _get_result_validation_prompt,
+    get_vl_validation_prompt as _get_vl_validation_prompt,
+)
 
 def get_intent_analysis_prompt(query: str) -> str:
     """
@@ -25,72 +31,8 @@ def get_intent_analysis_prompt(query: str) -> str:
     Returns:
         Prompt 字符串
     """
-    return f"""你是一位经验丰富的设计师，正在帮助用户搜索设计灵感和视觉内容。请按照以下思维链逐步分析用户的搜索意图。
-
-**用户查询**："{query}"
-
-**思维链（请逐步思考）**：
-
-**步骤 1：理解用户真实意图**
-- 用户想要找什么？是颜色、物体、风格，还是整体视觉概念？
-- 用户的使用场景是什么？（例如：室内设计、平面设计、UI设计等）
-- 用户的隐含需求是什么？（例如："绿色植物"可能意味着用户想要自然、清新的设计风格）
-
-**步骤 2：提取关键信息**
-- **颜色**：查询中明确提到的颜色（如"绿色"、"蓝色"、"红色"等）
-- **物体/物品**：查询中提到的具体物品（如"植物"、"椅子"、"海报"等）
-- **风格**：查询中提到的设计风格（如"简约"、"现代"、"复古"等）
-- **概念/情感**：查询中隐含的情感或概念（如"温暖"、"科技感"、"自然"等）
-
-**步骤 3：生成10个相关词条**
-- 必须包含原始查询词条
-- 扩展同义词、相关词、上下位词
-- 添加设计师常用词汇（如"design", "visual", "inspiration", "style"）
-- 优先使用英文词汇（用于向量搜索）
-- 确保词条与用户意图高度相关
-
-**步骤 4：确定过滤规则**
-- 明确排除：技术文档、API文档、代码仓库、工作台、管理系统、会议记录等
-- 优先保留：设计师网站（Pinterest、Behance、Dribbble、小红书等）、视觉内容、设计灵感
-
-**步骤 5：生成增强查询**
-- 将10个相关词条组合成增强查询
-- 保持用户原始意图不变
-- 格式：用空格分隔的英文关键词
-
-**输出格式**：请以 JSON 格式返回，格式如下：
-{{
-    "thinking_chain": {{
-        "user_intent": "用户想要找什么（一句话描述）",
-        "use_case": "使用场景（如：室内设计、平面设计等）",
-        "implicit_needs": "隐含需求（如果有）"
-    }},
-    "extracted_info": {{
-        "colors": ["green"],  // 准确提取的颜色，如果没有则为 []
-        "objects": ["plant", "tree"],  // 准确提取的物体，如果没有则为 []
-        "styles": ["minimalist"],  // 准确提取的风格，如果没有则为 []
-        "concepts": ["natural", "fresh"]  // 提取的概念/情感，如果没有则为 []
-    }},
-    "related_keywords": [
-        "原始查询词条",
-        "相关词1",
-        "相关词2",
-        // ... 共10个词条
-    ],
-    "enhanced_query": "green plant tree foliage vegetation natural fresh design visual inspiration style",  // 10个词条组合的增强查询
-    "filter_rules": {{
-        "exclude_types": ["documentation", "api", "code", "workbench", "management", "meeting"],  // 必须排除的内容类型
-        "prioritize_sites": ["pinterest", "behance", "dribbble", "xiaohongshu"]  // 优先返回的网站
-    }},
-    "query_type": "visual"  // 查询类型：visual, object, color, style, concept, general
-}}
-
-**重要要求**：
-1. related_keywords 必须恰好包含10个词条（包含原始查询）
-2. enhanced_query 必须包含这10个词条，用空格分隔
-3. 颜色提取必须准确，不能遗漏或错误
-4. 必须明确排除文档类、技术类、工作台类内容
-5. 返回纯 JSON，不要包含 markdown 代码块标记"""
+    # 使用集中的 prompt 配置
+    return _get_intent_analysis_prompt(query)
 
 
 def get_result_validation_prompt(query: str, results: List[Dict]) -> str:
@@ -104,62 +46,8 @@ def get_result_validation_prompt(query: str, results: List[Dict]) -> str:
     Returns:
         Prompt 字符串
     """
-    # 构建结果摘要（包含更多信息）
-    results_summary = []
-    for i, item in enumerate(results[:12], 1):  # 验证前12个
-        title = item.get("title") or item.get("tab_title", "无标题")[:60]
-        url = item.get("url", "")[:70]
-        similarity = item.get("similarity", 0.0)
-        site_name = item.get("site_name", "")[:20]
-        description = (item.get("description") or "")[:80]
-        
-        # 提取视觉属性（如果有）
-        colors = item.get("dominant_colors", [])
-        objects = item.get("object_tags", [])
-        styles = item.get("style_tags", [])
-        visual_info = ""
-        if colors:
-            visual_info += f"颜色: {', '.join(str(c) for c in colors[:3])} | "
-        if objects:
-            visual_info += f"物体: {', '.join(str(o) for o in objects[:3])} | "
-        if styles:
-            visual_info += f"风格: {', '.join(str(s) for s in styles[:3])}"
-        
-        results_summary.append(
-            f"{i}. 标题: {title}\n"
-            f"   相似度: {similarity:.3f} | 网站: {site_name}\n"
-            f"   描述: {description}\n"
-            f"   视觉属性: {visual_info if visual_info else '无'}\n"
-            f"   URL: {url}"
-        )
-    
-    return f"""你是一个专业的设计师搜索助手。请验证搜索结果是否与用户查询匹配。
-
-**用户查询**："{query}"
-
-**搜索结果**（共 {len(results)} 个）：
-{chr(10).join(results_summary)}
-
-**任务**：
-1. **识别相关结果**：哪些结果与查询高度相关？（返回索引列表，从1开始）
-2. **识别不相关结果**：哪些结果应该被过滤掉？（如：文档类、技术文档、不相关的内容）
-3. **识别优质结果**：哪些结果应该提升优先级？（如：设计师网站Pinterest/Behance/Dribbble、高质量视觉内容）
-
-**重要规则**：
-- 如果查询包含颜色（如"绿色植物"），结果必须匹配该颜色，否则应过滤
-- 如果查询包含物体（如"椅子"），结果应包含该物体，否则应过滤
-- 文档类、技术文档、API文档、工作台等应被过滤
-- 设计师网站（Pinterest、Behance、Dribbble）应优先保留
-
-**输出格式**：请以 JSON 格式返回，格式如下：
-{{
-    "relevant_indices": [1, 2, 3],  // 相关结果的索引（从1开始）
-    "filter_out_indices": [5, 7],  // 应该过滤的结果索引（从1开始）
-    "boost_indices": [1, 2],  // 应该提升优先级的结果索引（从1开始）
-    "reasoning": "分析原因：结果1和2是绿色植物图片，符合查询；结果5是技术文档，应过滤..."
-}}
-
-**注意**：请确保返回的是有效的 JSON 格式，索引必须是从1开始的整数，且不能超出结果数量。"""
+    # 使用集中的 prompt 配置
+    return _get_result_validation_prompt(query, results)
 
 
 # ========== AI 调用接口 ==========
@@ -494,28 +382,8 @@ async def validate_search_results_with_vl(
         filter_out_indices = []
         boost_indices = []
         
-        # ✅ 简化验证 prompt：只判断图片中是否有查询的物体/内容
-        # 例如：查询"椅子"，只需要判断图片中是否有椅子即可
-        validation_prompt = f"""请查看这张图片，判断图片中是否包含用户查询的内容。
-
-**用户查询**："{query}"
-
-**任务**：只需要判断图片中是否包含查询的内容。
-- 例如：查询"椅子"，图片中有椅子就返回 is_relevant: true
-- 例如：查询"绿色植物"，图片中有绿色植物就返回 is_relevant: true
-- 如果图片中明显没有查询的内容，返回 is_relevant: false
-
-**注意**：
-- 只要图片中有相关内容就保留，不需要判断质量、风格等其他因素
-- 只过滤明显不相关的结果（例如：查询"椅子"但图片中完全没有椅子）
-
-**输出格式**：请以 JSON 格式返回，格式如下：
-{{
-    "is_relevant": true,  // 图片中是否包含查询的内容
-    "reasoning": "图片中有椅子"  // 简单说明原因
-}}
-
-**注意**：请确保返回的是有效的 JSON 格式，不要包含任何 markdown 代码块标记。"""
+        # 使用集中的 prompt 配置
+        validation_prompt = _get_vl_validation_prompt(query)
         
         # 并发验证多个图片
         validation_tasks = []

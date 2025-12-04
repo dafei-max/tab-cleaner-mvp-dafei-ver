@@ -225,6 +225,8 @@ class SearchRequest(BaseModel):
     top_k: Optional[int] = 20
     query_image_url: Optional[str] = None  # ✅ 以图搜图：查询图片 URL
     query_image_base64: Optional[str] = None  # ✅ 以图搜图：查询图片 Base64
+    filter_urls: Optional[List[str]] = None  # ✅ 新增：只搜索这些 URL（Personal Space 中的 URL）
+    filter_tab_ids: Optional[List[str]] = None  # ✅ 新增：只搜索这些 tab_id（Personal Space 中的 tab_id）
 
 
 @app.post("/api/v1/search/embedding")
@@ -534,6 +536,8 @@ async def search_content(
             filter_mode=FilterMode.BALANCED,  # 平衡模式：返回高质量和中等质量结果
             max_results=None,  # 不限制数量，返回所有符合质量阈值的结果
             use_caption=True,  # 启用 Caption 搜索
+            filter_urls=request.filter_urls,  # ✅ 新增：只搜索 Personal Space 中的 URL
+            filter_tab_ids=request.filter_tab_ids,  # ✅ 新增：只搜索 Personal Space 中的 tab_id
         )
         
         if not search_results:

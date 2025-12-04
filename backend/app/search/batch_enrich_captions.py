@@ -37,9 +37,10 @@ def to_vector_str(vec: Optional[List[float]]) -> Optional[str]:
 async def get_items_without_caption(
     user_id: Optional[str] = None,
     max_items: Optional[int] = None,
+    force_all: bool = False,
 ) -> List[Dict]:
     """
-    从数据库获取没有 Caption 的数据
+    从数据库获取需要补充 Caption 的数据
     
     检查条件：
     - image_caption IS NULL OR image_caption = ''（新字段）
@@ -67,15 +68,21 @@ async def get_items_without_caption(
         """)
     
     # 构建查询条件（同时检查新字段和 metadata）
+    # force_all=True 时，忽略是否已有 caption，强制重新生成
     if has_new_fields:
         # 使用新字段查询
         if user_id:
             user_id = _normalize_user_id(user_id)
-            where_clause = """WHERE user_id = $1 
-                AND status = 'active' 
-                AND (image_caption IS NULL OR image_caption = '')
-                AND (NOT (metadata ? 'caption') OR COALESCE(metadata->>'caption', '') = '')
-                AND image IS NOT NULL AND image != ''"""
+            if force_all:
+                where_clause = """WHERE user_id = $1 
+                    AND status = 'active' 
+                    AND image IS NOT NULL AND image != ''"""
+            else:
+                where_clause = """WHERE user_id = $1 
+                    AND status = 'active' 
+                    AND (image_caption IS NULL OR image_caption = '')
+                    AND (NOT (metadata ? 'caption') OR COALESCE(metadata->>'caption', '') = '')
+                    AND image IS NOT NULL AND image != ''"""
             if max_items is not None:
                 params = (user_id, max_items)
                 query = f"""
@@ -100,10 +107,14 @@ async def get_items_without_caption(
                     ORDER BY created_at DESC
                 """
         else:
-            where_clause = """WHERE status = 'active' 
-                AND (image_caption IS NULL OR image_caption = '')
-                AND (NOT (metadata ? 'caption') OR COALESCE(metadata->>'caption', '') = '')
-                AND image IS NOT NULL AND image != ''"""
+            if force_all:
+                where_clause = """WHERE status = 'active' 
+                    AND image IS NOT NULL AND image != ''"""
+            else:
+                where_clause = """WHERE status = 'active' 
+                    AND (image_caption IS NULL OR image_caption = '')
+                    AND (NOT (metadata ? 'caption') OR COALESCE(metadata->>'caption', '') = '')
+                    AND image IS NOT NULL AND image != ''"""
             if max_items is not None:
                 params = (max_items,)
                 query = f"""
@@ -131,7 +142,10 @@ async def get_items_without_caption(
         # 降级到 metadata 查询（向后兼容）
         if user_id:
             user_id = _normalize_user_id(user_id)
-            where_clause = "WHERE user_id = $1 AND status = 'active' AND (NOT (metadata ? 'caption') OR COALESCE(metadata->>'caption', '') = '') AND image IS NOT NULL AND image != ''"
+            if force_all:
+                where_clause = "WHERE user_id = $1 AND status = 'active' AND image IS NOT NULL AND image != ''"
+            else:
+                where_clause = "WHERE user_id = $1 AND status = 'active' AND (NOT (metadata ? 'caption') OR COALESCE(metadata->>'caption', '') = '') AND image IS NOT NULL AND image != ''"
             if max_items is not None:
                 params = (user_id, max_items)
                 query = f"""
@@ -154,7 +168,10 @@ async def get_items_without_caption(
                     ORDER BY created_at DESC
                 """
         else:
-            where_clause = "WHERE status = 'active' AND (NOT (metadata ? 'caption') OR COALESCE(metadata->>'caption', '') = '') AND image IS NOT NULL AND image != ''"
+            if force_all:
+                where_clause = "WHERE status = 'active' AND image IS NOT NULL AND image != ''"
+            else:
+                where_clause = "WHERE status = 'active' AND (NOT (metadata ? 'caption') OR COALESCE(metadata->>'caption', '') = '') AND image IS NOT NULL AND image != ''"
             if max_items is not None:
                 params = (max_items,)
                 query = f"""
@@ -435,6 +452,12 @@ async def main():
     )
     
     parser.add_argument(
+        "--force-all",
+        action="store_true",
+        help="忽略已有 Caption，强制为所有有图片的项重新生成 Caption（默认：只补缺失的）"
+    )
+    
+    parser.add_argument(
         "--no-caption-embedding",
         action="store_true",
         help="不生成 Caption embedding（默认：生成）"
@@ -457,6 +480,7 @@ async def main():
     print(f"  - 批量大小: {args.batch_size}")
     print(f"  - 最多处理: {args.max_items} 项")
     print(f"  - 并发数量: {args.concurrent}")
+    print(f"  - 强制重刷所有 Caption: {args.force_all}")
     print(f"  - 生成 Caption Embedding: {not args.no_caption_embedding}")
     print("=" * 60)
     
@@ -466,6 +490,7 @@ async def main():
         items = await get_items_without_caption(
             user_id=args.user_id,
             max_items=args.max_items,
+            force_all=args.force_all,
         )
         
         if not items:

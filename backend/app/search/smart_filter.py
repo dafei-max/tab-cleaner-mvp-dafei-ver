@@ -112,8 +112,56 @@ def smart_filter_by_visual_attributes(
         item_tags = [t.lower() for t in (item.get("object_tags") or [])]
         item_styles = [s.lower() for s in (item.get("style_tags") or [])]
         
-        # 检查颜色匹配
-        color_match = any(c in item_colors for c in colors) if colors else False
+        # ✅ 改进：优先检查主色（第一个颜色），避免黄绿色被误识别为黄色
+        color_match = False
+        if colors and item_colors and len(item_colors) > 0:
+            primary_color = item_colors[0].lower()
+            
+            # 对于黄色查询，严格匹配：主色必须是黄色系列
+            if any(c.lower() in ["yellow", "gold", "amber", "lemon", "golden"] for c in colors):
+                yellow_keywords = ["yellow", "gold", "amber", "lemon", "golden"]
+                if any(kw in primary_color for kw in yellow_keywords):
+                    color_match = True
+                # 如果主色是绿色系列，明确排除（避免黄绿色被误识别）
+                elif any(kw in primary_color for kw in ["green", "emerald", "olive", "lime", "forestgreen"]):
+                    color_match = False
+            else:
+                # 其他颜色查询：检查主色或任何颜色
+                color_match = any(c.lower() in primary_color for c in colors) or \
+                            any(c.lower() in item_colors for c in colors)
+        
+        # ✅ 新增：如果 dominant_colors 中没有匹配，检查 Caption 中是否包含颜色相关词汇
+        if colors and not color_match:
+            caption = (item.get("image_caption") or "").lower()
+            title = (item.get("title") or "").lower()
+            description = (item.get("description") or "").lower()
+            text_content = f"{title} {description} {caption}"
+            
+            # 颜色关键词映射（中英文）
+            color_keywords_map = {
+                "yellow": ["yellow", "gold", "amber", "lemon", "golden", "黄色", "金色", "金黄", "柠檬黄"],
+                "gold": ["yellow", "gold", "amber", "lemon", "golden", "金色", "金黄"],
+                "amber": ["yellow", "gold", "amber", "lemon", "golden", "琥珀", "黄色"],
+                "red": ["red", "crimson", "scarlet", "burgundy", "红色", "红", "赤"],
+                "blue": ["blue", "azure", "navy", "cobalt", "蓝色", "蓝", "天蓝", "海军蓝"],
+                "green": ["green", "emerald", "olive", "lime", "绿色", "绿", "翠绿"],
+                "orange": ["orange", "tangerine", "coral", "橙色", "橙", "橘"],
+                "purple": ["purple", "violet", "lavender", "紫色", "紫", "紫罗兰"],
+                "pink": ["pink", "rose", "blush", "magenta", "粉色", "粉", "玫瑰"],
+                "black": ["black", "dark", "ebony", "黑色", "黑"],
+                "white": ["white", "ivory", "snow", "白色", "白"],
+                "gray": ["gray", "grey", "silver", "charcoal", "灰色", "灰"],
+                "brown": ["brown", "saddlebrown", "sienna", "tan", "棕色", "棕", "褐色"],
+            }
+            
+            # 检查查询颜色对应的关键词是否在文本中
+            for color in colors:
+                color_lower = color.lower()
+                if color_lower in color_keywords_map:
+                    keywords = color_keywords_map[color_lower]
+                    if any(kw in text_content for kw in keywords):
+                        color_match = True
+                        break
         
         # 检查物体匹配（从标题、描述、caption中）
         title = (item.get("title") or "").lower()

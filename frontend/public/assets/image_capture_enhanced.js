@@ -1060,7 +1060,43 @@
 
     // ✅ V3: 拖拽开始 - 图片半透明反馈 + 开始轨迹 + 桌宠磁吸反馈 + 文案提示
     document.addEventListener('dragstart', (e) => {
-      const hit = findTargetImage(null, e.clientX, e.clientY);
+      let hit = findTargetImage(null, e.clientX, e.clientY);
+
+      // ✅ 兜底：有些站点的 dragstart 触发点和鼠标位置不完全对齐，或者图片被多层 wrapper 包裹
+      // 如果基于坐标没找到图片，尝试从事件 target 向上找 <img> 或带 background-image 的元素
+      if (!hit) {
+        const t = e.target;
+        if (t) {
+          // 1) 最近的 <img>
+          const imgEl = t.closest && t.closest('img');
+          if (imgEl && isValidImage(imgEl)) {
+            hit = {
+              type: 'img',
+              element: imgEl,
+              src: getImageUrl(imgEl),
+            };
+          } else {
+            // 2) 最近的带 background-image 的元素
+            const bgEl = t.closest && t.closest('*');
+            if (bgEl) {
+              const style = window.getComputedStyle(bgEl);
+              const bg = style.backgroundImage;
+              if (bg && bg !== 'none' && bg.includes('url(')) {
+                const match = bg.match(/url\((\"|')?(.*?)(\"|')?\)/i);
+                const url = match && match[2] ? match[2] : null;
+                if (url && isValidBackgroundImage(bgEl, url)) {
+                  hit = {
+                    type: 'background',
+                    element: bgEl,
+                    src: url,
+                  };
+                }
+              }
+            }
+          }
+        }
+      }
+
       if (hit && hit.src) {
         const anchorEl = hit.element;
         const rect = anchorEl.getBoundingClientRect();

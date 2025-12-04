@@ -1074,101 +1074,11 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         console.log(`[Tab Cleaner Background] OpenGraph 阶段完成，继续后续流程...`);
         console.log(`[Tab Cleaner Background] ==========================================`);
 
-        // 后端已经在 OpenGraph 解析时预取了 embedding，但可能还在异步处理中
-        // 检查哪些 item 还没有 embedding，补充请求（作为兜底）
-        console.log('[Tab Cleaner Background] Checking and supplementing embeddings for OpenGraph items...');
-        const itemsWithEmbeddings = await Promise.all(mergedData.map(async (item, index) => {
-          // 如果已经有 embedding，直接返回
-          if (item.text_embedding && item.image_embedding) {
-            console.log(`[Tab Cleaner Background] ✓ Embeddings already present for ${item.url.substring(0, 60)}...`);
-            return item;
-          }
-          
-          // 如果 item 成功但还没有 embedding，补充请求（后端可能还在异步处理）
-          if (item.success && (!item.text_embedding || !item.image_embedding)) {
-            // 避免频繁请求，添加小延迟
-            if (index > 0) {
-              await new Promise(resolve => setTimeout(resolve, 50)); // 50ms 延迟
-            }
-            
-            try {
-              // ✅ 规范化数据：确保 image 是字符串，不是数组
-              const normalizeItem = (item) => {
-                const normalized = {
-                  url: String(item.url || '').trim(),
-                  title: item.title ? String(item.title).trim() : null,
-                  description: item.description ? String(item.description).trim() : null,
-                  image: null,
-                  site_name: item.site_name ? String(item.site_name).trim() : null,
-                  tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
-                  tab_title: item.tab_title ? String(item.tab_title).trim() : null,
-                  is_doc_card: Boolean(item.is_doc_card || false),
-                  is_screenshot: Boolean(item.is_screenshot || false),
-                  success: Boolean(item.success !== undefined ? item.success : true),
-                };
-                
-                // ✅ 关键：确保 image 是字符串，不是数组
-                let image = item.image;
-                if (image) {
-                  if (Array.isArray(image)) {
-                    image = image.length > 0 ? String(image[0]).trim() : null;
-                  } else if (typeof image === 'string') {
-                    image = image.trim() || null;
-                  } else {
-                    image = String(image).trim() || null;
-                  }
-                }
-                normalized.image = image;
-                
-                return normalized;
-              };
-              
-              const normalizedItem = normalizeItem(item);
-              
-              // ✅ 获取用户ID并添加到请求头
-              const userId = await getUserId();
-              const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
-              const response = await fetch(embeddingUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'X-User-ID': userId  // ✅ 添加用户ID header
-                },
-                body: JSON.stringify({
-                  opengraph_items: [normalizedItem]
-                }),
-              });
-              
-              if (response.ok) {
-                const embeddingData = await response.json();
-                if (embeddingData.data && embeddingData.data.length > 0) {
-                  const embeddingItem = embeddingData.data[0];
-                  if (embeddingItem.text_embedding && embeddingItem.image_embedding) {
-                    console.log(`[Tab Cleaner Background] ✓ Supplemented embeddings for ${item.url.substring(0, 60)}...`);
-                    return {
-                      ...item,
-                      text_embedding: embeddingItem.text_embedding,
-                      image_embedding: embeddingItem.image_embedding,
-                    };
-                  }
-                }
-              }
-            } catch (error) {
-              console.warn(`[Tab Cleaner Background] Failed to supplement embeddings for ${item.url.substring(0, 60)}... Error:`, error);
-            }
-          }
-          return item; // 返回原始 item 或已有的 item
-        }));
-        console.log('[Tab Cleaner Background] Embedding check completed.');
-
-        // 创建新 session
+        // ✅ 步骤 2: 立即保存到 Chrome Storage（不等待 embedding）
         const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
-        // 获取现有 sessions
         const storageResult = await chrome.storage.local.get(['sessions']);
         const existingSessions = storageResult.sessions || [];
         
-        // 生成 session 名称（洗衣筐1, 洗衣筐2, ...）
         const existingNames = existingSessions.map(s => s.name);
         let counter = 1;
         let sessionName = `洗衣筐${counter}`;
@@ -1177,67 +1087,39 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           sessionName = `洗衣筐${counter}`;
         }
         
-        // 确保每个 item 都有 id（如果没有）
-        const itemsWithIds = opengraphItems.map((item, index) => {
-          if (!item.id) {
-            item.id = item.url || `og-${sessionId}-${index}`;
-          }
-          return item;
-        });
-        
         const newSession = {
           id: sessionId,
           name: sessionName,
           createdAt: Date.now(),
-          opengraphData: itemsWithIds, // 先保存没有 embedding 的数据
-          tabCount: itemsWithIds.length,
+          opengraphData: opengraphItems, // 先保存没有 embedding 的数据
+          tabCount: opengraphItems.length,
         };
         
-        // 新 session 添加到顶部（最新的在前）
         const updatedSessions = [newSession, ...existingSessions];
         
-        // 保存到 storage（不等待 embedding）
-        try {
-          await chrome.storage.local.set({ 
-            sessions: updatedSessions,
-            lastCleanTime: Date.now(),
-            currentSessionId: sessionId, // 设置当前 session
-          });
-        } catch (storageError) {
-          // 如果存储配额超限，尝试清理旧数据
-          if (storageError.message && storageError.message.includes('quota')) {
-            console.warn('[Tab Cleaner Background] Storage quota exceeded, cleaning old sessions...');
-            try {
-              // 只保留最新的 10 个 sessions
-              const limitedSessions = updatedSessions.slice(0, 10);
-              await chrome.storage.local.set({ 
-                sessions: limitedSessions,
-                lastCleanTime: Date.now(),
-                currentSessionId: sessionId,
-              });
-              console.log(`[Tab Cleaner Background] ✓ Saved with limited sessions (${limitedSessions.length} sessions)`);
-            } catch (retryError) {
-              console.error('[Tab Cleaner Background] Failed to save even after cleanup:', retryError);
-              throw retryError;
-            }
-          } else {
-            throw storageError;
-          }
-        }
+        console.log(`[Tab Cleaner Background] 💾 Saving session:`, {
+          sessionId,
+          sessionName,
+          itemCount: opengraphItems.length,
+          totalSessions: updatedSessions.length,
+          firstSessionItemCount: opengraphItems[0] ? opengraphItems[0].length : 0
+        });
+        
+        await chrome.storage.local.set({ 
+          sessions: updatedSessions,
+          lastCleanTime: Date.now(),
+          currentSessionId: sessionId,
+        });
 
-        console.log(`[Tab Cleaner Background] ✓ Session saved immediately:`);
-        console.log(`  - Session ID: ${sessionId}`);
-        console.log(`  - Session Name: ${sessionName}`);
-        console.log(`  - Items count: ${itemsWithIds.length}`);
-        console.log(`  - Successful items: ${itemsWithIds.filter(i => i.success).length}`);
-
+        console.log(`[Tab Cleaner Background] ✓ Session saved immediately (${opengraphItems.length} items)`);
+        
         // ✅ 步骤 3: 关闭所有标签页（只关闭有图片的标签页）
         // 关键：检查每个标签页是否真的有图片，只关闭有图片的标签页
         const tabsToClose = [];
         const tabsToKeep = [];
         
         for (const tab of uniqueTabs) {
-          const item = itemsWithIds.find(i => i.tab_id === tab.id || i.url === tab.url);
+          const item = opengraphItems.find(i => i.tab_id === tab.id || i.url === tab.url);
           if (item && item.image && item.image.trim()) {
             // 有图片，可以关闭
             tabsToClose.push(tab.id);
@@ -1979,8 +1861,6 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
               };
 
               // 批量生成 embedding（每批 5 个，避免过载）
-              // ✅ 获取用户ID（在循环外获取一次，避免重复调用）
-              const userId = await getUserId();
               const batchSize = 5;
               for (let i = 0; i < successfulItems.length; i += batchSize) {
                 const batch = successfulItems.slice(i, i + batchSize);
@@ -1991,10 +1871,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                   const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
                   const embedResponse = await fetch(embeddingUrl, {
                     method: 'POST',
-                    headers: { 
-                      'Content-Type': 'application/json',
-                      'X-User-ID': userId  // ✅ 添加用户ID header
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       opengraph_items: normalizedBatch
                     }),

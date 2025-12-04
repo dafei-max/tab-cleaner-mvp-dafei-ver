@@ -198,12 +198,15 @@ export const PersonalSpace = () => {
   // 如果当前 session 有数据，使用 session 数据；否则使用旧的 opengraphData（向后兼容）
   // ✅ 修复：添加安全检查，确保 opengraphData 是数组
   // ✅ 关键修复：使用 useMemo 确保计算只在依赖变化时执行
+  // ✅ 修复问题3：Radial 视图使用的数据（当前 session），确保与 Masonry 视图对齐
   const radialOpengraphData = useMemo(() => {
     if (viewMode === 'radial') {
+      // ✅ 修复：确保 radial 视图使用与 masonry 视图相同的数据源（当前 session）
       if (Array.isArray(currentSessionOpengraphData) && currentSessionOpengraphData.length > 0) {
         return currentSessionOpengraphData;
       }
-      return Array.isArray(opengraphData) ? opengraphData : [];
+      // 如果没有当前 session 数据，返回空数组（不向后兼容，确保数据对齐）
+      return [];
     }
     return Array.isArray(opengraphData) ? opengraphData : [];
   }, [viewMode, currentSessionOpengraphData, opengraphData]);
@@ -604,17 +607,139 @@ export const PersonalSpace = () => {
     previousQueryRef.current = nextValue;
   }, [viewMode, clearSearch, calculateRadialLayout, getCurrentSession, setOpengraphData, setShowOriginalImages, opengraphData]);
 
+  // ✅ 提取公共函数：收集所有 sessions 中的 URL 和 tab_id
+  const collectSessionUrlsAndTabIds = useCallback(() => {
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    const allSessionUrls = new Set();
+    const allSessionTabIds = new Set();
+    
+    safeSessions.forEach(session => {
+      if (session && Array.isArray(session.opengraphData)) {
+        session.opengraphData.forEach(item => {
+          if (item.url) {
+            allSessionUrls.add(item.url);
+            try {
+              const urlObj = new URL(item.url);
+              const normalizedUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname.replace(/\/$/, '')}`;
+              allSessionUrls.add(normalizedUrl);
+            } catch (e) {
+              // URL 解析失败，跳过
+            }
+          }
+          if (item.tab_id) {
+            allSessionTabIds.add(item.tab_id);
+          }
+        });
+      }
+    });
+    
+    return { allSessionUrls, allSessionTabIds };
+  }, [sessions]);
+  
+  // ✅ 提取公共函数：过滤搜索结果，只保留在 sessions 中的结果
+  const filterResultsBySessions = useCallback((results) => {
+    const { allSessionUrls, allSessionTabIds } = collectSessionUrlsAndTabIds();
+    
+    return results.filter(result => {
+      // 优先使用 tab_id 匹配
+      if (result.tab_id && allSessionTabIds.has(result.tab_id)) {
+        return true;
+      }
+      // 使用 URL 匹配
+      if (result.url) {
+        if (allSessionUrls.has(result.url)) {
+          return true;
+        }
+        // 尝试规范化 URL 匹配
+        try {
+          const urlObj = new URL(result.url);
+          const normalizedUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname.replace(/\/$/, '')}`;
+          if (allSessionUrls.has(normalizedUrl)) {
+            return true;
+          }
+        } catch (e) {
+          // URL 解析失败，跳过
+        }
+      }
+      return false;
+    });
+  }, [collectSessionUrlsAndTabIds]);
+
   // 执行搜索（使用 hook）- 仅在用户按 Enter 时触发
   const handleSearch = async () => {
-    const results = await performSearch(searchQuery, calculateRadialLayout);
+    // ✅ 修复问题2：第二次搜索前，先清除之前的高亮
+    if (viewMode === 'masonry') {
+      const safeSessions = Array.isArray(sessions) ? sessions : [];
+      safeSessions.forEach(session => {
+        if (session && Array.isArray(session.opengraphData)) {
+          const cleanedData = session.opengraphData.map(item => {
+            const { similarity: _, ...rest } = item;
+            return rest;
+          });
+          updateSession(session.id, { opengraphData: cleanedData });
+        }
+      });
+    } else if (viewMode === 'radial') {
+      // Radial 视图：清除之前的相似度标记
+      const currentSession = getCurrentSession();
+      const currentSessionOpengraphData = currentSession ? (currentSession.opengraphData || []) : [];
+      if (currentSessionOpengraphData.length > 0) {
+        const cleanedData = currentSessionOpengraphData.map(item => {
+          const { similarity: _, ...rest } = item;
+          return rest;
+        });
+        const originalData = calculateRadialLayout(cleanedData, {
+          centerX: 720,
+          centerY: 512,
+          baseRadius: UI_CONFIG.radial.baseRadius,
+          radiusGap: UI_CONFIG.radial.radiusGap,
+          minRadiusGap: UI_CONFIG.radial.minRadiusGap,
+          maxRadiusGap: UI_CONFIG.radial.maxRadiusGap,
+          autoAdjustRadius: UI_CONFIG.radial.autoAdjustRadius,
+        });
+        setOpengraphData(originalData);
+      }
+    }
+    
+    // ✅ 修复问题4：收集 Personal Space 中的 URL 和 tab_id，传递给后端进行过滤
+    const { allSessionUrls, allSessionTabIds } = collectSessionUrlsAndTabIds();
+    const filterUrls = Array.from(allSessionUrls);
+    const filterTabIds = Array.from(allSessionTabIds).map(id => String(id)); // 转换为字符串
+    
+    const results = await performSearch(searchQuery, calculateRadialLayout, filterUrls, filterTabIds);
     if (results && results.length > 0) {
+      // ✅ 双重保险：前端也进行过滤（虽然后端已经过滤了）
+      const filteredResults = filterResultsBySessions(results);
+      
+      console.log('[PersonalSpace] Search results filtered:', {
+        originalCount: results.length,
+        filteredCount: filteredResults.length,
+        removedCount: results.length - filteredResults.length
+      });
+      
       if (viewMode === 'radial') {
-        // Radial 视图：直接替换 opengraphData
-        setOpengraphData(results);
+        // ✅ 修复问题4：Radial 视图：只显示过滤后的结果，确保只显示 personal space 中的内容
+        if (filteredResults.length > 0) {
+          // 计算布局位置
+          const positionedResults = calculateRadialLayout(filteredResults, {
+            centerX: 720,
+            centerY: 512,
+            baseRadius: UI_CONFIG.radial.baseRadius,
+            radiusGap: UI_CONFIG.radial.radiusGap,
+            minRadiusGap: UI_CONFIG.radial.minRadiusGap,
+            maxRadiusGap: UI_CONFIG.radial.maxRadiusGap,
+            autoAdjustRadius: UI_CONFIG.radial.autoAdjustRadius,
+          });
+          setOpengraphData(positionedResults);
+        } else {
+          // 如果没有过滤后的结果，清空显示
+          setOpengraphData([]);
+        }
         setShowOriginalImages(false);
-        console.log('[PersonalSpace] Search completed (radial),', results.length, 'results');
+        console.log('[PersonalSpace] Search completed (radial),', filteredResults.length, 'filtered results (only from personal space)');
       } else {
         // Masonry 视图：更新 sessions 中每个 item 的 similarity 字段
+        // 使用过滤后的结果（只包含 sessions 中的项目）
         const safeSessions = Array.isArray(sessions) ? sessions : [];
         
         // ✅ 改进：创建多个匹配键的 map，支持多种匹配方式
@@ -634,7 +759,8 @@ export const PersonalSpace = () => {
         const similarityMap = new Map();
         const urlSimilarityMap = new Map();
         
-        results.forEach(result => {
+        // 使用过滤后的结果（只包含 sessions 中的项目）
+        filteredResults.forEach(result => {
           // 优先使用 tab_id
           if (result.tab_id && result.similarity !== undefined) {
             similarityMap.set(result.tab_id, result.similarity);
@@ -975,12 +1101,16 @@ export const PersonalSpace = () => {
         });
       }, [sessions, isSessionsLoading, currentSessionId]);
 
-      // 检测是否处于搜索模式
-      const hasActiveSearch = Array.isArray(searchResults) && searchResults.length > 0;
+      // ✅ 修复问题4：检测是否处于搜索模式，并过滤掉不在 personal space 中的结果
+      const filteredSearchResults = Array.isArray(searchResults) 
+        ? filterResultsBySessions(searchResults) 
+        : [];
+      
+      const hasActiveSearch = filteredSearchResults.length > 0;
       const searchOverlayConfig = UI_CONFIG.searchOverlay || {};
-      // 获取前 N 个搜索结果用于水平显示
+      // 获取前 N 个搜索结果用于水平显示（使用过滤后的结果）
       const topSearchResults = hasActiveSearch 
-        ? searchResults.slice(0, searchOverlayConfig.maxResults ?? 5) 
+        ? filteredSearchResults.slice(0, searchOverlayConfig.maxResults ?? 5) 
         : [];
 
       return (
@@ -1093,7 +1223,7 @@ export const PersonalSpace = () => {
 
           {/* 搜索遮罩层 */}
           <SearchOverlay
-            searchResults={searchResults}
+            searchResults={filteredSearchResults}
             onCardClick={handleCardDoubleClick}
             onClearSearch={clearSearch}
           />

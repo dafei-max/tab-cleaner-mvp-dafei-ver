@@ -574,26 +574,15 @@
                     console.error('[Tab Cleaner Content] ❌ Failed to save recent_opengraph:', chrome.runtime.lastError);
                   } else {
                     console.log('[Tab Cleaner Content] ✅ Added to recent_opengraph list (total:', limited.length, ')');
-                    
-                    // ✅ 立即发送到后端处理（异步，不阻塞）
-                    if (cacheData && cacheData.success) {
-                      console.log('[Tab Cleaner Content] 📤 Sending OG data to background for backend processing:', {
-                        url: cacheData.url,
-                        hasTitle: !!(cacheData.title),
-                        hasImage: !!(cacheData.image)
-                      });
-                      
-                      chrome.runtime.sendMessage({
-                        action: 'send-opengraph-to-backend',
-                        data: cacheData
-                      }, (response) => {
-                        if (chrome.runtime.lastError) {
-                          console.error('[Tab Cleaner Content] ❌ Failed to send OG to background:', chrome.runtime.lastError);
-                        } else {
-                          console.log('[Tab Cleaner Content] ✅ OG data sent to background:', response);
-                        }
-                      });
-                    }
+
+                    // ⚠️ 重要：不再在这里自动把所有浏览页面发送到后端
+                    // 只在以下明确的“收藏/收集”动作中才会发送到后端生成 embedding：
+                    // - clean / clean-all（洗衣筐清理）
+                    // - clean-current-tab（清理当前 tab）
+                    // - 拖拽图片到宠物
+                    // - 预览卡片保存（save-opengraph-preview）
+                    //
+                    // 这样可以避免“浏览记录”被误当成“收藏卡片”写入数据库。
                   }
                 });
               });

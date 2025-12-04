@@ -448,8 +448,24 @@ export const SessionCard = ({
     return '未知网页';
   };
 
+  // 获取卡片 Header 文本：
+  // 1. 如果有 image_caption（AI 生成的 Caption），优先使用 Caption
+  // 2. 否则回退到原来的 pageName（title / site_name / 域名）
+  const getHeaderText = () => {
+    const caption =
+      og.image_caption ||
+      (og.metadata && typeof og.metadata === 'object' && og.metadata.caption);
+
+    if (caption && String(caption).trim()) {
+      return String(caption).trim();
+    }
+
+    return getPageName();
+  };
+
   const [faviconSrc, setFaviconSrc] = useState(() => getFaviconUrl() || getFallbackFavicon());
   const pageName = getPageName();
+  const headerText = getHeaderText();
   
   const hasAnimatedRef = useRef(false);
   useLayoutEffect(() => {
@@ -617,7 +633,7 @@ export const SessionCard = ({
         >
           {pageName.charAt(0).toUpperCase()}
         </div>
-        {/* 网页名称 */}
+        {/* Header 文本：优先使用 Caption，其次使用网页名称 */}
         <div
           style={{
             fontSize: `${UI_CONFIG.cardHeader.fontSize}px`,
@@ -629,9 +645,9 @@ export const SessionCard = ({
             flex: 1,
             minWidth: 0,
           }}
-          title={pageName}
+          title={headerText}
         >
-          {pageName}
+          {headerText}
         </div>
       </div>
 

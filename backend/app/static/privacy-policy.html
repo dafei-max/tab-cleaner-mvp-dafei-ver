@@ -58,7 +58,7 @@
 <body>
     <div class="container">
         <h1>Privacy Policy for Tab Cleaner MVP</h1>
-        <p class="last-updated"><strong>Last Updated:</strong> November 14, 2025</p>
+        <p class="last-updated"><strong>Last Updated:</strong> December 3, 2025</p>
 
         <h2>1. Introduction</h2>
         <p>
@@ -70,6 +70,15 @@
         <ul>
             <li><strong>Tab Information:</strong> When you click the "Clean" button, we collect the URLs and titles of your open browser tabs.</li>
             <li><strong>OpenGraph Metadata:</strong> We extract metadata (title, description, thumbnail images) from web pages to create visual cards for your tabs.</li>
+            <li><strong>Image Data:</strong> When processing tab thumbnails, we analyze images to extract visual attributes including:
+                <ul>
+                    <li>Color information (using Hex color codes for accurate color representation)</li>
+                    <li>Image captions and descriptions</li>
+                    <li>Design style tags (modern, minimalist, vintage, etc.)</li>
+                    <li>Object identification (chairs, tables, plants, etc.)</li>
+                </ul>
+                This analysis helps improve search accuracy and visual organization of your tabs.
+            </li>
             <li><strong>Search Queries:</strong> If you use the AI search feature, we collect your search queries to generate semantic search results.</li>
             <li><strong>User Preferences:</strong> We store your preferences (canvas zoom level, search history, clustering configuration) locally on your device.</li>
         </ul>
@@ -83,6 +92,14 @@
         <ul>
             <li><strong>Tab Management:</strong> To organize and display your tabs on the visual canvas.</li>
             <li><strong>AI Processing:</strong> To provide semantic search and intelligent clustering features.</li>
+            <li><strong>Image Analysis:</strong> To analyze images and extract visual attributes (colors, styles, objects) for improved search and organization. This includes:
+                <ul>
+                    <li>Using AI vision models (Qwen-VL) to generate image captions and descriptions</li>
+                    <li>Using color extraction algorithms (K-Means clustering) to identify dominant colors with Hex codes</li>
+                    <li>Detecting subject regions in images to prioritize main object colors</li>
+                    <li>Identifying design styles and objects for better categorization</li>
+                </ul>
+            </li>
             <li><strong>OpenGraph Extraction:</strong> To extract metadata from web pages for visual card creation.</li>
             <li><strong>User Experience:</strong> To remember your preferences and improve the extension's functionality.</li>
         </ul>
@@ -106,12 +123,14 @@
             <strong>We do not share your data with third parties.</strong> We do not sell, rent, or trade your information. The only exception is when data is sent to our backend server for AI processing, which is necessary for the extension's core functionality.
         </p>
         <p>
-            Our backend server uses third-party AI services (Alibaba Cloud DashScope API) for semantic search and clustering. These services process your data according to their own privacy policies, but we ensure that:
+            Our backend server uses third-party AI services (Alibaba Cloud DashScope API) for semantic search, clustering, and image analysis. These services process your data according to their own privacy policies, but we ensure that:
         </p>
         <ul>
-            <li>Only necessary data (URLs, titles, metadata) is sent</li>
+            <li>Only necessary data (URLs, titles, metadata, and thumbnail images) is sent</li>
             <li>All communication is encrypted via HTTPS</li>
             <li>No personal information is included</li>
+            <li>Images are processed only to extract visual attributes (colors, styles, objects) and are not stored permanently</li>
+            <li>Color information is extracted using algorithms that identify dominant colors with Hex codes for accurate representation</li>
         </ul>
 
         <h2>6. User Control</h2>

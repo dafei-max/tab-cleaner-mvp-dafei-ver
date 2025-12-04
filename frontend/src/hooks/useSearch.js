@@ -53,7 +53,7 @@ export const useSearch = (opengraphData = []) => {
   // };
 
   // 执行搜索
-  const performSearch = async (query, calculateRadialLayout) => {
+  const performSearch = async (query, calculateRadialLayout, filterUrls = null, filterTabIds = null) => {
     if (!query.trim()) {
       setSearchResults(null);
       return [];
@@ -66,8 +66,8 @@ export const useSearch = (opengraphData = []) => {
       setIsSearching(true);
       console.log('[useSearch] Searching for:', query);
       
-      // ✅ 简化：直接调用 searchContent(query)，后端从数据库读取
-      const result = await searchContent(query);
+      // ✅ 新增：传递 filterUrls 和 filterTabIds 到后端，确保只搜索 Personal Space 中的内容
+      const result = await searchContent(query, 20, filterUrls, filterTabIds);
 
       let finalList = [];
       if (result && result.ok && Array.isArray(result.results) && result.results.length > 0) {

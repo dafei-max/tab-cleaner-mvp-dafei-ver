@@ -100,39 +100,76 @@
           result.image = imageUrl;
         }
       } else {
-        // Pinterest 特殊处理：查找 pinimg.com 图片
-        const isPinterest = window.location.hostname.includes('pinterest.com');
-        if (isPinterest) {
-          // 查找 pinimg.com 图片（Pinterest 的 CDN）
-          const pinimgImages = Array.from(document.querySelectorAll('img')).filter(img => {
-            const src = img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
-            return src.includes('pinimg.com');
-          });
-          
-          if (pinimgImages.length > 0) {
-            // 选择最大的图片（通常是主图）
-            let largestImage = null;
-            let largestSize = 0;
-            
-            pinimgImages.forEach(img => {
-              const src = img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
-              const width = img.naturalWidth || img.width || 0;
-              const height = img.naturalHeight || img.height || 0;
-              const size = width * height;
-              
-              if (size > largestSize && width >= 200 && height >= 200) {
-                largestSize = size;
-                largestImage = src;
-              }
-            });
-            
-            if (largestImage) {
-              result.image = largestImage;
+        // ✅ 瀑布流站点特殊处理：Pinterest、小红书等
+        const hostname = window.location.hostname || '';
+        const isPinterest = hostname.includes('pinterest.com');
+        const isXiaohongshu = hostname.includes('xiaohongshu.com') || hostname.includes('xhslink.com');
+
+        if (isPinterest || isXiaohongshu) {
+          // 统一策略：从当前页面中找到「视口中用户正在看的那张大图」
+          const allImages = Array.from(document.querySelectorAll('img'));
+          const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+          const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+
+          let largestImage = null;
+          let largestVisibleArea = 0;
+          let largestTotalSize = 0;
+
+          allImages.forEach(img => {
+            const srcCandidate = img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
+            if (!srcCandidate) return;
+
+            // Pinterest 优先 pinimg CDN，小红书优先 xhscdn CDN；但如果没命中，也允许作为候选
+            const lowerSrc = srcCandidate.toLowerCase();
+            if (isPinterest && !lowerSrc.includes('pinimg.com')) {
+              // 对 Pinterest，我们只关心 pinimg 的大图，避免抓到 UI 图片
+              return;
             }
+            if (isXiaohongshu && !lowerSrc.includes('xhscdn.com') && !lowerSrc.includes('xiaohongshu.com')) {
+              // 小红书优先它的图片 CDN
+              return;
+            }
+
+            const rect = img.getBoundingClientRect();
+            if (!rect || rect.width < 120 || rect.height < 120) {
+              // 过滤掉太小的缩略图 / 头像
+              return;
+            }
+
+            const isHorizontallyVisible = rect.right > 0 && rect.left < viewportWidth;
+            const isVerticallyVisible = rect.bottom > 0 && rect.top < viewportHeight;
+            if (!isHorizontallyVisible || !isVerticallyVisible) {
+              return;
+            }
+
+            // 计算与视口的交集面积（可见面积）
+            const visibleWidth = Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0);
+            const visibleHeight = Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0);
+            const visibleArea = Math.max(0, visibleWidth) * Math.max(0, visibleHeight);
+            if (visibleArea <= 0) return;
+
+            // 总面积用于在可见面积接近时做 tie-break
+            const totalWidth = img.naturalWidth || img.width || 0;
+            const totalHeight = img.naturalHeight || img.height || 0;
+            const totalSize = totalWidth * totalHeight;
+
+            const isBetterVisible = visibleArea > largestVisibleArea * 1.15;
+            const isSimilarVisible = !isBetterVisible && visibleArea >= largestVisibleArea * 0.85;
+            const isBetterTotal = isSimilarVisible && totalSize > largestTotalSize;
+
+            if (isBetterVisible || isBetterTotal || !largestImage) {
+              largestVisibleArea = visibleArea;
+              largestTotalSize = totalSize;
+              largestImage = srcCandidate;
+            }
+          });
+
+          if (largestImage) {
+            result.image = largestImage;
           }
         }
-        
-        // 如果没有找到图片，尝试找第一个大图
+
+        // 如果仍然没有找到图片，尝试找第一个大图（通用兜底）
         if (!result.image) {
           const images = Array.from(document.querySelectorAll('img'));
           const largeImage = images.find(img => {

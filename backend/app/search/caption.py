@@ -114,7 +114,13 @@ def rgb_to_color_name(rgb: tuple) -> str:
         elif b > r and b > g:
             return "blue" if b > 150 else "navy"
         elif r > 200 and g > 150 and b < 100:
-            return "yellow"
+            # ✅ 改进：区分黄色和黄绿色，避免黄绿色被误识别为黄色
+            # 黄色：R高，G中等，B低，且R/G比例 > 1.3（避免黄绿色）
+            # 黄绿色：R和G都高，且R/G比例接近1
+            if r / max(g, 1) > 1.3:  # R明显大于G，是黄色
+                return "yellow"
+            else:  # R和G接近，是黄绿色，应该归类为green
+                return "green"
         elif r > 200 and g < 150 and b < 100:
             return "orange"
         elif r > 200 and g < 150 and b > 150:
@@ -125,16 +131,146 @@ def rgb_to_color_name(rgb: tuple) -> str:
     return closest_color
 
 
-def extract_colors_kmeans(image_data: bytes, n_colors: int = 3) -> List[str]:
+def rgb_to_hex(rgb: tuple) -> str:
     """
-    使用 K-Means 提取图片的主要颜色
+    将 RGB 值转换为 Hex 颜色代码
+    
+    Args:
+        rgb: (R, G, B) 元组，值范围 0-255
+    
+    Returns:
+        Hex 颜色代码（如 "#FFD700"）
+    """
+    r, g, b = rgb
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def hex_to_rgb(hex_color: str) -> tuple:
+    """
+    将 Hex 颜色代码转换为 RGB 值
+    
+    Args:
+        hex_color: Hex 颜色代码（如 "#FFD700" 或 "FFD700"）
+    
+    Returns:
+        (R, G, B) 元组，值范围 0-255
+    """
+    hex_color = hex_color.lstrip('#')
+    if len(hex_color) == 6:
+        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+    return (0, 0, 0)
+
+
+def color_name_to_hex_range(color_name: str) -> List[str]:
+    """
+    将颜色名称转换为可能的 Hex 值范围（用于匹配）
+    
+    Args:
+        color_name: 颜色名称（如 "yellow", "red"）
+    
+    Returns:
+        可能的 Hex 值列表
+    """
+    color_name_lower = color_name.lower()
+    hex_colors = []
+    
+    # 遍历所有已知颜色，找到匹配的颜色名称
+    for rgb, name in COLOR_NAMES.items():
+        if name.lower() == color_name_lower:
+            hex_colors.append(rgb_to_hex(rgb))
+    
+    # 如果没有找到，根据颜色名称推断
+    if not hex_colors:
+        if color_name_lower == "yellow":
+            hex_colors = ["#FFFF00", "#FFD700", "#FFA500"]
+        elif color_name_lower == "red":
+            hex_colors = ["#FF0000", "#DC143C", "#B22222"]
+        elif color_name_lower == "blue":
+            hex_colors = ["#0000FF", "#0064C8", "#1E90FF"]
+        elif color_name_lower == "green":
+            hex_colors = ["#00FF00", "#008000", "#228B22"]
+        elif color_name_lower == "white":
+            hex_colors = ["#FFFFFF", "#F5F5F5", "#FAFAFA"]
+        elif color_name_lower == "black":
+            hex_colors = ["#000000", "#1A1A1A", "#2F2F2F"]
+        elif color_name_lower == "gray" or color_name_lower == "grey":
+            hex_colors = ["#808080", "#A9A9A9", "#C0C0C0"]
+        elif color_name_lower == "purple":
+            hex_colors = ["#800080", "#8A2BE2", "#9370DB"]
+        elif color_name_lower == "pink":
+            hex_colors = ["#FFC0CB", "#FF1493", "#FF69B4"]
+        elif color_name_lower == "orange":
+            hex_colors = ["#FFA500", "#FF8C00", "#FF7F50"]
+        elif color_name_lower == "brown":
+            hex_colors = ["#A52A2A", "#8B4513", "#A0522D"]
+    
+    return hex_colors
+
+
+def detect_subject_region(img_array: np.ndarray) -> np.ndarray:
+    """
+    检测图片的主体区域（使用中心加权和简单边缘检测）
+    
+    Args:
+        img_array: 图片的 numpy 数组 (H, W, 3)
+    
+    Returns:
+        主体区域的掩码（权重数组，值越大表示越可能是主体）
+    """
+    h, w = img_array.shape[:2]
+    
+    # 创建权重掩码（中心区域权重更高）
+    y_center, x_center = h // 2, w // 2
+    y_coords, x_coords = np.ogrid[:h, :w]
+    
+    # 计算每个像素到中心的距离（归一化到 0-1）
+    dist_from_center = np.sqrt(
+        ((y_coords - y_center) / h) ** 2 + 
+        ((x_coords - x_center) / w) ** 2
+    )
+    
+    # 中心区域权重更高（使用高斯分布）
+    center_weight = np.exp(-dist_from_center ** 2 / 0.3)
+    
+    # 简单的边缘检测：使用差分计算梯度
+    # 转换为灰度图
+    gray = np.mean(img_array, axis=2).astype(np.float32)
+    
+    # 使用简单的差分算子计算梯度（不依赖 scipy）
+    # 水平梯度
+    sobel_x = np.zeros_like(gray)
+    sobel_x[:, 1:-1] = gray[:, 2:] - gray[:, :-2]
+    # 垂直梯度
+    sobel_y = np.zeros_like(gray)
+    sobel_y[1:-1, :] = gray[2:, :] - gray[:-2, :]
+    
+    # 计算梯度幅值
+    gradient_magnitude = np.sqrt(sobel_x ** 2 + sobel_y ** 2)
+    
+    # 归一化梯度
+    if gradient_magnitude.max() > 0:
+        gradient_magnitude = gradient_magnitude / gradient_magnitude.max()
+    
+    # 边缘区域权重降低（梯度大的地方可能是背景边缘）
+    edge_weight = 1.0 - (gradient_magnitude * 0.3)  # 降低边缘权重，但不完全排除
+    
+    # 综合权重：中心权重 + 边缘权重
+    combined_weight = center_weight * 0.7 + edge_weight * 0.3
+    
+    return combined_weight
+
+
+def extract_colors_kmeans(image_data: bytes, n_colors: int = 3, prioritize_subject: bool = True) -> List[str]:
+    """
+    使用 K-Means 提取图片的主要颜色，优先提取主体颜色
     
     Args:
         image_data: 图片二进制数据
         n_colors: 提取的颜色数量（默认 3）
+        prioritize_subject: 是否优先提取主体区域的颜色（默认 True）
     
     Returns:
-        颜色名称列表（英文）
+        Hex 颜色代码列表（如 ["#FFD700", "#FF6347", "#4169E1"]）
     """
     try:
         # 打开图片
@@ -145,26 +281,81 @@ def extract_colors_kmeans(image_data: bytes, n_colors: int = 3) -> List[str]:
             img = img.convert("RGB")
         
         # 缩小图片以加快处理（采样）
-        img.thumbnail((200, 200), Image.Resampling.LANCZOS)
+        img.thumbnail((300, 300), Image.Resampling.LANCZOS)  # 稍微增大以提高主体检测精度
         
         # 转换为 numpy 数组
         img_array = np.array(img)
+        h, w = img_array.shape[:2]
         pixels = img_array.reshape(-1, 3)
+        
+        # 如果启用主体检测，使用加权采样
+        if prioritize_subject:
+            try:
+                # 检测主体区域
+                subject_mask = detect_subject_region(img_array)
+                
+                # 将权重展平
+                weights = subject_mask.flatten()
+                
+                # 归一化权重
+                weights = weights / weights.sum()
+                
+                # 使用加权采样（采样更多主体区域的像素）
+                n_samples = min(5000, len(pixels))  # 采样数量
+                sample_indices = np.random.choice(
+                    len(pixels), 
+                    size=n_samples, 
+                    replace=False, 
+                    p=weights
+                )
+                sampled_pixels = pixels[sample_indices]
+                
+                # 使用加权 K-Means（给主体区域更高的权重）
+                # 由于 sklearn 的 KMeans 不支持样本权重，我们使用采样后的数据
+                pixels_for_clustering = sampled_pixels
+            except Exception as e:
+                print(f"[Caption] WARNING: Subject detection failed, using all pixels: {e}")
+                pixels_for_clustering = pixels
+        else:
+            pixels_for_clustering = pixels
         
         # 使用 K-Means 聚类
         kmeans = KMeans(n_clusters=n_colors, random_state=42, n_init=10)
-        kmeans.fit(pixels)
+        kmeans.fit(pixels_for_clustering)
         
         # 获取聚类中心（主要颜色）
         colors = kmeans.cluster_centers_.astype(int)
         
-        # 转换为颜色名称
-        color_names = [rgb_to_color_name(tuple(color)) for color in colors]
+        # 确保颜色值在有效范围内
+        colors = np.clip(colors, 0, 255)
+        
+        # 转换为 Hex 颜色代码
+        hex_colors = [rgb_to_hex(tuple(color)) for color in colors]
+        
+        # 计算每个颜色的重要性（基于聚类大小和位置）
+        if prioritize_subject:
+            try:
+                # 计算每个聚类在主体区域的占比
+                labels = kmeans.predict(pixels)
+                subject_mask_flat = subject_mask.flatten()
+                
+                color_importance = []
+                for i in range(n_colors):
+                    cluster_mask = (labels == i)
+                    # 计算该聚类在主体区域的占比
+                    subject_cluster_ratio = np.sum(subject_mask_flat[cluster_mask]) / (np.sum(cluster_mask) + 1e-6)
+                    color_importance.append((subject_cluster_ratio, i))
+                
+                # 按重要性排序
+                color_importance.sort(reverse=True)
+                hex_colors = [hex_colors[i] for _, i in color_importance]
+            except Exception as e:
+                print(f"[Caption] WARNING: Color importance calculation failed: {e}")
         
         # 去重并保持顺序
         seen = set()
         unique_colors = []
-        for color in color_names:
+        for color in hex_colors:
             if color not in seen:
                 seen.add(color)
                 unique_colors.append(color)
@@ -173,6 +364,8 @@ def extract_colors_kmeans(image_data: bytes, n_colors: int = 3) -> List[str]:
         
     except Exception as e:
         print(f"[Caption] ERROR extracting colors with K-Means: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
@@ -307,17 +500,36 @@ async def enrich_item_with_caption(
         print(f"[Caption] Failed to generate caption for item: {item.get('url', 'unknown')}")
         return item
     
-    # 提取颜色（优先使用 K-Means，更准确）
-    dominant_colors = []
+    # 提取颜色（优先使用 K-Means，更准确，返回 Hex 值）
+    dominant_colors_hex = []
+    dominant_colors = []  # 保持向后兼容，存储颜色名称
     if use_kmeans_colors and image_data:
-        kmeans_colors = extract_colors_kmeans(image_data, n_colors=3)
-        if kmeans_colors:
-            dominant_colors = kmeans_colors
-            print(f"[Caption] K-Means extracted colors: {dominant_colors}")
+        kmeans_colors_hex = extract_colors_kmeans(image_data, n_colors=3, prioritize_subject=True)
+        if kmeans_colors_hex:
+            dominant_colors_hex = kmeans_colors_hex
+            # 同时转换为颜色名称（用于文本匹配，保持向后兼容）
+            for hex_color in kmeans_colors_hex:
+                try:
+                    rgb = hex_to_rgb(hex_color)
+                    color_name = rgb_to_color_name(rgb)
+                    if color_name not in dominant_colors:
+                        dominant_colors.append(color_name)
+                except Exception as e:
+                    print(f"[Caption] WARNING: Failed to convert {hex_color} to color name: {e}")
+            print(f"[Caption] K-Means extracted colors (Hex): {dominant_colors_hex}")
+            print(f"[Caption] K-Means extracted colors (Names): {dominant_colors}")
     
     # 如果 K-Means 失败，使用 Qwen-VL 的结果
-    if not dominant_colors:
-        dominant_colors = qwen_result.get("dominant_colors", [])
+    if not dominant_colors_hex:
+        qwen_colors = qwen_result.get("dominant_colors", [])
+        # Qwen-VL 返回的是颜色名称，需要转换为 Hex
+        for color_name in qwen_colors:
+            if color_name not in dominant_colors:
+                dominant_colors.append(color_name)
+            # 尝试将颜色名称转换为 Hex
+            hex_range = color_name_to_hex_range(color_name)
+            if hex_range and hex_range[0] not in dominant_colors_hex:
+                dominant_colors_hex.append(hex_range[0])  # 使用第一个匹配的 Hex 值
     
     # 合并风格标签（Qwen-VL + 规则式）
     style_tags = qwen_result.get("style_tags", [])
@@ -351,7 +563,8 @@ async def enrich_item_with_caption(
         "caption": caption_text,
         "image_caption": caption_text,  # 同时保存为 image_caption（数据库字段名）
         "caption_embedding": caption_embedding,  # ✅ 新增：Caption 的 text vector
-        "dominant_colors": dominant_colors,
+        "dominant_colors": dominant_colors,  # 颜色名称列表（用于文本匹配，保持向后兼容）
+        "dominant_colors_hex": dominant_colors_hex,  # ✅ 新增：Hex 颜色代码列表（更准确）
         "style_tags": all_styles,
         "object_tags": all_objects,
     }

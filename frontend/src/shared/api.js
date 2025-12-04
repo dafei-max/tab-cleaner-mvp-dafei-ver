@@ -65,10 +65,23 @@ export async function generateEmbeddings(opengraphItems) {
   return data;
 }
 
-export async function searchContent(query, topK = 20) {
+export async function searchContent(query, topK = 20, filterUrls = null, filterTabIds = null) {
   // 获取用户ID
   const { getOrCreateUserId } = await import("../utils/userId");
   const userId = await getOrCreateUserId();
+  
+  const requestBody = {
+    query: query,
+    top_k: topK
+  };
+  
+  // ✅ 新增：如果提供了 filterUrls 或 filterTabIds，添加到请求中
+  if (filterUrls && Array.isArray(filterUrls) && filterUrls.length > 0) {
+    requestBody.filter_urls = filterUrls;
+  }
+  if (filterTabIds && Array.isArray(filterTabIds) && filterTabIds.length > 0) {
+    requestBody.filter_tab_ids = filterTabIds;
+  }
   
   const resp = await fetch(API + "/search/query", {
     method: "POST",
@@ -76,10 +89,7 @@ export async function searchContent(query, topK = 20) {
       "Content-Type": "application/json",
       "X-User-ID": userId  // 发送用户ID
     },
-    body: JSON.stringify({
-      query: query,
-      top_k: topK
-    })
+    body: JSON.stringify(requestBody)
   });
   if (!resp.ok) {
     throw new Error(`HTTP error! status: ${resp.status}`);

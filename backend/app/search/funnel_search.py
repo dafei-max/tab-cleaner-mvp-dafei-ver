@@ -928,6 +928,8 @@ async def search_with_funnel(
     filter_mode: FilterMode = FilterMode.BALANCED,
     max_results: Optional[int] = None,  # 改为可选，None表示不限制数量，只根据质量过滤
     use_caption: bool = True,
+    filter_urls: Optional[List[str]] = None,  # ✅ 新增：只搜索这些 URL（Personal Space 中的 URL）
+    filter_tab_ids: Optional[List[str]] = None,  # ✅ 新增：只搜索这些 tab_id（Personal Space 中的 tab_id）
 ) -> List[Dict]:
     """
     三阶段漏斗搜索
@@ -1119,8 +1121,60 @@ async def search_with_funnel(
             has_style_match = False
             
             if query_colors:
-                # 检查是否有颜色匹配（至少有一个查询颜色在结果颜色中）
-                has_color_match = any(qc in item_colors for qc in query_colors)
+                # ✅ 改进：优先检查主色（第一个颜色），避免黄绿色被误识别为黄色
+                # 如果查询的是黄色，只匹配主色是黄色的（第一个颜色是yellow/gold/amber）
+                has_color_match = False
+                
+                # 检查主色（第一个颜色）
+                if item_colors and len(item_colors) > 0:
+                    primary_color = item_colors[0].lower()
+                    
+                    # 对于黄色查询，严格匹配：主色必须是黄色系列
+                    if any(qc.lower() in ["yellow", "gold", "amber", "lemon", "golden"] for qc in query_colors):
+                        yellow_keywords = ["yellow", "gold", "amber", "lemon", "golden"]
+                        if any(kw in primary_color for kw in yellow_keywords):
+                            has_color_match = True
+                        # 如果主色是绿色系列，明确排除（避免黄绿色被误识别）
+                        elif any(kw in primary_color for kw in ["green", "emerald", "olive", "lime", "forestgreen"]):
+                            has_color_match = False
+                    else:
+                        # 其他颜色查询：检查主色或任何颜色
+                        has_color_match = any(qc.lower() in primary_color for qc in query_colors) or \
+                                        any(qc.lower() in item_colors for qc in query_colors)
+                
+                # ✅ 新增：如果 dominant_colors 中没有匹配，检查 Caption 中是否包含颜色相关词汇
+                if not has_color_match:
+                    caption = (item.get("image_caption") or "").lower()
+                    title = (item.get("title") or "").lower()
+                    description = (item.get("description") or "").lower()
+                    text_content = f"{title} {description} {caption}"
+                    
+                    # 颜色关键词映射（中英文）
+                    color_keywords_map = {
+                        "yellow": ["yellow", "gold", "amber", "lemon", "golden", "黄色", "金色", "金黄", "柠檬黄"],
+                        "gold": ["yellow", "gold", "amber", "lemon", "golden", "金色", "金黄"],
+                        "amber": ["yellow", "gold", "amber", "lemon", "golden", "琥珀", "黄色"],
+                        "red": ["red", "crimson", "scarlet", "burgundy", "红色", "红", "赤"],
+                        "blue": ["blue", "azure", "navy", "cobalt", "蓝色", "蓝", "天蓝", "海军蓝"],
+                        "green": ["green", "emerald", "olive", "lime", "绿色", "绿", "翠绿"],
+                        "orange": ["orange", "tangerine", "coral", "橙色", "橙", "橘"],
+                        "purple": ["purple", "violet", "lavender", "紫色", "紫", "紫罗兰"],
+                        "pink": ["pink", "rose", "blush", "magenta", "粉色", "粉", "玫瑰"],
+                        "black": ["black", "dark", "ebony", "黑色", "黑"],
+                        "white": ["white", "ivory", "snow", "白色", "白"],
+                        "gray": ["gray", "grey", "silver", "charcoal", "灰色", "灰"],
+                        "brown": ["brown", "saddlebrown", "sienna", "tan", "棕色", "棕", "褐色"],
+                    }
+                    
+                    # 检查查询颜色对应的关键词是否在文本中
+                    for qc in query_colors:
+                        qc_lower = qc.lower()
+                        if qc_lower in color_keywords_map:
+                            keywords = color_keywords_map[qc_lower]
+                            if any(kw in text_content for kw in keywords):
+                                has_color_match = True
+                                print(f"[Funnel] ✅ Caption辅助匹配: 查询颜色 '{qc}' 在文本中找到相关词汇")
+                                break
             
             if query_objects:
                 # 检查是否有物体匹配（至少有一个查询物体在结果物体中）
@@ -1316,6 +1370,57 @@ async def search_with_funnel(
     )
     
     print(f"[Funnel] Final results: {len(filtered_results)} items")
+    
+    # ✅ 新增：如果提供了 filter_urls 或 filter_tab_ids，只返回 Personal Space 中的结果
+    if filter_urls or filter_tab_ids:
+        original_count = len(filtered_results)
+        filter_urls_set = set(filter_urls or [])
+        filter_tab_ids_set = set(filter_tab_ids or [])
+        
+        # 规范化 URL（移除尾随斜杠和查询参数）
+        def normalize_url_for_filter(url: str) -> str:
+            if not url:
+                return ""
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path.rstrip('/')}"
+                return normalized
+            except:
+                return url
+        
+        # 创建规范化 URL 集合
+        normalized_filter_urls = set()
+        for url in filter_urls_set:
+            normalized_filter_urls.add(url)
+            normalized = normalize_url_for_filter(url)
+            if normalized:
+                normalized_filter_urls.add(normalized)
+        
+        filtered_by_personal_space = []
+        for item in filtered_results:
+            # 优先使用 tab_id 匹配
+            if filter_tab_ids_set and item.get("tab_id"):
+                if str(item.get("tab_id")) in filter_tab_ids_set:
+                    filtered_by_personal_space.append(item)
+                    continue
+            
+            # 使用 URL 匹配
+            item_url = item.get("url", "")
+            if item_url:
+                if item_url in filter_urls_set or item_url in normalized_filter_urls:
+                    filtered_by_personal_space.append(item)
+                    continue
+                # 尝试规范化 URL 匹配
+                normalized_item_url = normalize_url_for_filter(item_url)
+                if normalized_item_url in normalized_filter_urls:
+                    filtered_by_personal_space.append(item)
+                    continue
+        
+        filtered_results = filtered_by_personal_space
+        removed_count = original_count - len(filtered_results)
+        if removed_count > 0:
+            print(f"[Funnel] ✅ Filtered by Personal Space: {removed_count} items removed, {len(filtered_results)} items remain")
     
     return filtered_results
 

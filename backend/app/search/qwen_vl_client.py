@@ -81,7 +81,10 @@ class QwenVLClient:
                 ]
             },
             "parameters": {
-                "temperature": 0.1,  # 降低温度，提高输出稳定性
+                # 降低温度，提高输出稳定性
+                "temperature": 0.1,
+                # 提高 max_tokens，让 Caption 和属性描述更完整、更细致
+                "max_tokens": 512,
             }
         }
         
@@ -160,24 +163,9 @@ class QwenVLClient:
                 "object_tags": ["chair", "furniture"]
             }
         """
-        # 构建结构化 prompt，让 Qwen-VL 返回 JSON
-        if include_attributes:
-            prompt = """请详细描述这张图片，并提取以下信息，以 JSON 格式返回：
-
-1. **Caption（图片描述）**：用一句话描述图片的主要内容（不超过 100 字）
-2. **主要颜色（dominant_colors）**：提取图片中的主要颜色，用英文颜色名称（如 blue, red, green, white, black, yellow, orange, pink, purple, gray, brown）
-3. **风格标签（style_tags）**：识别图片的风格，从以下选项中选择：modern, minimalist, vintage, industrial, scandinavian, japanese, classic, contemporary, rustic, luxury, casual, elegant, bohemian, art-deco, mid-century
-4. **物体标签（object_tags）**：识别图片中的主要物体或元素（用英文，如 chair, table, plant, lamp, sofa, bed, desk, shelf, mirror, rug, pillow, curtain, vase, painting, sculpture）
-
-请严格按照以下 JSON 格式返回（不要添加任何其他文字）：
-{
-  "caption": "图片描述",
-  "dominant_colors": ["颜色1", "颜色2"],
-  "style_tags": ["风格1", "风格2"],
-  "object_tags": ["物体1", "物体2"]
-}"""
-        else:
-            prompt = "请用一句话详细描述这张图片的主要内容（不超过 100 字）。"
+        # 使用集中的 prompt 配置
+        from .ai_prompt_config import get_caption_prompt
+        prompt = get_caption_prompt(include_attributes=include_attributes)
         
         response = await self._call_api(prompt, image_url_or_base64)
         
