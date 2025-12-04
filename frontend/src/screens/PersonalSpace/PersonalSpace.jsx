@@ -173,15 +173,14 @@ export const PersonalSpace = () => {
   const currentSession = getCurrentSession();
   const currentSessionOpengraphData = currentSession ? (currentSession.opengraphData || []) : [];
   
-  // 根据视图模式选择搜索数据源
-  // ✅ 修复：确保 searchDataSource 是数组
-  // ✅ 关键修复：使用 useMemo 确保计算只在依赖变化时执行
+  // ✅ 修复问题1：根据视图模式选择搜索数据源，确保两个视图使用相同的数据源
+  // 对于masonry视图，使用所有sessions的数据
+  // 对于radial视图，也使用所有sessions的数据（但显示时只显示当前session）
+  // 这样确保搜索范围一致
   const searchDataSource = useMemo(() => {
-    if (viewMode === 'masonry') {
-      return Array.isArray(allOpengraphData) ? allOpengraphData : [];
-    }
-    return Array.isArray(currentSessionOpengraphData) ? currentSessionOpengraphData : [];
-  }, [viewMode, allOpengraphData, currentSessionOpengraphData]);
+    // 两个视图都使用所有sessions的数据进行搜索，确保搜索范围一致
+    return Array.isArray(allOpengraphData) ? allOpengraphData : [];
+  }, [allOpengraphData]);
   
   const {
     searchQuery,
@@ -592,20 +591,25 @@ export const PersonalSpace = () => {
           setOpengraphData(originalData);
         }
       } else {
-        // Masonry 视图：恢复原始数据
-        const currentSession = getCurrentSession();
-        const currentSessionOpengraphData = currentSession ? (currentSession.opengraphData || []) : [];
-        if (currentSessionOpengraphData.length > 0) {
-          setOpengraphData(currentSessionOpengraphData);
-        }
+        // ✅ 修复问题2：Masonry 视图：清除所有 session 的相似度标记，恢复原始顺序
+        const safeSessions = Array.isArray(sessions) ? sessions : [];
+        safeSessions.forEach(session => {
+          if (session && Array.isArray(session.opengraphData)) {
+            const cleanedData = session.opengraphData.map(item => {
+              const { similarity: _, ...rest } = item;
+              return rest;
+            });
+            updateSession(session.id, { opengraphData: cleanedData });
+          }
+        });
       }
       setShowOriginalImages(true);
-      console.log('[PersonalSpace] Search cleared, restored original layout');
+      console.log('[PersonalSpace] Search cleared, restored original layout and order');
     }
     
     // 更新之前的查询引用
     previousQueryRef.current = nextValue;
-  }, [viewMode, clearSearch, calculateRadialLayout, getCurrentSession, setOpengraphData, setShowOriginalImages, opengraphData]);
+  }, [viewMode, clearSearch, calculateRadialLayout, getCurrentSession, setOpengraphData, setShowOriginalImages, opengraphData, sessions, updateSession]);
 
   // ✅ 提取公共函数：收集所有 sessions 中的 URL 和 tab_id
   const collectSessionUrlsAndTabIds = useCallback(() => {
@@ -871,9 +875,20 @@ export const PersonalSpace = () => {
         setOpengraphData(originalData);
       }
     } else {
-      // Masonry 视图：清除所有 session 的相似度标记
-      // 这个会在 SessionMasonryGrid 中自动处理（因为 hasSearchResults 会变为 false）
+      // ✅ 修复问题2：Masonry 视图：清除所有 session 的相似度标记，恢复原始顺序
+      const safeSessions = Array.isArray(sessions) ? sessions : [];
+      safeSessions.forEach(session => {
+        if (session && Array.isArray(session.opengraphData)) {
+          const cleanedData = session.opengraphData.map(item => {
+            const { similarity: _, ...rest } = item;
+            return rest;
+          });
+          updateSession(session.id, { opengraphData: cleanedData });
+        }
+      });
     }
+    setShowOriginalImages(true);
+    console.log('[PersonalSpace] Search cleared, restored original layout and order');
   };
 
   // 处理宠物设定空间入口点击
@@ -1120,9 +1135,10 @@ export const PersonalSpace = () => {
           <FlowingSkyBackground />
           {/* 右下角宠物显示 */}
           <PetDisplay />
-          <div className={`personal-space ${isSearching ? 'searching-active' : ''}`} ref={containerRef} style={{ position: "relative", zIndex: 1 }}>
+          {/* ✅ 修复问题2：模糊效果只在有搜索结果时显示，而不是在搜索中时显示 */}
+          <div className={`personal-space ${hasActiveSearch ? 'searching-active' : ''}`} ref={containerRef} style={{ position: "relative", zIndex: 1 }}>
             <div 
-              className={`search-blur-overlay ${isSearching ? 'active' : ''}`}
+              className={`search-blur-overlay ${hasActiveSearch ? 'active' : ''}`}
               style={{
                 '--blur-amount': `${UI_CONFIG.searchBar.blurOverlay.blurAmount}px`,
                 '--transition-duration': `${UI_CONFIG.searchBar.blurOverlay.transitionDuration}s`,

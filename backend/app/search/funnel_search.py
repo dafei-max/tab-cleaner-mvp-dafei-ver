@@ -1137,6 +1137,14 @@ async def search_with_funnel(
                         # 如果主色是绿色系列，明确排除（避免黄绿色被误识别）
                         elif any(kw in primary_color for kw in ["green", "emerald", "olive", "lime", "forestgreen"]):
                             has_color_match = False
+                    # ✅ 新增：对于红色查询，严格匹配：主色必须是红色系列
+                    elif any(qc.lower() in ["red", "crimson", "scarlet", "burgundy"] for qc in query_colors):
+                        red_keywords = ["red", "crimson", "scarlet", "burgundy"]
+                        if any(kw in primary_color for kw in red_keywords):
+                            has_color_match = True
+                        # 如果主色是黄色系列，明确排除（避免黄色被误识别为红色）
+                        elif any(kw in primary_color for kw in ["yellow", "gold", "amber", "lemon", "golden"]):
+                            has_color_match = False
                     else:
                         # 其他颜色查询：检查主色或任何颜色
                         has_color_match = any(qc.lower() in primary_color for qc in query_colors) or \
@@ -1167,10 +1175,27 @@ async def search_with_funnel(
                     }
                     
                     # 检查查询颜色对应的关键词是否在文本中
+                    # ✅ 改进：同时检查是否有冲突颜色的关键词，如果有则排除
                     for qc in query_colors:
                         qc_lower = qc.lower()
                         if qc_lower in color_keywords_map:
                             keywords = color_keywords_map[qc_lower]
+                            
+                            # ✅ 新增：检查是否有冲突颜色的关键词
+                            # 如果查询红色，但文本中包含黄色关键词，则不匹配
+                            conflict_keywords = []
+                            if qc_lower in ["red", "crimson", "scarlet", "burgundy"]:
+                                conflict_keywords = ["yellow", "gold", "amber", "lemon", "golden", "黄色", "金色", "金黄"]
+                            elif qc_lower in ["yellow", "gold", "amber", "lemon"]:
+                                conflict_keywords = ["red", "crimson", "scarlet", "burgundy", "红色", "红", "赤"]
+                            
+                            # 如果文本中包含冲突颜色的关键词，明确排除
+                            if conflict_keywords and any(kw in text_content for kw in conflict_keywords):
+                                print(f"[Funnel] ❌ Caption冲突检测: 查询颜色 '{qc}' 但文本中包含冲突颜色关键词，排除")
+                                has_color_match = False
+                                break
+                            
+                            # 检查是否有匹配的关键词
                             if any(kw in text_content for kw in keywords):
                                 has_color_match = True
                                 print(f"[Funnel] ✅ Caption辅助匹配: 查询颜色 '{qc}' 在文本中找到相关词汇")
@@ -1192,10 +1217,10 @@ async def search_with_funnel(
                 "emerald": ["red", "crimson", "scarlet", "burgundy"],
                 "olive": ["red", "crimson", "scarlet", "burgundy"],
                 "lime": ["red", "crimson", "scarlet", "burgundy"],
-                "red": ["green", "emerald", "olive", "lime"],
-                "crimson": ["green", "emerald", "olive", "lime"],
-                "scarlet": ["green", "emerald", "olive", "lime"],
-                "burgundy": ["green", "emerald", "olive", "lime"],
+                "red": ["green", "emerald", "olive", "lime", "yellow", "gold", "amber", "lemon"],  # ✅ 新增：红色与黄色冲突
+                "crimson": ["green", "emerald", "olive", "lime", "yellow", "gold", "amber", "lemon"],  # ✅ 新增：红色与黄色冲突
+                "scarlet": ["green", "emerald", "olive", "lime", "yellow", "gold", "amber", "lemon"],  # ✅ 新增：红色与黄色冲突
+                "burgundy": ["green", "emerald", "olive", "lime", "yellow", "gold", "amber", "lemon"],  # ✅ 新增：红色与黄色冲突
                 "blue": ["orange", "tangerine", "coral"],
                 "azure": ["orange", "tangerine", "coral"],
                 "navy": ["orange", "tangerine", "coral"],
@@ -1203,10 +1228,10 @@ async def search_with_funnel(
                 "orange": ["blue", "azure", "navy", "cobalt"],
                 "tangerine": ["blue", "azure", "navy", "cobalt"],
                 "coral": ["blue", "azure", "navy", "cobalt"],
-                "yellow": ["purple", "violet", "lavender"],
-                "gold": ["purple", "violet", "lavender"],
-                "amber": ["purple", "violet", "lavender"],
-                "lemon": ["purple", "violet", "lavender"],
+                "yellow": ["purple", "violet", "lavender", "red", "crimson", "scarlet", "burgundy"],  # ✅ 新增：黄色与红色冲突
+                "gold": ["purple", "violet", "lavender", "red", "crimson", "scarlet", "burgundy"],  # ✅ 新增：黄色与红色冲突
+                "amber": ["purple", "violet", "lavender", "red", "crimson", "scarlet", "burgundy"],  # ✅ 新增：黄色与红色冲突
+                "lemon": ["purple", "violet", "lavender", "red", "crimson", "scarlet", "burgundy"],  # ✅ 新增：黄色与红色冲突
                 "purple": ["yellow", "gold", "amber", "lemon"],
                 "violet": ["yellow", "gold", "amber", "lemon"],
                 "lavender": ["yellow", "gold", "amber", "lemon"],
