@@ -453,41 +453,67 @@ async def enrich_item_with_caption(
     if qwen_client is None:
         qwen_client = QwenVLClient()
     
-    # 获取图片
+    # 🆕 优先使用 thumbnail（前端生成的 200px 缩略图，无需下载）
+    thumbnail = item.get("thumbnail")
     image_url_or_base64 = item.get("image")
-    if not image_url_or_base64:
+    
+    if not thumbnail and not image_url_or_base64:
         print(f"[Caption] No image found for item: {item.get('url', 'unknown')}")
         return item
     
-    # 下载图片（如果需要）
+    # 下载/处理图片
     image_data = None
-    if image_url_or_base64.startswith("http://") or image_url_or_base64.startswith("https://"):
-        image_data = await download_image(image_url_or_base64)
-        if not image_data:
-            print(f"[Caption] Failed to download image: {image_url_or_base64[:60]}...")
-            return item
-        # 转换为 Base64
-        img_b64 = process_image(image_data)
-        if not img_b64:
-            print(f"[Caption] Failed to process image")
-            return item
-    elif image_url_or_base64.startswith("data:image"):
-        img_b64 = image_url_or_base64
+    img_b64 = None
+    
+    # 🆕 优先使用 thumbnail（已是 base64，无需下载）
+    if thumbnail and thumbnail.startswith("data:image"):
+        img_b64 = thumbnail
+        print(f"[Caption] 🖼️ Using thumbnail (no download needed)")
         # 提取 Base64 数据用于 K-Means
         if use_kmeans_colors:
             try:
                 import base64
-                # 提取 Base64 部分（去掉 data:image/jpeg;base64, 前缀）
                 if "," in img_b64:
                     base64_data = img_b64.split(",", 1)[1]
                 else:
                     base64_data = img_b64
                 image_data = base64.b64decode(base64_data)
             except Exception as e:
-                print(f"[Caption] WARNING: Failed to decode Base64 for K-Means: {e}")
+                print(f"[Caption] WARNING: Failed to decode thumbnail for K-Means: {e}")
                 image_data = None
-    else:
-        print(f"[Caption] Invalid image format: {image_url_or_base64[:60]}...")
+    # 回退到原始 image 字段
+    elif image_url_or_base64:
+        if image_url_or_base64.startswith("http://") or image_url_or_base64.startswith("https://"):
+            image_data = await download_image(image_url_or_base64)
+            if not image_data:
+                print(f"[Caption] Failed to download image: {image_url_or_base64[:60]}...")
+                return item
+            # 转换为 Base64
+            img_b64 = process_image(image_data)
+            if not img_b64:
+                print(f"[Caption] Failed to process image")
+                return item
+        elif image_url_or_base64.startswith("data:image"):
+            img_b64 = image_url_or_base64
+            # 提取 Base64 数据用于 K-Means
+            if use_kmeans_colors:
+                try:
+                    import base64
+                    # 提取 Base64 部分（去掉 data:image/jpeg;base64, 前缀）
+                    if "," in img_b64:
+                        base64_data = img_b64.split(",", 1)[1]
+                    else:
+                        base64_data = img_b64
+                    image_data = base64.b64decode(base64_data)
+                except Exception as e:
+                    print(f"[Caption] WARNING: Failed to decode Base64 for K-Means: {e}")
+                    image_data = None
+        else:
+            print(f"[Caption] Invalid image format: {image_url_or_base64[:60]}...")
+            return item
+    
+    if not img_b64:
+        print(f"[Caption] No valid image data for item: {item.get('url', 'unknown')}")
         return item
     
     # 调用 Qwen-VL 生成 Caption

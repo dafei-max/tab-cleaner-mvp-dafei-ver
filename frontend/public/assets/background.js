@@ -566,6 +566,17 @@ async function captureDocTabScreenshots(tabs) {
 async function collectTabWithGuaranteedImage(tab) {
   console.log(`[Collect] Starting collection for: ${tab.title}`);
   
+  // 🆕 步骤0：激活 tab（对于 Pinterest/小红书等 SPA 站点必须）
+  // 确保视口内容是最新的，图片已正确渲染
+  try {
+    await chrome.tabs.update(tab.id, { active: true });
+    // 等待 tab 激活后渲染稳定
+    await new Promise(resolve => setTimeout(resolve, 500));
+    console.log(`[Collect] ✅ Tab activated: ${tab.id}`);
+  } catch (e) {
+    console.warn(`[Collect] Failed to activate tab ${tab.id}:`, e);
+  }
+  
   // 步骤1：注入脚本
   try {
     await chrome.scripting.executeScript({
@@ -921,32 +932,35 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
 
         console.log(`[Tab Cleaner Background] Found ${validTabs.length} valid tabs, ${uniqueTabs.length} unique tabs after deduplication`);
 
-        // ✅ 步骤 1: 使用三层保险策略收集 OpenGraph（每个网站）
-        console.log(`[Tab Cleaner Background] Collecting OpenGraph with guaranteed image for ${uniqueTabs.length} tabs...`);
-        const localOGResults = await Promise.allSettled(
-          uniqueTabs.map(async (tab, index) => {
-            // 添加延迟，避免过快切换标签页
-            if (index > 0) {
-              await new Promise(resolve => setTimeout(resolve, 200));
-            }
+        // ✅ 步骤 1: 串行收集 OpenGraph（每个 tab 需要激活后才能准确取图）
+        // 🆕 改为串行处理，因为 Pinterest/小红书等 SPA 需要 tab 激活才能正确渲染图片
+        console.log(`[Tab Cleaner Background] Collecting OpenGraph SEQUENTIALLY for ${uniqueTabs.length} tabs...`);
+        const localOGResults = [];
+        
+        for (let index = 0; index < uniqueTabs.length; index++) {
+          const tab = uniqueTabs[index];
+          console.log(`[Tab Cleaner Background] Processing tab ${index + 1}/${uniqueTabs.length}: ${tab.url.substring(0, 50)}...`);
+          
+          try {
+            // 使用三层保险策略收集函数（内部会激活 tab）
+            const ogData = await collectTabWithGuaranteedImage(tab);
             
-            try {
-              // 使用新的三层保险策略收集函数
-              const ogData = await collectTabWithGuaranteedImage(tab);
-              
-              // 添加调试日志
-              console.log(`[Tab Cleaner Background] Collection result for ${tab.url.substring(0, 50)}...:`, {
-                success: ogData?.success,
-                hasTitle: !!(ogData?.title),
-                hasImage: !!(ogData?.image),
-                isScreenshot: ogData?.is_screenshot || false,
-                title: ogData?.title?.substring(0, 50),
-                image: ogData?.image ? (ogData.image.substring(0, 50) + '...') : null,
-                error: ogData?.error
-              });
-              
-              if (ogData) {
-                return { 
+            // 添加调试日志
+            console.log(`[Tab Cleaner Background] Collection result for ${tab.url.substring(0, 50)}...:`, {
+              success: ogData?.success,
+              hasTitle: !!(ogData?.title),
+              hasImage: !!(ogData?.image),
+              hasThumbnail: !!(ogData?.thumbnail),
+              isScreenshot: ogData?.is_screenshot || false,
+              title: ogData?.title?.substring(0, 50),
+              image: ogData?.image ? (ogData.image.substring(0, 50) + '...') : null,
+              error: ogData?.error
+            });
+            
+            if (ogData) {
+              localOGResults.push({
+                status: 'fulfilled',
+                value: { 
                   ...ogData, 
                   tab_id: tab.id, 
                   tab_title: tab.title,
@@ -957,24 +971,30 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                   // 确保 is_doc_card 被正确设置
                   is_doc_card: ogData.is_doc_card || false,
                   is_local_fetch: true,
-                };
-              }
-              
+                }
+              });
+            } else {
               // 如果 ogData 为空，创建一个基础记录
-              return {
-                url: tab.url,
-                title: tab.title || tab.url,
-                tab_id: tab.id,
-                tab_title: tab.title,
-                success: false,
-                error: 'Collection returned empty',
-                is_doc_card: false,
-                id: `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-              };
-            } catch (error) {
-              console.error(`[Tab Cleaner Background] Collection failed for ${tab.url}:`, error);
-              // 返回基础记录
-              return {
+              localOGResults.push({
+                status: 'fulfilled',
+                value: {
+                  url: tab.url,
+                  title: tab.title || tab.url,
+                  tab_id: tab.id,
+                  tab_title: tab.title,
+                  success: false,
+                  error: 'Collection returned empty',
+                  is_doc_card: false,
+                  id: `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                }
+              });
+            }
+          } catch (error) {
+            console.error(`[Tab Cleaner Background] Collection failed for ${tab.url}:`, error);
+            // 记录失败的结果
+            localOGResults.push({
+              status: 'fulfilled',
+              value: {
                 url: tab.url,
                 title: tab.title || tab.url,
                 tab_id: tab.id,
@@ -983,10 +1003,10 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                 error: error.message,
                 is_doc_card: false,
                 id: `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-              };
-            }
-          })
-        );
+              }
+            });
+          }
+        }
 
         // 收集所有结果（包括失败的）
         const opengraphItems = localOGResults

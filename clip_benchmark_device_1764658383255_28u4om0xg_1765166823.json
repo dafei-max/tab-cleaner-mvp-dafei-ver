@@ -1,0 +1,911 @@
+{
+  "config": {
+    "device": "mps",
+    "image_count": 26,
+    "download_time": 11.830628083087504,
+    "extract_time": 9.824172625085339
+  },
+  "results": [
+    {
+      "url": "https://www.pinterest.com/pin/38139928086636425",
+      "title": "收藏到 Ceyhun",
+      "qwen_caption": "一片金黄色的烤面包，上面铺着一块鲜黄色的黄油，黄油表面有清晰的刀痕纹理，背景为明亮的柠檬黄色，整体呈现温暖、饱和的视觉风格，具有强烈的美食摄影质感。",
+      "qwen_colors": [
+        "yellow",
+        "golden",
+        "cream"
+      ],
+      "qwen_styles": [
+        "professional",
+        "realistic",
+        "warm",
+        "artistic"
+      ],
+      "qwen_objects": [
+        "background surface",
+        "butter",
+        "toast"
+      ],
+      "clip_colors": [
+        "yellow"
+      ],
+      "clip_styles": [
+        "minimalist",
+        "rustic"
+      ],
+      "clip_objects": [
+        "food"
+      ]
+    },
+    {
+      "url": "https://www.pinterest.com/pin/8303580550082126",
+      "title": "收藏到 Fotos ideas",
+      "qwen_caption": "大量亮黄色的橡胶小鸭密集堆叠，表面光滑有光泽，部分带有白色标签，背景为纯黄色调，整体氛围活泼、童趣且充满视觉冲击力。",
+      "qwen_colors": [
+        "yellow",
+        "white"
+      ],
+      "qwen_styles": [
+        "casual",
+        "bright",
+        "playful"
+      ],
+      "qwen_objects": [
+        "rubber duck",
+        "pile",
+        "tag"
+      ],
+      "clip_colors": [
+        "yellow"
+      ],
+      "clip_styles": [
+        "abstract",
+        "retro",
+        "casual"
+      ],
+      "clip_objects": [
+        "animal",
+        "toy",
+        "person"
+      ]
+    },
+    {
+      "url": "https://www.xiaohongshu.com/explore/665485e80000000015010f6a",
+      "title": "满满的维生素 - 小红书",
+      "qwen_caption": "一个黄色皮肤、戴黑框眼镜的动漫风格角色，拥有灰黑色短发和条纹高领衫，背景是明亮的蓝色天空与白色云朵，整体呈现日式动画的清新明亮风格。",
+      "qwen_colors": [
+        "yellow",
+        "black",
+        "blue",
+        "white"
+      ],
+      "qwen_styles": [
+        "japanese",
+        "bright",
+        "contemporary",
+        "artistic"
+      ],
+      "qwen_objects": [
+        "clothing",
+        "sky",
+        "person",
+        "clouds",
+        "hair",
+        "glasses"
+      ],
+      "clip_colors": [
+        "silver",
+        "blue",
+        "orange"
+      ],
+      "clip_styles": [
+        "casual",
+        "retro",
+        "elegant"
+      ],
+      "clip_objects": [
+        "shoe",
+        "animal"
+      ]
+    },
+    {
+      "url": "https://www.pinterest.com/pin/13018286423006586",
+      "title": "收藏到 Green Mood",
+      "qwen_caption": "一张亮绿色的乙烯基唱片，中心标签为淡黄色，带有黑色文字和标志，表面有光泽和同心纹路，背景为浅绿色，整体呈现现代、时尚的视觉风格。",
+      "qwen_colors": [
+        "lime green",
+        "yellow",
+        "light green"
+      ],
+      "qwen_styles": [
+        "artistic",
+        "bright",
+        "contemporary",
+        "modern"
+      ],
+      "qwen_objects": [
+        "grooves",
+        "center hub",
+        "record label",
+        "background surface",
+        "vinyl record"
+      ],
+      "clip_colors": [
+        "green",
+        "yellow"
+      ],
+      "clip_styles": [
+        "retro",
+        "organic",
+        "minimalist"
+      ],
+      "clip_objects": [
+        "art"
+      ]
+    },
+    {
+      "url": "https://www.pinterest.com/pin/380343131405945649",
+      "title": "rednote id: Zhejiang",
+      "qwen_caption": "一个青绿色的苹果漂浮在透明玻璃杯的浅绿色液体中，杯内和旁边散落着银色、蓝色、黄色的星星亮片；另一个青绿色苹果置于米色布料背景上，整体风格梦幻、可爱且充满童话感。",
+      "qwen_colors": [
+        "green",
+        "silver",
+        "beige",
+        "blue"
+      ],
+      "qwen_styles": [
+        "cozy",
+        "dreamy",
+        "artistic",
+        "playful"
+      ],
+      "qwen_objects": [
+        "fabric",
+        "liquid",
+        "glass",
+        "star confetti",
+        "apple"
+      ],
+      "clip_colors": [
+        "green"
+      ],
+      "clip_styles": [
+        "organic",
+        "natural"
+      ],
+      "clip_objects": [
+        "drink"
+      ]
+    },
+    {
+      "url": "https://www.pinterest.com/pin/18929260932976475",
+      "title": "收藏到 COLOUR",
+      "qwen_caption": "一堆黄色的乐高积木零件杂乱堆叠，呈现明亮的柠檬黄色调，表面光滑有光泽，部分积木可见LEGO标志和凸起圆点，整体风格充满童趣与几何美感。",
+      "qwen_colors": [
+        "yellow",
+        "golden"
+      ],
+      "qwen_styles": [
+        "geometric",
+        "bright",
+        "realistic",
+        "playful"
+      ],
+      "qwen_objects": [
+        "construction piece",
+        "toy part",
+        "building block",
+        "LEGO brick",
+        "plastic toy"
+      ],
+      "clip_colors": [
+        "yellow"
+      ],
+      "clip_styles": [
+        "minimalist",
+        "abstract",
+        "geometric"
+      ],
+      "clip_objects": [
+        "shoe",
+        "decoration"
+      ]
+    },
+    {
+      "url": "https://www.pinterest.com/pin/11259067813830404",
+      "title": "收藏到 Marketing",
+      "qwen_caption": "一片密集绽放的黄色雏菊，花瓣呈淡柠檬黄，花心为橙黄色，背景是深绿色叶片，整体呈现出温暖、自然、充满生机的田园风格，光线柔和，氛围宁静舒适。",
+      "qwen_colors": [
+        "yellow",
+        "orange",
+        "green"
+      ],
+      "qwen_styles": [
+        "cozy",
+        "warm",
+        "natural",
+        "organic"
+      ],
+      "qwen_objects": [
+        "leaf",
+        "daisy",
+        "flower",
+        "bee"
+      ],
+      "clip_colors": [
+        "yellow"
+      ],
+      "clip_styles": [
+        "organic",
+        "natural"
+      ],
+      "clip_objects": [
+        "flower"
+      ]
+    },
+    {
+      "url": "https://billing-cost.console.aliyun.com/invoice/create-detail",
+      "title": "确认开票信息 - 费用与成本",
+      "qwen_caption": "一个白色的抽象人形雕塑，具有光滑圆润的轮廓，背景为纯蓝色，整体风格简约现代，无面部特征，呈现干净、中性的视觉效果。",
+      "qwen_colors": [
+        "white",
+        "blue"
+      ],
+      "qwen_styles": [
+        "contemporary",
+        "geometric",
+        "minimalist",
+        "modern"
+      ],
+      "qwen_objects": [
+        "silhouette",
+        "background",
+        "abstract figure"
+      ],
+      "clip_colors": [
+        "blue",
+        "white",
+        "brown"
+      ],
+      "clip_styles": [
+        "minimalist"
+      ],
+      "clip_objects": [
+        "person"
+      ]
+    },
+    {
+      "url": "https://account.aliyun.com/login/login.htm",
+      "title": "阿里云登录 - 欢迎登录阿里云，安全稳定的云计算服务平台",
+      "qwen_caption": "橙色的阿里云品牌标志，包含一个抽象的图形符号和“阿里云”汉字，整体设计现代简洁，背景为纯白色，视觉冲击力强。",
+      "qwen_colors": [
+        "orange",
+        "white"
+      ],
+      "qwen_styles": [
+        "contemporary",
+        "professional",
+        "minimalist",
+        "modern"
+      ],
+      "qwen_objects": [
+        "branding",
+        "symbol",
+        "text",
+        "logo"
+      ],
+      "clip_colors": [
+        "orange"
+      ],
+      "clip_styles": [
+        "casual",
+        "retro",
+        "modern"
+      ],
+      "clip_objects": [
+        "bag",
+        "person"
+      ]
+    },
+    {
+      "url": "https://cn.aliyun.com/solution/tech-solution/milvus-ai",
+      "title": "阿里云 Milvus 轻松实现文搜图&图搜图",
+      "qwen_caption": "一个白色的阿里云标志，包含抽象图形和汉字“阿里云”，置于鲜艳的橙色背景上，整体设计现代、简洁，视觉冲击力强。",
+      "qwen_colors": [
+        "white",
+        "orange"
+      ],
+      "qwen_styles": [
+        "contemporary",
+        "minimalist",
+        "modern"
+      ],
+      "qwen_objects": [
+        "background",
+        "text",
+        "logo"
+      ],
+      "clip_colors": [
+        "orange"
+      ],
+      "clip_styles": [
+        "casual",
+        "professional",
+        "retro"
+      ],
+      "clip_objects": [
+        "person",
+        "book"
+      ]
+    },
+    {
+      "url": "https://ai.aliyun.com/imagesearch",
+      "title": "图像搜索_图片搜索_以图搜图_人工智能-阿里云",
+      "qwen_caption": "一个白色的抽象几何标志，形似两个对称的括号环绕着中间的横线，置于鲜艳的橙色背景上，整体风格现代简约，色彩对比强烈。",
+      "qwen_colors": [
+        "white",
+        "orange"
+      ],
+      "qwen_styles": [
+        "geometric",
+        "minimalist",
+        "modern"
+      ],
+      "qwen_objects": [
+        "background",
+        "symbol",
+        "logo"
+      ],
+      "clip_colors": [
+        "orange"
+      ],
+      "clip_styles": [
+        "minimalist",
+        "casual"
+      ],
+      "clip_objects": [
+        "car",
+        "clothing",
+        "electronics"
+      ]
+    },
+    {
+      "url": "https://play.soot.com/sootworld",
+      "title": "I've shared a space with you on SOOT",
+      "qwen_caption": "一个白色的椭圆形物体（类似药丸或雕塑）悬浮在充满碎片化图像的背景前，背景由多彩、杂乱的图片拼贴而成，整体呈现数字拼贴艺术风格，色彩丰富且充满视觉冲击力。",
+      "qwen_colors": [
+        "white",
+        "yellow",
+        "red",
+        "blue",
+        "black"
+      ],
+      "qwen_styles": [
+        "abstract",
+        "digital collage",
+        "contemporary",
+        "artistic"
+      ],
+      "qwen_objects": [
+        "image collage",
+        "book",
+        "smiley face",
+        "poster",
+        "dolphin",
+        "person",
+        "desk",
+        "egg-shaped object"
+      ],
+      "clip_colors": [
+        "white",
+        "orange",
+        "yellow"
+      ],
+      "clip_styles": [
+        "retro",
+        "organic",
+        "abstract"
+      ],
+      "clip_objects": [
+        "sofa",
+        "art"
+      ]
+    },
+    {
+      "url": "https://huaban.com/pins/6926101901",
+      "title": "圣诞节祝福通用中式感竖版海报AIGC素材-花瓣网",
+      "qwen_caption": "一张融合中西元素的圣诞贺图，主体为一棵金色的圣诞树，树下是中式亭台楼阁与拱桥，背景为红色渐变天空并点缀烟花，整体呈现温暖华丽的节日氛围。",
+      "qwen_colors": [
+        "golden",
+        "red",
+        "white"
+      ],
+      "qwen_styles": [
+        "cultural fusion",
+        "luxury",
+        "contemporary",
+        "artistic"
+      ],
+      "qwen_objects": [
+        "fireworks",
+        "Christmas tree",
+        "pagoda",
+        "water",
+        "text elements",
+        "mountains",
+        "arch bridge"
+      ],
+      "clip_colors": [
+        "red",
+        "orange",
+        "gold"
+      ],
+      "clip_styles": [
+        "vintage",
+        "retro",
+        "romantic"
+      ],
+      "clip_objects": [
+        "decoration",
+        "landscape"
+      ]
+    },
+    {
+      "url": "https://huaban.com/topics/topic-shengdan-5904632",
+      "title": "圣诞节海报图片素材-高清圣诞节海报图片大全-花瓣网素材库",
+      "qwen_caption": "一个由柔和粉红色和淡粉色抽象形状组成的现代图形设计，呈现重叠的圆形轮廓，背景为纯白色，整体风格简约、温暖且具有艺术感。",
+      "qwen_colors": [
+        "pink",
+        "light pink",
+        "white"
+      ],
+      "qwen_styles": [
+        "minimalist",
+        "artistic",
+        "abstract",
+        "warm",
+        "modern"
+      ],
+      "qwen_objects": [
+        "background",
+        "abstract shape",
+        "graphic design",
+        "overlapping circle"
+      ],
+      "clip_colors": [
+        "pink",
+        "red"
+      ],
+      "clip_styles": [
+        "minimalist",
+        "romantic",
+        "abstract"
+      ],
+      "clip_objects": [
+        "person",
+        "shoe"
+      ]
+    },
+    {
+      "url": "https://uk.pinterest.com/pin/422281211622842",
+      "title": "收藏到 Pixels",
+      "qwen_caption": "一张具有像素化风格的图像，背景为蓝色天空和白色云朵，中央以白色手写体艺术字呈现“Make Believe”字样，整体氛围梦幻、复古且富有童趣。",
+      "qwen_colors": [
+        "white",
+        "blue"
+      ],
+      "qwen_styles": [
+        "retro",
+        "vintage",
+        "artistic",
+        "playful"
+      ],
+      "qwen_objects": [
+        "pixel art",
+        "clouds",
+        "sky",
+        "text"
+      ],
+      "clip_colors": [
+        "beige"
+      ],
+      "clip_styles": [
+        "retro"
+      ],
+      "clip_objects": [
+        "phone",
+        "art",
+        "sofa"
+      ]
+    },
+    {
+      "url": "https://discourse.threejs.org/t/outlines-around-objects-cartoonish-effect/57206/4",
+      "title": "Outlines around objects (cartoonish effect) - Questions - three.js forum",
+      "qwen_caption": "一个穿着蓝色制服和黑色战术背心的角色Max，手持黑色手枪，在雾气弥漫的森林中前进，背景是灰绿色的树木和草地，整体呈现低多边形游戏风格，界面显示为预览测试版本。",
+      "qwen_colors": [
+        "blue",
+        "black",
+        "green",
+        "gray"
+      ],
+      "qwen_styles": [
+        "game-interface",
+        "casual",
+        "low-poly",
+        "playful"
+      ],
+      "qwen_objects": [
+        "character",
+        "menu button",
+        "gun",
+        "tree",
+        "user interface",
+        "player icon",
+        "grass",
+        "forest"
+      ],
+      "clip_colors": [
+        "red",
+        "black",
+        "silver"
+      ],
+      "clip_styles": [
+        "retro",
+        "casual"
+      ],
+      "clip_objects": [
+        "computer",
+        "animal"
+      ]
+    },
+    {
+      "url": "https://codesandbox.io/s/2gh6jf",
+      "title": "CodeSandbox",
+      "qwen_caption": "一张CodeSandbox平台的宣传图片，以黑色背景为主，突出显示黄色大字标语“No setup. Any device. Any time.”，并叠加了代码编辑器、终端和文件浏览器等开发界面截图，整体呈现现代科技感。",
+      "qwen_colors": [
+        "yellow",
+        "black",
+        "white"
+      ],
+      "qwen_styles": [
+        "contemporary",
+        "professional",
+        "minimalist",
+        "modern"
+      ],
+      "qwen_objects": [
+        "code editor",
+        "terminal window",
+        "file explorer",
+        "logo",
+        "development interface",
+        "text overlay"
+      ],
+      "clip_colors": [
+        "black"
+      ],
+      "clip_styles": [
+        "retro",
+        "rustic",
+        "professional"
+      ],
+      "clip_objects": [
+        "computer",
+        "toy",
+        "bag"
+      ]
+    },
+    {
+      "url": "https://discourse.threejs.org/t/outlines-around-objects-cartoonish-effect/57206",
+      "title": "Outlines around objects (cartoonish effect) - Questions - three.js forum",
+      "qwen_caption": "一个穿着蓝色制服和战术背心的角色Max，手持黑色手枪，在雾气弥漫的森林中警戒，背景是灰绿色的树木和草地，整体呈现低多边形游戏风格。",
+      "qwen_colors": [
+        "blue",
+        "black",
+        "green",
+        "gray"
+      ],
+      "qwen_styles": [
+        "casual",
+        "low-poly",
+        "artistic",
+        "playful"
+      ],
+      "qwen_objects": [
+        "player selection",
+        "character",
+        "health bar",
+        "gun",
+        "tree",
+        "user interface",
+        "grass",
+        "forest"
+      ],
+      "clip_colors": [
+        "red",
+        "black",
+        "silver"
+      ],
+      "clip_styles": [
+        "retro",
+        "casual"
+      ],
+      "clip_objects": [
+        "computer",
+        "animal"
+      ]
+    },
+    {
+      "url": "https://www.cnblogs.com/liangtao999/p/13492273.html",
+      "title": "Three.js 点、线、网络模型及材质知识梳理 - 梁涛999 - 博客园",
+      "qwen_caption": "一张紫色主题的点线面模型结构思维导图，中心节点为紫色圆角矩形‘点线面模型’，分支节点为浅紫色矩形，连接线为淡紫色曲线，背景为纯白色，整体呈现清晰的技术架构图风格。",
+      "qwen_colors": [
+        "purple",
+        "white"
+      ],
+      "qwen_styles": [
+        "geometric",
+        "professional",
+        "minimalist"
+      ],
+      "qwen_objects": [
+        "text_label",
+        "mind_map",
+        "node",
+        "connection_line"
+      ],
+      "clip_colors": [
+        "silver"
+      ],
+      "clip_styles": [
+        "casual",
+        "organic",
+        "natural"
+      ],
+      "clip_objects": [
+        "book",
+        "decoration",
+        "jewelry"
+      ]
+    },
+    {
+      "url": "https://link.csdn.net",
+      "title": "csdn - 安全中心",
+      "qwen_caption": "一张红色背景的促销横幅，主体为金色和白色文字‘VIP买1得3 限时畅享年终低价’，左侧有黄色卷轴、红色红包和优惠券，右侧有金色圆形‘抢’按钮，整体风格充满节日促销氛围，色彩鲜艳夺目。",
+      "qwen_colors": [
+        "red",
+        "gold",
+        "white"
+      ],
+      "qwen_styles": [
+        "commercial",
+        "bright",
+        "contemporary",
+        "playful"
+      ],
+      "qwen_objects": [
+        "red envelope",
+        "coupon ticket",
+        "golden button",
+        "golden ribbon",
+        "promotional banner",
+        "text overlay"
+      ],
+      "clip_colors": [
+        "orange",
+        "black",
+        "white"
+      ],
+      "clip_styles": [
+        "casual",
+        "modern",
+        "retro"
+      ],
+      "clip_objects": [
+        "decoration",
+        "person",
+        "sofa"
+      ]
+    },
+    {
+      "url": "https://blog.csdn.net/u013541148/article/details/124419870",
+      "title": "【Three.js】模型线条化_threejs fatline opacity-CSDN博客",
+      "qwen_caption": "一个红色的促销横幅，中央有金色文字“VIP买1得3 限时畅享年终低价”，左侧有黄色卷轴、红色红包和优惠券，右侧是金色圆形“抢”按钮，整体风格充满活力与节日促销氛围。",
+      "qwen_colors": [
+        "red",
+        "golden",
+        "yellow"
+      ],
+      "qwen_styles": [
+        "commercial",
+        "bright",
+        "contemporary",
+        "playful"
+      ],
+      "qwen_objects": [
+        "discount coupon",
+        "red envelope",
+        "golden button",
+        "golden ribbon",
+        "promo banner",
+        "text overlay"
+      ],
+      "clip_colors": [
+        "orange",
+        "black",
+        "white"
+      ],
+      "clip_styles": [
+        "casual",
+        "modern",
+        "retro"
+      ],
+      "clip_objects": [
+        "decoration",
+        "person",
+        "sofa"
+      ]
+    },
+    {
+      "url": "https://www.pinterest.com/pin/3025924746232255",
+      "title": "你的个人资料",
+      "qwen_caption": "一个透明高脚杯中盛满鲜红色的樱桃，樱桃带有深红色果梗，背景为纯白色，整体呈现极简主义风格，光影对比强烈，突显樱桃的饱满与光泽。",
+      "qwen_colors": [
+        "red",
+        "white",
+        "clear"
+      ],
+      "qwen_styles": [
+        "sophisticated",
+        "minimalist",
+        "artistic"
+      ],
+      "qwen_objects": [
+        "glass",
+        "cherry",
+        "drink",
+        "background",
+        "stem"
+      ],
+      "clip_colors": [
+        "red"
+      ],
+      "clip_styles": [
+        "elegant",
+        "minimalist",
+        "abstract"
+      ],
+      "clip_objects": [
+        "drink"
+      ]
+    },
+    {
+      "url": "https://www.pinterest.com/pin/1759287348364810",
+      "title": "你的个人资料",
+      "qwen_caption": "多个红色心形棒棒糖，透明包装内装着晶莹剔透的红色糖果，配有白色棒棍，背景为柔和的粉红色，整体呈现浪漫、甜蜜的视觉氛围。",
+      "qwen_colors": [
+        "red",
+        "pink",
+        "white"
+      ],
+      "qwen_styles": [
+        "romantic",
+        "elegant",
+        "contemporary",
+        "playful"
+      ],
+      "qwen_objects": [
+        "candy wrappers",
+        "lollipop sticks",
+        "heart-shaped lollipops",
+        "pink background"
+      ],
+      "clip_colors": [
+        "red"
+      ],
+      "clip_styles": [
+        "romantic"
+      ],
+      "clip_objects": [
+        "decoration",
+        "bag",
+        "food"
+      ]
+    },
+    {
+      "url": "https://www.pinterest.com/pin/75787206223307836",
+      "title": "你的个人资料",
+      "qwen_caption": "一双亮面红色芭蕾平底鞋，配有蝴蝶结装饰，搭配同色系丝袜，站在光滑的红色反光地面上，整体呈现高度统一的饱和红色调，风格奢华且充满时尚感。",
+      "qwen_colors": [
+        "red",
+        "crimson"
+      ],
+      "qwen_styles": [
+        "luxury",
+        "elegant",
+        "sophisticated",
+        "contemporary"
+      ],
+      "qwen_objects": [
+        "shoe",
+        "foot",
+        "sock",
+        "floor"
+      ],
+      "clip_colors": [
+        "red"
+      ],
+      "clip_styles": [
+        "luxury",
+        "minimalist",
+        "elegant"
+      ],
+      "clip_objects": [
+        "shoe"
+      ]
+    },
+    {
+      "url": "https://www.pinterest.com/pin/19351473393823037",
+      "title": "你的个人资料",
+      "qwen_caption": "一把亮红色的现代风格椅子，具有流畅的曲线扶手和圆形座面，表面光滑有光泽，置于纯红色背景中，整体呈现极简主义与艺术感强烈的视觉效果。",
+      "qwen_colors": [
+        "red"
+      ],
+      "qwen_styles": [
+        "contemporary",
+        "artistic",
+        "minimalist",
+        "modern"
+      ],
+      "qwen_objects": [
+        "background",
+        "chair"
+      ],
+      "clip_colors": [
+        "red"
+      ],
+      "clip_styles": [
+        "minimalist"
+      ],
+      "clip_objects": [
+        "chair"
+      ]
+    },
+    {
+      "url": "https://www.pinterest.com/pin/6825836930002154",
+      "title": "你的个人资料",
+      "qwen_caption": "一个穿着灰色裤子和黑色皮鞋的人站在鲜红色的地板和墙壁角落，脚边有一罐打开的白色油漆和泼洒的白色油漆痕迹，整体呈现强烈的视觉对比与现代艺术感。",
+      "qwen_colors": [
+        "red",
+        "white",
+        "black",
+        "gray"
+      ],
+      "qwen_styles": [
+        "artistic",
+        "realistic",
+        "sophisticated",
+        "modern"
+      ],
+      "qwen_objects": [
+        "paint_can",
+        "wall",
+        "paint_spill",
+        "floor",
+        "person",
+        "shoes"
+      ],
+      "clip_colors": [
+        "red"
+      ],
+      "clip_styles": [
+        "minimalist",
+        "modern"
+      ],
+      "clip_objects": [
+        "drink",
+        "person"
+      ]
+    }
+  ]
+}

@@ -189,30 +189,9 @@ export const PersonalSpace = () => {
     // ✅ 已移除：opengraphWithEmbeddings - 不再需要
     // opengraphWithEmbeddings,
     searchResults,
-<<<<<<< Updated upstream
     performSearch,
     clearSearch,
   } = useSearch(searchDataSource);
-=======
-    filteredSearchResults,
-    hasActiveSearch,
-    hasNoSearchResults,
-    lastSearchResultCount,
-    handleSearchChange,
-    handleSearch,
-    handleClearSearch,
-  } = useSearchLogic({
-    sessions,
-    viewMode,
-    getCurrentSession,
-    updateSession,
-    setOpengraphData,
-    setShowOriginalImages,
-  });
-
-  const currentSession = getCurrentSession();
-  const currentSessionOpengraphData = currentSession ? (currentSession.opengraphData || []) : [];
->>>>>>> Stashed changes
   
   // Radial 视图使用的数据（当前 session）
   // 如果当前 session 有数据，使用 session 数据；否则使用旧的 opengraphData（向后兼容）
@@ -1265,7 +1244,6 @@ export const PersonalSpace = () => {
             onClearSearch={clearSearch}
           />
 
-<<<<<<< Updated upstream
                 <SearchBar
         searchQuery={searchQuery}
         onSearchQueryChange={handleSearchChange}
@@ -1309,32 +1287,6 @@ export const PersonalSpace = () => {
             <OpenGraphCard
               data={selectedOG}
               onClose={() => setSelectedOG(null)}
-=======
-            {hasNoSearchResults && (
-              <div
-                style={{
-                  margin: '12px 24px 0',
-                  padding: '10px 12px',
-                  borderRadius: '10px',
-                  background: 'rgba(0,0,0,0.04)',
-                  color: '#333',
-                  fontSize: '14px',
-                  lineHeight: 1.5,
-                  maxWidth: '520px'
-                }}
-              >
-                没有搜索到结果。请尝试调整关键词、放宽筛选，或稍后重试（云端索引可能仍在生成）。
-              </div>
-            )}
-
-            <SearchBar
-              searchQuery={searchQuery}
-              onSearchQueryChange={handleSearchChange}
-              onSearch={handleSearch}
-              onClear={handleClearSearch}
-              isSearching={isSearching}
-              onPetSettingsClick={handlePetSettingsClick}
->>>>>>> Stashed changes
             />
                     )}
 

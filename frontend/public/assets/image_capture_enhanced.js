@@ -29,12 +29,8 @@
     
     // 悬停延迟 (ms) - V3: 从 150ms 降低到 80ms，响应更快
     hoverDelay: 80,
-<<<<<<< Updated upstream
     
     // 桌宠选择器（多个可能的 ID）
-=======
-    enableUnlock: false, // 关闭全局图片解锁，避免干扰可编辑页面
->>>>>>> Stashed changes
     petSelectors: [
       '#tab-cleaner-pet-container',
       '.window-button-wrapper',
@@ -99,482 +95,8 @@
   let dragTrailCanvas = null;
   let dragTrailContext = null;
   let dragTrailPoints = [];
-<<<<<<< Updated upstream
   let savedCount = 0; // 保存计数
   let saveHistory = []; // 保存历史（用于撤销）
-=======
-  let savedCount = 0;
-  let saveHistory = [];
-  
-  // 🆕 解锁状态
-  let unlockedImages = new WeakSet();
-  let mutationObserver = null;
-
-  // ==================== 🆕 小红书专用提取器 ====================
-  
-  /**
-   * 🔑 小红书专用：从 __INITIAL_STATE__ 提取图片列表
-   * 小红书将笔记数据存储在 window.__INITIAL_STATE__ 中
-   */
-  function extractXiaohongshuImages() {
-    const images = [];
-    
-    try {
-      // 尝试多种可能的数据路径
-      const state = window.__INITIAL_STATE__ || window.__NUXT__?.state;
-      
-      if (!state) {
-        console.log('[Image Capture] 小红书: __INITIAL_STATE__ not found');
-        return images;
-      }
-      
-      console.log('[Image Capture] 🔍 小红书: Found __INITIAL_STATE__');
-      
-      // 路径 1: note.noteDetailMap (新版)
-      if (state.note?.noteDetailMap) {
-        const noteMap = state.note.noteDetailMap;
-        for (const noteId in noteMap) {
-          const note = noteMap[noteId]?.note;
-          if (note?.imageList) {
-            note.imageList.forEach(img => {
-              if (img.urlDefault || img.url) {
-                images.push({
-                  url: img.urlDefault || img.url,
-                  width: img.width,
-                  height: img.height,
-                  type: 'xiaohongshu-imageList'
-                });
-              }
-            });
-          }
-        }
-      }
-      
-      // 路径 2: note.firstNoteId + noteDetailMap
-      if (state.note?.firstNoteId && state.note?.noteDetailMap) {
-        const firstNote = state.note.noteDetailMap[state.note.firstNoteId]?.note;
-        if (firstNote?.imageList) {
-          firstNote.imageList.forEach(img => {
-            const url = img.urlDefault || img.url || img.infoList?.[0]?.url;
-            if (url && !images.find(i => i.url === url)) {
-              images.push({
-                url,
-                width: img.width,
-                height: img.height,
-                type: 'xiaohongshu-firstNote'
-              });
-            }
-          });
-        }
-      }
-      
-      // 路径 3: 直接遍历 state 查找 imageList
-      const findImageLists = (obj, depth = 0) => {
-        if (depth > 5 || !obj || typeof obj !== 'object') return;
-        
-        if (Array.isArray(obj.imageList)) {
-          obj.imageList.forEach(img => {
-            const url = img.urlDefault || img.url || img.infoList?.[0]?.url;
-            if (url && !images.find(i => i.url === url)) {
-              images.push({
-                url,
-                width: img.width,
-                height: img.height,
-                type: 'xiaohongshu-deep'
-              });
-            }
-          });
-        }
-        
-        for (const key in obj) {
-          if (typeof obj[key] === 'object') {
-            findImageLists(obj[key], depth + 1);
-          }
-        }
-      };
-      
-      if (images.length === 0) {
-        findImageLists(state);
-      }
-      
-      console.log(`[Image Capture] 🎯 小红书: Found ${images.length} images from __INITIAL_STATE__`);
-      
-    } catch (e) {
-      console.error('[Image Capture] 小红书提取失败:', e);
-    }
-    
-    return images;
-  }
-  
-  /**
-   * 🔑 小红书专用：从 DOM 中查找图片容器
-   */
-  function findXiaohongshuImageFromDOM(x, y) {
-    // 小红书图片容器的常见选择器
-    const selectors = [
-      '.note-image',
-      '.carousel-image',
-      '[class*="swiper"] img',
-      '[class*="slide"] img',
-      '.note-detail img',
-      '.note-content img',
-      'img[src*="xhscdn.com"]',
-      'img[src*="xiaohongshu.com"]',
-      '[style*="xhscdn.com"]',
-    ];
-    
-    // 方法 1: 直接查找
-    for (const selector of selectors) {
-      const elements = document.querySelectorAll(selector);
-      for (const el of elements) {
-        const rect = el.getBoundingClientRect();
-        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-          const url = el.src || el.currentSrc || extractBackgroundUrl(el);
-          if (url) {
-            return { url, element: el };
-          }
-        }
-      }
-    }
-    
-    // 方法 2: 从点击位置向上查找
-    const stack = document.elementsFromPoint(x, y);
-    for (const el of stack) {
-      // 检查是否有 xhscdn 背景图
-      const bgUrl = extractBackgroundUrl(el);
-      if (bgUrl && bgUrl.includes('xhscdn.com')) {
-        return { url: bgUrl, element: el };
-      }
-      
-      // 检查子元素中的图片
-      const img = el.querySelector('img[src*="xhscdn.com"]');
-      if (img) {
-        return { url: img.src || img.currentSrc, element: img };
-      }
-    }
-    
-    return null;
-  }
-  
-  /**
-   * 提取元素的背景图 URL
-   */
-  function extractBackgroundUrl(el) {
-    if (!el) return null;
-    const style = window.getComputedStyle(el);
-    const bg = style.backgroundImage;
-    if (bg && bg !== 'none' && bg.includes('url(')) {
-      const match = bg.match(/url\(["']?(.*?)["']?\)/);
-      if (match && match[1]) return match[1];
-    }
-    return null;
-  }
-
-  // ==================== 🆕 主动解锁系统 (Eagle 核心) ====================
-
-  /**
-   * 检测当前网站是否需要特殊处理
-   */
-  function getCurrentPlatformRule() {
-    const hostname = window.location.hostname;
-    for (const [domain, rule] of Object.entries(CONFIG.platformRules)) {
-      if (hostname.includes(domain)) {
-        return rule;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * 🔑 核心函数：强制解锁单个图片的拖拽能力
-   */
-  function unlockImageDrag(img) {
-    if (!img || unlockedImages.has(img)) return;
-    
-    // 检查是否是有效图片（尺寸足够大）
-    const rect = img.getBoundingClientRect();
-    const naturalWidth = img.naturalWidth || rect.width;
-    const naturalHeight = img.naturalHeight || rect.height;
-    
-    if (naturalWidth < CONFIG.minImageWidth || naturalHeight < CONFIG.minImageHeight) {
-      return;
-    }
-    
-    // 排除小图标
-    const src = (img.src || '').toLowerCase();
-    const excludeKeywords = ['icon', 'logo', 'avatar', 'favicon', 'pixel', 'blank', 'emoji', 'loading'];
-    if (excludeKeywords.some(k => src.includes(k))) {
-      return;
-    }
-    
-    // 🔓 强制启用拖拽
-    img.draggable = true;
-    img.setAttribute('draggable', 'true');
-    
-    // 🔓 移除 CSS 禁止拖拽
-    img.style.webkitUserDrag = 'auto';
-    img.style.userSelect = 'auto';
-    img.style.pointerEvents = 'auto';
-    
-    // 🔓 移除 -webkit-touch-callout 禁止（iOS Safari）
-    img.style.webkitTouchCallout = 'default';
-    
-    // 标记已解锁
-    unlockedImages.add(img);
-    
-    console.log('[Image Capture] 🔓 Unlocked:', src.substring(0, 60) + '...');
-  }
-
-  /**
-   * 🔑 解锁背景图容器的拖拽
-   */
-  function unlockBackgroundImageDrag(el) {
-    if (!el || unlockedImages.has(el)) return;
-    
-    const style = window.getComputedStyle(el);
-    const bg = style.backgroundImage;
-    
-    if (!bg || bg === 'none' || !bg.includes('url(')) return;
-    
-    const rect = el.getBoundingClientRect();
-    if (rect.width < CONFIG.minImageWidth || rect.height < CONFIG.minImageHeight) return;
-    
-    // 🔓 强制启用拖拽
-    el.draggable = true;
-    el.setAttribute('draggable', 'true');
-    el.style.webkitUserDrag = 'auto';
-    el.style.pointerEvents = 'auto';
-    
-    unlockedImages.add(el);
-    console.log('[Image Capture] 🔓 Unlocked bg:', bg.substring(0, 60) + '...');
-  }
-
-  /**
-   * 🔑 移除透明遮罩层的阻挡
-   */
-  function removeOverlayBlocking(container) {
-    if (!container) return;
-    
-    // 查找可能的遮罩层
-    const overlays = container.querySelectorAll('div, span');
-    overlays.forEach(overlay => {
-      const style = window.getComputedStyle(overlay);
-      
-      // 检测是否是透明遮罩
-      const isTransparent = style.backgroundColor === 'transparent' || 
-                           style.backgroundColor === 'rgba(0, 0, 0, 0)' ||
-                           style.opacity === '0';
-      const isAbsolute = style.position === 'absolute' || style.position === 'fixed';
-      const coversParent = overlay.offsetWidth >= container.offsetWidth * 0.9 &&
-                          overlay.offsetHeight >= container.offsetHeight * 0.9;
-      
-      if (isTransparent && isAbsolute && coversParent) {
-        // 让鼠标穿透这个遮罩
-        overlay.style.pointerEvents = 'none';
-        console.log('[Image Capture] 🪟 Made overlay transparent to clicks');
-      }
-    });
-  }
-
-  /**
-   * 🔑 扫描并解锁页面上所有图片
-   */
-  function unlockAllImages() {
-    if (!CONFIG.enableUnlock) return;
-    const rule = getCurrentPlatformRule();
-    
-    // 1. 解锁所有 IMG 标签
-    document.querySelectorAll('img').forEach(unlockImageDrag);
-    
-    // 2. 解锁 PICTURE 中的 IMG
-    document.querySelectorAll('picture img').forEach(unlockImageDrag);
-    
-    // 3. 解锁背景图容器（仅在需要特殊处理的平台）
-    if (rule?.forceUnlock) {
-      document.querySelectorAll('div[style*="background"], div[class*="image"], div[class*="cover"]').forEach(el => {
-        unlockBackgroundImageDrag(el);
-      });
-    }
-    
-    // 4. 移除遮罩层阻挡（仅在需要特殊处理的平台）
-    if (rule?.removeOverlay) {
-      document.querySelectorAll('[class*="image"], [class*="cover"], [class*="photo"]').forEach(container => {
-        removeOverlayBlocking(container);
-      });
-    }
-    
-    console.log('[Image Capture] 🔓 Scan complete, unlocked images on page');
-  }
-
-  /**
-   * 🔑 MutationObserver: 监听动态加载的图片
-   */
-  function initMutationObserver() {
-    if (!CONFIG.enableUnlock) return;
-    if (mutationObserver) return;
-    
-    mutationObserver = new MutationObserver((mutations) => {
-      let hasNewImages = false;
-      
-      for (const mutation of mutations) {
-        // 检查新增节点
-        for (const node of mutation.addedNodes) {
-          if (node.nodeType !== Node.ELEMENT_NODE) continue;
-          
-          // 如果是 IMG 直接解锁
-          if (node.tagName === 'IMG') {
-            unlockImageDrag(node);
-            hasNewImages = true;
-          }
-          
-          // 如果包含 IMG 子元素
-          if (node.querySelectorAll) {
-            node.querySelectorAll('img').forEach(img => {
-              unlockImageDrag(img);
-              hasNewImages = true;
-            });
-          }
-        }
-        
-        // 检查属性变化（有些网站动态设置 src）
-        if (mutation.type === 'attributes' && mutation.attributeName === 'src') {
-          const target = mutation.target;
-          if (target.tagName === 'IMG') {
-            unlockImageDrag(target);
-            hasNewImages = true;
-          }
-        }
-      }
-      
-      if (hasNewImages) {
-        console.log('[Image Capture] 🔄 New images detected and unlocked');
-      }
-    });
-    
-    mutationObserver.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['src', 'data-src', 'srcset'],
-    });
-    
-    console.log('[Image Capture] 👀 MutationObserver started');
-  }
-
-  // ==================== 核心算法：智能提取图片 URL ====================
-
-  /**
-   * 工业级图片 URL 提取算法
-   */
-  function extractUrlFromElement(el) {
-    if (!el) return null;
-
-    // 1. 标准 IMG 标签
-    if (el.tagName === 'IMG') {
-      return el.currentSrc || el.src || el.getAttribute('data-src') || el.getAttribute('data-original') || null;
-    }
-
-    // 2. PICTURE 标签 (取最大源)
-    if (el.tagName === 'PICTURE') {
-      const img = el.querySelector('img');
-      return img ? (img.currentSrc || img.src) : null;
-    }
-
-    // 3. 链接包含图片 (Eagle 常用策略)
-    if (el.tagName === 'A' && /\.(jpg|jpeg|png|gif|webp|svg|avif)(\?|$)/i.test(el.href)) {
-      return el.href;
-    }
-
-    // 4. 背景图
-    const style = window.getComputedStyle(el);
-    const bg = style.backgroundImage;
-    if (bg && bg !== 'none' && bg.includes('url(')) {
-      const match = bg.match(/url\(["']?(.*?)["']?\)/);
-      if (match && match[1]) return match[1];
-    }
-
-    // 5. data-src 等懒加载属性
-    const lazySrc = el.getAttribute('data-src') || 
-                   el.getAttribute('data-original') || 
-                   el.getAttribute('data-lazy-src');
-    if (lazySrc) return lazySrc;
-
-    return null;
-  }
-
-  /**
-   * 深度穿透查找 (Eagle 核心)
-   * 🆕 增加小红书等平台的专用处理
-   */
-  function smartFindImage(e) {
-    const target = e.target;
-    const hostname = window.location.hostname;
-    
-    // 🆕 小红书专用处理
-    if (hostname.includes('xiaohongshu.com')) {
-      // 先尝试从 DOM 位置查找
-      const domResult = findXiaohongshuImageFromDOM(e.clientX, e.clientY);
-      if (domResult) {
-        console.log('[Image Capture] 🎯 小红书 DOM 查找成功:', domResult.url.substring(0, 60));
-        return domResult;
-      }
-      
-      // 再尝试从 __INITIAL_STATE__ 提取当前显示的图片
-      const xhsImages = extractXiaohongshuImages();
-      if (xhsImages.length > 0) {
-        // 返回第一张图（通常是当前显示的）
-        // TODO: 可以根据滑动位置确定具体是哪张
-        console.log('[Image Capture] 🎯 小红书 STATE 提取成功:', xhsImages[0].url.substring(0, 60));
-        return { url: xhsImages[0].url, element: target };
-      }
-    }
-    
-    // 策略 1: 直接检查 Target 及其父级
-    let current = target;
-    for (let i = 0; i < 6 && current; i++) {
-      const url = extractUrlFromElement(current);
-      if (url && isValidUrl(url)) {
-        if (current.tagName !== 'IMG') {
-           const rect = current.getBoundingClientRect();
-           if (rect.width >= CONFIG.minImageWidth && rect.height >= CONFIG.minImageHeight) {
-             return { url, element: current };
-           }
-        } else if (isValidImage(current)) {
-           return { url, element: current };
-        }
-      }
-      current = current.parentElement;
-    }
-
-    // 策略 2: 视觉穿透 (解决透明遮罩问题)
-    if (e.clientX && e.clientY) {
-      const stack = document.elementsFromPoint(e.clientX, e.clientY);
-      for (const el of stack) {
-        if (el === target || el.contains(target)) continue;
-        
-        // IMG 标签
-        if (el.tagName === 'IMG' && isValidImage(el)) {
-          return { url: el.src || el.currentSrc, element: el };
-        }
-        
-        // 背景图 DIV
-        const url = extractUrlFromElement(el);
-        if (url) {
-           const rect = el.getBoundingClientRect();
-           if (rect.width >= CONFIG.minImageWidth && rect.height >= CONFIG.minImageHeight) {
-             return { url, element: el };
-           }
-        }
-      }
-    }
-
-    return null;
-  }
-
-  function isValidUrl(url) {
-    return url && (url.startsWith('http') || url.startsWith('data:image') || url.startsWith('blob:'));
-  }
->>>>>>> Stashed changes
 
   // ==================== 工具函数 ====================
   
@@ -820,6 +342,107 @@
       } catch (e) {
         console.warn('[Image Capture] Failed to compress hover image:', e);
         resolve(imageUrl);
+      }
+    });
+  }
+
+  /**
+   * 🆕 从已渲染的 <img> 元素生成缩略图（绕过 CORS 限制）
+   * @param {HTMLImageElement} imgElement - 图片元素
+   * @returns {string|null} - thumbnail base64 或 null
+   */
+  function generateThumbnailFromElement(imgElement) {
+    if (!imgElement || !imgElement.complete || imgElement.naturalWidth === 0) {
+      return null;
+    }
+    
+    const THUMBNAIL_SIZE = 200;
+    const THUMBNAIL_QUALITY = 0.7;
+    
+    try {
+      const ratio = Math.min(1, THUMBNAIL_SIZE / Math.max(imgElement.naturalWidth, imgElement.naturalHeight));
+      const targetW = Math.round(imgElement.naturalWidth * ratio);
+      const targetH = Math.round(imgElement.naturalHeight * ratio);
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgElement, 0, 0, targetW, targetH);
+      
+      // 尝试读取像素（检测 CORS 污染）
+      try {
+        ctx.getImageData(0, 0, 1, 1);
+      } catch (corsError) {
+        console.warn('[Image Capture] Canvas tainted by CORS:', imgElement.src?.substring(0, 50));
+        return null;
+      }
+      
+      const thumbnail = canvas.toDataURL('image/jpeg', THUMBNAIL_QUALITY);
+      const sizeKB = (thumbnail.length / 1024).toFixed(1);
+      console.log(`[Image Capture] 🖼️ Generated thumbnail from element: ${targetW}x${targetH}, ${sizeKB}KB`);
+      return thumbnail;
+    } catch (e) {
+      console.warn('[Image Capture] Failed to generate thumbnail from element:', e.message);
+      return null;
+    }
+  }
+
+  /**
+   * 🆕 生成 200px 缩略图用于后端打标（解决 URL 403 问题）
+   * @param {string} imageUrl - 图片 URL 或 base64
+   * @param {HTMLImageElement} imgElement - 可选，已渲染的图片元素（优先使用）
+   * @returns {Promise<string|null>} - 200px 缩略图 base64，失败返回 null
+   */
+  async function generateThumbnail(imageUrl, imgElement = null) {
+    // 🆕 优先从已渲染的元素生成（绕过 CORS）
+    if (imgElement) {
+      const thumbnail = generateThumbnailFromElement(imgElement);
+      if (thumbnail) return thumbnail;
+      console.log('[Image Capture] 🖼️ Element thumbnail failed, trying URL...');
+    }
+    
+    if (!imageUrl || typeof imageUrl !== 'string') return null;
+    
+    // ⚠️ 只处理 data:image，HTTP URL 因 CORS 无法加载到 canvas
+    if (!imageUrl.startsWith('data:')) {
+      console.log('[Image Capture] 🖼️ Skipping thumbnail for HTTP URL (CORS limitation)');
+      return null;
+    }
+    
+    const THUMBNAIL_SIZE = 200; // 缩略图最大边长
+    const THUMBNAIL_QUALITY = 0.7; // JPEG 质量
+    
+    return new Promise((resolve) => {
+      try {
+        const img = new Image();
+        
+        img.onload = () => {
+          const ratio = Math.min(1, THUMBNAIL_SIZE / Math.max(img.width, img.height));
+          const targetW = Math.round(img.width * ratio);
+          const targetH = Math.round(img.height * ratio);
+          
+          const canvas = document.createElement('canvas');
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+          
+          const thumbnail = canvas.toDataURL('image/jpeg', THUMBNAIL_QUALITY);
+          const sizeKB = (thumbnail.length / 1024).toFixed(1);
+          console.log(`[Image Capture] 🖼️ Generated thumbnail: ${targetW}x${targetH}, ${sizeKB}KB`);
+          resolve(thumbnail);
+        };
+        
+        img.onerror = (e) => {
+          console.warn('[Image Capture] ⚠️ Failed to load image for thumbnail:', e);
+          resolve(null);
+        };
+        
+        img.src = imageUrl;
+      } catch (e) {
+        console.warn('[Image Capture] ⚠️ Failed to generate thumbnail:', e);
+        resolve(null);
       }
     });
   }
@@ -2058,119 +1681,6 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     `;
     
-<<<<<<< Updated upstream
-=======
-    // 微博规则
-    else if (hostname.includes('weibo.com')) {
-      let current = imageElement;
-      for (let i = 0; i < 10 && current; i++) {
-        // 微博的卡片通常有 mid 属性
-        if (current.dataset && current.dataset.mid) {
-          result.url = `https://weibo.com/detail/${current.dataset.mid}`;
-          console.log('[Image Capture] 🐦 微博:', result.url);
-          break;
-        }
-        if (current.tagName === 'A' && current.href && current.href.includes('/detail/')) {
-          result.url = current.href;
-          break;
-        }
-        current = current.parentElement;
-      }
-    }
-    
-    // 抖音规则
-    else if (hostname.includes('douyin.com')) {
-      let current = imageElement;
-      for (let i = 0; i < 10 && current; i++) {
-        if (current.tagName === 'A' && current.href) {
-          const href = current.href;
-          if (href.includes('/video/') || href.includes('/note/')) {
-            result.url = href;
-            console.log('[Image Capture] 🎵 抖音:', result.url.substring(0, 60));
-            break;
-          }
-        }
-        current = current.parentElement;
-      }
-    }
-    
-    // 通用规则：查找最近的 <a> 标签
-    else {
-      let current = imageElement;
-      for (let i = 0; i < 8 && current; i++) {
-        if (current.tagName === 'A' && current.href) {
-          const href = current.href;
-          // 排除无效链接
-          if (!href.startsWith('javascript:') && href !== '#' && href !== window.location.href) {
-            // 检查是否看起来像详情页（包含 ID 或 slug）
-            if (/\/(post|article|item|detail|view|p|id)\//.test(href) || /\/\d+\/?$/.test(href)) {
-              result.url = href;
-              console.log('[Image Capture] 🔗 通用卡片:', result.url.substring(0, 60));
-              break;
-            }
-          }
-        }
-        current = current.parentElement;
-      }
-    }
-    
-    return result;
-  }
-
-  // ==================== 保存图片 ====================
-
-  async function captureImage(imageUrl, imageElement = null) {
-    console.log('[Image Capture] 💾 Saving:', imageUrl.substring(0, 80) + '...');
-    
-    // 🆕 尝试获取卡片信息（瀑布流场景）
-    const cardInfo = findCardInfo(imageElement);
-    
-    const finalUrl = await compressImageIfNeeded(imageUrl);
-    const ogData = {
-      url: cardInfo.url,           // 🆕 使用卡片 URL 而非页面 URL
-      title: cardInfo.title,       // 🆕 使用卡片标题而非页面标题
-      image: finalUrl,
-      success: true,
-      is_local_fetch: true,
-      timestamp: Date.now()
-    };
-    
-    console.log('[Image Capture] 📦 Final data:', { url: ogData.url.substring(0, 50), title: ogData.title.substring(0, 30) });
-    
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({ action: 'save-captured-image', data: ogData });
-    }
-  }
-
-  // ==================== 初始化 ====================
-
-  function init() {
-    console.log('[Image Capture] 🚀 Initializing V5 (Eagle Strategy + Active Unlock)...');
-    
-    // 1. 预加载桌宠位置
-    loadPetPositionFromStorage();
-    
-    // 2. 🆕 主动解锁所有图片
-    if (CONFIG.enableUnlock) {
-      unlockAllImages();
-    }
-    
-    // 3. 🆕 启动 MutationObserver 监听新图片
-    if (CONFIG.enableUnlock) {
-      initMutationObserver();
-    }
-    
-    // 4. 初始化拖拽
-    initDragAndDrop();
-    
-    // 5. 初始化悬浮标记
-    initImageMarkers();
-    
-    // 6. 初始化右键菜单
-    initContextMenu();
-    
-    // 7. 注入样式
->>>>>>> Stashed changes
     const style = document.createElement('style');
     style.textContent = `
       .tc-shortcuts-content {
@@ -2241,16 +1751,7 @@
     `;
     document.head.appendChild(style);
     
-<<<<<<< Updated upstream
     document.body.appendChild(panel);
-=======
-    // 8. 🆕 定期重新扫描（处理懒加载图片）
-    if (CONFIG.enableUnlock) {
-      setInterval(() => {
-        unlockAllImages();
-      }, 3000);
-    }
->>>>>>> Stashed changes
     
     // 关闭按钮
     panel.querySelector('.tc-close-btn').addEventListener('click', () => {
@@ -2326,12 +1827,20 @@
     // ✅ 对 dataURL 图片做一次压缩，避免写入过大的 base64
     const finalImageUrl = await compressImageIfNeeded(imageUrl);
     
+    // 🆕 生成 200px 缩略图（用于后端打标，解决 URL 403 问题）
+    // 优先从已渲染的元素生成（绕过 CORS）
+    const thumbnailStart = performance.now();
+    const thumbnail = await generateThumbnail(imageUrl, imageElement);
+    const thumbnailTime = (performance.now() - thumbnailStart).toFixed(0);
+    console.log(`[Image Capture] 🖼️ Thumbnail generated in ${thumbnailTime}ms, success: ${!!thumbnail}`);
+    
     // 构建 OpenGraph 数据
     const ogData = {
       url: window.location.href,
       title: document.title || window.location.href,
       description: '',
       image: finalImageUrl,
+      thumbnail: thumbnail,        // 🆕 200px 缩略图用于打标
       site_name: window.location.hostname.replace(/^www\./, ''),
       success: true,
       is_local_fetch: true,

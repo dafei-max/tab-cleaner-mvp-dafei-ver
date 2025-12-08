@@ -222,6 +222,7 @@ async def init_schema():
                         title TEXT,
                         description TEXT,
                         image TEXT,
+                        thumbnail TEXT,
                         screenshot_image TEXT,
                         site_name TEXT,
                         tab_id INTEGER,
@@ -327,6 +328,22 @@ async def init_schema():
                         ADD COLUMN deleted_at TIMESTAMP;
                     """)
                     print(f"[VectorDB] ✓ Added deleted_at column to {ACTIVE_TABLE}")
+                
+                # 🆕 添加 thumbnail 列（用于存储前端生成的 200px 缩略图）
+                thumbnail_column_exists = await conn.fetchval(f"""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.columns 
+                        WHERE table_schema = '{NAMESPACE}'
+                          AND table_name = '{ACTIVE_TABLE_NAME}'
+                          AND column_name = 'thumbnail'
+                    );
+                """)
+                if not thumbnail_column_exists:
+                    await conn.execute(f"""
+                        ALTER TABLE {ACTIVE_TABLE}
+                        ADD COLUMN thumbnail TEXT;
+                    """)
+                    print(f"[VectorDB] ✓ Added thumbnail column to {ACTIVE_TABLE}")
             
             # 创建必要索引（忽略已存在的错误）
             await _create_index(
@@ -409,6 +426,7 @@ async def upsert_opengraph_item(
     title: Optional[str] = None,
     description: Optional[str] = None,
     image: Optional[str] = None,
+    thumbnail: Optional[str] = None,  # 🆕 200px 缩略图（前端生成，用于后端打标）
     site_name: Optional[str] = None,
     tab_id: Optional[int] = None,
     tab_title: Optional[str] = None,
@@ -496,20 +514,21 @@ async def upsert_opengraph_item(
             """)
             
             if has_caption_fields:
-                # 使用新字段
+                # 使用新字段（包含 thumbnail）
                 await conn.execute(f"""
                     INSERT INTO {ACTIVE_TABLE} (
-                        user_id, url, title, description, image, site_name,
+                        user_id, url, title, description, image, thumbnail, site_name,
                         tab_id, tab_title, text_embedding, image_embedding, metadata,
                         image_caption, caption_embedding, dominant_colors, style_tags, object_tags,
                         status, updated_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector(1024), $10::vector(1024), $11::jsonb,
-                        $12, $13::vector(1024), $14, $15, $16,
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::vector(1024), $11::vector(1024), $12::jsonb,
+                        $13, $14::vector(1024), $15, $16, $17,
                         'active', NOW())
                     ON CONFLICT (user_id, url) DO UPDATE SET
                         title = EXCLUDED.title,
                         description = EXCLUDED.description,
                         image = EXCLUDED.image,
+                        thumbnail = COALESCE(EXCLUDED.thumbnail, {ACTIVE_TABLE}.thumbnail),
                         site_name = EXCLUDED.site_name,
                         tab_id = EXCLUDED.tab_id,
                         tab_title = EXCLUDED.tab_title,
@@ -524,7 +543,7 @@ async def upsert_opengraph_item(
                         status = 'active',
                         deleted_at = NULL,
                         updated_at = NOW();
-                """, user_id, normalized_url, title, description, image, site_name,
+                """, user_id, normalized_url, title, description, image, thumbnail, site_name,
                     tab_id, tab_title, text_vec, image_vec, metadata_json,
                     image_caption, caption_vec, dominant_colors, style_tags, object_tags)
             else:
@@ -1044,6 +1063,7 @@ async def batch_upsert_items(items: List[Dict], user_id: Optional[str], batch_si
                 title=item.get("title"),
                 description=item.get("description"),
                 image=item.get("image"),
+                thumbnail=item.get("thumbnail"),  # 🆕 前端生成的缩略图
                 site_name=item.get("site_name"),
                 tab_id=item.get("tab_id"),
                 tab_title=item.get("tab_title"),

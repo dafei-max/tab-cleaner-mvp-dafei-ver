@@ -53,6 +53,47 @@
   let selectionOverlay = null;
   let currentSelection = null;
 
+  // ==================== Thumbnail 生成 ====================
+  
+  /**
+   * 🆕 从 data URL 生成 200px 缩略图（用于后端打标）
+   * @param {string} dataUrl - 图片 data URL
+   * @returns {Promise<string|null>} - thumbnail base64 或 null
+   */
+  function generateThumbnailFromDataUrl(dataUrl) {
+    if (!dataUrl || !dataUrl.startsWith('data:')) return Promise.resolve(null);
+    
+    const THUMBNAIL_SIZE = 200;
+    const THUMBNAIL_QUALITY = 0.7;
+    
+    return new Promise((resolve) => {
+      try {
+        const img = new Image();
+        img.onload = () => {
+          const ratio = Math.min(1, THUMBNAIL_SIZE / Math.max(img.width, img.height));
+          const targetW = Math.round(img.width * ratio);
+          const targetH = Math.round(img.height * ratio);
+          
+          const canvas = document.createElement('canvas');
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+          
+          const thumbnail = canvas.toDataURL('image/jpeg', THUMBNAIL_QUALITY);
+          const sizeKB = (thumbnail.length / 1024).toFixed(1);
+          console.log(`[Screenshot Capture] 🖼️ Thumbnail: ${targetW}x${targetH}, ${sizeKB}KB`);
+          resolve(thumbnail);
+        };
+        img.onerror = () => resolve(null);
+        img.src = dataUrl;
+      } catch (e) {
+        console.warn('[Screenshot Capture] Thumbnail failed:', e);
+        resolve(null);
+      }
+    });
+  }
+
   // ==================== UI 组件 ====================
   
   /**
@@ -234,12 +275,16 @@
     try {
       console.log('[Screenshot Capture] 💾 Saving screenshot...');
       
+      // 🆕 生成 200px 缩略图用于后端打标
+      const thumbnail = await generateThumbnailFromDataUrl(dataUrl);
+      
       // 构建 OpenGraph 数据
       const ogData = {
         url: window.location.href,
         title: document.title || window.location.href,
         description: '',
         image: dataUrl, // 直接使用 data URL
+        thumbnail: thumbnail, // 🆕 200px 缩略图用于打标
         site_name: window.location.hostname.replace(/^www\./, ''),
         success: true,
         is_local_fetch: true,

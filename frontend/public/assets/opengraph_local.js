@@ -35,6 +35,49 @@
   }
 
   /**
+   * 🆕 从已渲染的 <img> 元素生成缩略图
+   * 利用已加载的图片缓存，无需重新下载
+   * @param {HTMLImageElement} imgElement - 图片元素
+   * @returns {string|null} - thumbnail base64 或 null
+   */
+  function generateThumbnailFromElement(imgElement) {
+    if (!imgElement || !imgElement.complete || imgElement.naturalWidth === 0) {
+      return null;
+    }
+    
+    const THUMBNAIL_SIZE = 200;
+    const THUMBNAIL_QUALITY = 0.7;
+    
+    try {
+      const ratio = Math.min(1, THUMBNAIL_SIZE / Math.max(imgElement.naturalWidth, imgElement.naturalHeight));
+      const targetW = Math.round(imgElement.naturalWidth * ratio);
+      const targetH = Math.round(imgElement.naturalHeight * ratio);
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgElement, 0, 0, targetW, targetH);
+      
+      // 尝试读取像素（检测 CORS 污染）
+      try {
+        ctx.getImageData(0, 0, 1, 1);
+      } catch (corsError) {
+        console.warn('[OG Thumbnail] Canvas tainted by CORS:', imgElement.src?.substring(0, 50));
+        return null;
+      }
+      
+      const thumbnail = canvas.toDataURL('image/jpeg', THUMBNAIL_QUALITY);
+      const sizeKB = (thumbnail.length / 1024).toFixed(1);
+      console.log(`[OG Thumbnail] ✅ Generated: ${targetW}x${targetH}, ${sizeKB}KB`);
+      return thumbnail;
+    } catch (e) {
+      console.warn('[OG Thumbnail] Failed:', e.message);
+      return null;
+    }
+  }
+
+  /**
    * 从当前页面提取 OpenGraph 数据
    * @returns {Object} OpenGraph 数据
    */
@@ -44,6 +87,7 @@
       title: '',
       description: '',
       image: '', // ✅ 确保 image 始终是字符串，不是数组
+      thumbnail: null, // 🆕 小缩略图用于后端打标
       site_name: '',
       success: false,
       error: null,
@@ -99,6 +143,15 @@
         } catch (e) {
           result.image = imageUrl;
         }
+        
+        // 🆕 尝试找到页面上渲染这个图片的 <img> 元素，生成 thumbnail
+        const matchingImg = Array.from(document.querySelectorAll('img')).find(img => {
+          const src = img.src || img.getAttribute('data-src') || '';
+          return src === result.image || src === imageUrl;
+        });
+        if (matchingImg && matchingImg.complete && matchingImg.naturalWidth > 0) {
+          result.thumbnail = generateThumbnailFromElement(matchingImg);
+        }
       } else {
         // ✅ 瀑布流站点特殊处理：Pinterest、小红书等
         const hostname = window.location.hostname || '';
@@ -112,6 +165,7 @@
           const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
 
           let largestImage = null;
+          let largestImageElement = null; // 🆕 保存元素引用，用于生成 thumbnail
           let largestVisibleArea = 0;
           let largestTotalSize = 0;
 
@@ -161,11 +215,16 @@
               largestVisibleArea = visibleArea;
               largestTotalSize = totalSize;
               largestImage = srcCandidate;
+              largestImageElement = img; // 🆕 保存元素引用
             }
           });
 
           if (largestImage) {
             result.image = largestImage;
+            // 🆕 尝试从已渲染的元素生成 thumbnail
+            if (largestImageElement) {
+              result.thumbnail = generateThumbnailFromElement(largestImageElement);
+            }
           }
         }
 
@@ -191,6 +250,10 @@
           
           if (largeImage) {
             result.image = largeImage.src || largeImage.getAttribute('data-src') || largeImage.getAttribute('data-lazy-src') || '';
+            // 🆕 尝试从已渲染的元素生成 thumbnail
+            if (!result.thumbnail) {
+              result.thumbnail = generateThumbnailFromElement(largeImage);
+            }
           }
         }
         
