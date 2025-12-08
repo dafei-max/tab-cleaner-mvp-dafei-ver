@@ -3,23 +3,28 @@
 当新数据插入时，自动触发 Caption 生成（后台异步处理）
 """
 import asyncio
+import os
+import sys
+from pathlib import Path
 from typing import List, Dict, Optional
+
+# 优先修正模块搜索路径，确保可导入 vector_db
+parent_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(parent_dir))
+
 from .caption import enrich_item_with_caption, batch_enrich_items
 from .qwen_vl_client import QwenVLClient
 from .embed import embed_text
 from vector_db import upsert_opengraph_item, get_pool, ACTIVE_TABLE, ACTIVE_TABLE_NAME, NAMESPACE, _normalize_user_id
-import sys
-from pathlib import Path
-
-# 添加父目录到路径
-parent_dir = Path(__file__).parent.parent
-sys.path.insert(0, str(parent_dir))
 
 
 # 全局任务队列和信号量（控制并发）
 _caption_task_queue = asyncio.Queue()
 _caption_worker_running = False
-_caption_semaphore = asyncio.Semaphore(3)  # 最多 3 个并发任务
+
+# 并发配置（可用环境变量覆盖）
+_caption_worker_count = int(os.getenv("CAPTION_WORKERS", "6"))  # 默认 6 个 worker 并行取任务
+_caption_semaphore = asyncio.Semaphore(int(os.getenv("CAPTION_CONCURRENCY", "10")))  # 默认 10 并发 API 调用
 # ✅ 去重：记录已入队的任务（user_id + url）
 _enqueued_tasks = set()  # Set of (user_id, url) tuples
 
@@ -240,13 +245,13 @@ async def _process_caption_task(task: Dict):
             traceback.print_exc()
 
 
-async def _caption_worker():
+async def _caption_worker(worker_id: int = 0):
     """
     Caption 生成工作线程（从队列中取任务并处理）
     """
     global _caption_worker_running
     _caption_worker_running = True
-    print("[AutoCaption] Worker started")
+    print(f"[AutoCaption] Worker #{worker_id} started")
     
     while True:
         try:
@@ -264,7 +269,7 @@ async def _caption_worker():
             _caption_task_queue.task_done()
             
         except Exception as e:
-            print(f"[AutoCaption] Worker error: {e}")
+            print(f"[AutoCaption] Worker #{worker_id} error: {e}")
             import traceback
             traceback.print_exc()
             await asyncio.sleep(1)  # 出错后等待 1 秒再继续
@@ -277,9 +282,9 @@ def start_caption_worker():
     global _caption_worker_running
     
     if not _caption_worker_running:
-        # 创建后台任务
-        asyncio.create_task(_caption_worker())
-        print("[AutoCaption] Worker task created")
+        for i in range(_caption_worker_count):
+            asyncio.create_task(_caption_worker(i + 1))
+        print(f"[AutoCaption] Worker tasks created: {_caption_worker_count}")
 
 
 async def enqueue_caption_task(user_id: str, item: Dict):

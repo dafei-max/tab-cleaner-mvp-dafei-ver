@@ -466,6 +466,24 @@ export const SessionCard = ({
   const [faviconSrc, setFaviconSrc] = useState(() => getFaviconUrl() || getFallbackFavicon());
   const pageName = getPageName();
   const headerText = getHeaderText();
+  const hasCaptionText = Boolean(headerText && headerText.trim());
+  const isCaptionPending = (() => {
+    if (!og) return false;
+    // 仅在有图片且没有 Caption 文本时提示“生成中”
+    const hasImage = Boolean(og.image || og.og_image || og.image_url);
+    if (!hasImage || hasCaptionText) return false;
+    const meta = (og.metadata && typeof og.metadata === 'object') ? og.metadata : {};
+    return Boolean(
+      og.caption_status === 'pending' ||
+      og.caption_pending === true ||
+      og.status === 'processing' ||
+      meta.caption_status === 'pending' ||
+      meta.captionGenerating === true ||
+      meta.caption_pending === true ||
+      meta.status === 'processing' ||
+      og.has_caption === false
+    );
+  })();
   
   const hasAnimatedRef = useRef(false);
   useLayoutEffect(() => {
@@ -652,7 +670,7 @@ export const SessionCard = ({
       </div>
 
       {/* 图片内容 */}
-      <div style={{ position: 'relative' }}>
+      <div style={{ position: 'relative' }} className={isCaptionPending ? 'caption-pending' : ''}>
         <ImageWithFallback
           og={og}
           isDocCard={isDocCard}
@@ -661,6 +679,15 @@ export const SessionCard = ({
           resolvedCardWidth={resolvedCardWidth}
           appearDelay={appearDelay}
         />
+        
+        {isCaptionPending && (
+          <>
+            <div className="caption-pending-mask">
+              <span>Caption 生成中…</span>
+            </div>
+            <div className="caption-pending-shimmer" />
+          </>
+        )}
         
         {/* 悬浮按钮（底部靠右） */}
         {isHovered && !disableActions && (

@@ -5,6 +5,7 @@
 import asyncio
 import argparse
 import sys
+import time
 from typing import List, Dict, Optional
 from datetime import datetime
 from dotenv import load_dotenv
@@ -314,6 +315,7 @@ async def process_batch(
     batch_size: int = 10,
     concurrent: int = 5,
     generate_caption_embedding: bool = True,
+    use_kmeans_colors: bool = True,
 ) -> Dict[str, int]:
     """
     批量处理项，生成 Caption 并更新数据库
@@ -323,6 +325,7 @@ async def process_batch(
         batch_size: 批量大小（每次处理的项数）
         concurrent: 并发数量
         generate_caption_embedding: 是否生成 Caption embedding
+        use_kmeans_colors: 是否使用 K-Means 提色（False 可加速）
     
     Returns:
         统计信息字典
@@ -353,7 +356,7 @@ async def process_batch(
         enriched_items = await batch_enrich_items(
             batch,
             qwen_client=client,
-            use_kmeans_colors=True,
+            use_kmeans_colors=use_kmeans_colors,
             concurrent=concurrent,
         )
         
@@ -398,9 +401,9 @@ async def process_batch(
                 print(f"[BatchEnrich] ❌ [{item_num}/{len(items)}] Failed to update: {original_item.get('url', 'unknown')[:50]}...")
                 stats["failed"] += 1
         
-        # 批次间延迟（避免 API 限流）
+        # 批次间延迟（最小化，提高吞吐）
         if batch_start + batch_size < len(items):
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.1)
     
     return stats
 
@@ -463,6 +466,12 @@ async def main():
         help="不生成 Caption embedding（默认：生成）"
     )
     
+    parser.add_argument(
+        "--skip-kmeans",
+        action="store_true",
+        help="跳过 K-Means 提色（加速处理，默认：使用 K-Means）"
+    )
+    
     args = parser.parse_args()
     
     # 检查 API Key
@@ -482,6 +491,7 @@ async def main():
     print(f"  - 并发数量: {args.concurrent}")
     print(f"  - 强制重刷所有 Caption: {args.force_all}")
     print(f"  - 生成 Caption Embedding: {not args.no_caption_embedding}")
+    print(f"  - 使用 K-Means 提色: {not args.skip_kmeans}")
     print("=" * 60)
     
     try:
@@ -499,13 +509,21 @@ async def main():
         
         print(f"\n[BatchEnrich] 找到 {len(items)} 项需要处理")
         
+        # 计时开始
+        start_time = time.perf_counter()
+        
         # 批量处理
         stats = await process_batch(
             items,
             batch_size=args.batch_size,
             concurrent=args.concurrent,
             generate_caption_embedding=not args.no_caption_embedding,
+            use_kmeans_colors=not args.skip_kmeans,
         )
+        
+        # 计时结束
+        end_time = time.perf_counter()
+        elapsed = end_time - start_time
         
         # 显示统计信息
         print("\n" + "=" * 60)
@@ -516,6 +534,10 @@ async def main():
         print(f"  失败: {stats['failed']} 项")
         print(f"  跳过: {stats['skipped']} 项")
         print(f"  成功率: {stats['success'] / stats['total'] * 100:.1f}%")
+        print(f"  ⏱️  总耗时: {elapsed:.2f} 秒")
+        print(f"  📊 平均每项: {elapsed / stats['total']:.2f} 秒")
+        if stats['success'] > 0:
+            print(f"  🚀 吞吐量: {stats['success'] / elapsed:.2f} 项/秒")
         print("=" * 60)
         
     except KeyboardInterrupt:

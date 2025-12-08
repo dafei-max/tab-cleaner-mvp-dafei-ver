@@ -4,6 +4,7 @@ Qwen-VL 客户端
 """
 from __future__ import annotations
 
+import os
 import httpx
 import json
 import asyncio
@@ -13,7 +14,8 @@ from .config import get_api_key, DASHSCOPE_API_URL
 
 # Qwen-VL API 端点
 QWEN_VL_ENDPOINT = f"{DASHSCOPE_API_URL}/services/aigc/multimodal-generation/generation"
-QWEN_VL_MODEL = "qwen-vl-max"  # 使用性能最好的模型
+# 默认改为更快的 qwen3-vl-flash，可用环境变量 QWEN_VL_MODEL 覆盖
+QWEN_VL_MODEL = os.getenv("QWEN_VL_MODEL", "qwen3-vl-flash")
 
 # 批量处理配置
 BATCH_SIZE = 5  # 并发处理数量

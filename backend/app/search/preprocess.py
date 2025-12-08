@@ -84,7 +84,8 @@ def process_image(image_data: bytes, max_dimension: int = TARGET_IMAGE_DIMENSION
             img = img.convert("RGB")
 
         out = BytesIO()
-        img.save(out, format="JPEG", quality=85, optimize=True)
+        # 下采样后压缩，质量 80%（约等于 0.8），减小传输体积
+        img.save(out, format="JPEG", quality=80, optimize=True)
         b = out.getvalue()
         if len(b) > MAX_IMAGE_SIZE:
             for q in (70, 60, 50, 40):

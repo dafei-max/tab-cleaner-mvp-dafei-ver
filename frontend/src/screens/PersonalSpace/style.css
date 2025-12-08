@@ -1341,3 +1341,54 @@
   white-space: nowrap;
   width: 46px;
 }
+
+/* ================= Caption 生成中提示 ================= */
+.caption-pending {
+  position: relative;
+}
+
+.caption-pending img.opengraph-image {
+  filter: blur(2px);
+  opacity: 0.82;
+  transition: filter 0.3s ease, opacity 0.3s ease;
+}
+
+.caption-pending .caption-pending-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.55), rgba(255,255,255,0.1));
+  color: #1a73e8;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  backdrop-filter: blur(2px);
+  border-radius: 0 0 8px 8px;
+  animation: captionBreath 1.6s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.caption-pending .caption-pending-shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, rgba(255,255,255,0) 30%, rgba(255,255,255,0.45) 50%, rgba(255,255,255,0) 70%);
+  animation: captionShimmer 1.2s linear infinite;
+  mix-blend-mode: screen;
+  border-radius: 0 0 8px 8px;
+  pointer-events: none;
+  z-index: 3;
+}
+
+@keyframes captionBreath {
+  0% { opacity: 0.65; }
+  50% { opacity: 0.95; }
+  100% { opacity: 0.65; }
+}
+
+@keyframes captionShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
