@@ -85,8 +85,9 @@ class QwenVLClient:
             "parameters": {
                 # 降低温度，提高输出稳定性
                 "temperature": 0.1,
-                # 提高 max_tokens，让 Caption 和属性描述更完整、更细致
-                "max_tokens": 512,
+                # 🆕 优化：降低 max_tokens 以加快响应速度（100字 caption + JSON 结构，200 tokens 足够）
+                # 如果 qwen3-vl-flash 能在 5s 内完成，继续使用
+                "max_tokens": 200,  # 降低以加快速度（100字中文约 150 tokens，JSON 结构约 50 tokens）
             }
         }
         
@@ -308,4 +309,3 @@ class QwenVLClient:
                 final_results.append(result)
         
         return final_results
-

@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { getImageUrl } from "../../shared/utils";
 import { UI_CONFIG } from "../../screens/PersonalSpace/uiConfig";
+import { ColorPicker } from "./ColorPicker";
 import searchBarBg from "./search-bar.svg";
 import "./SearchBar.css";
 
@@ -17,10 +18,36 @@ export const SearchBar = ({
   onClear,
   isSearching = false,
   placeholder = "What do you want to see ?",
-  onPetSettingsClick, // 新增：宠物设定空间入口回调
+  onPetSettingsClick, // 宠物设定空间入口回调
+  onColorFilter,      // 🆕 颜色筛选回调
+  selectedColor,      // 🆕 当前选中的颜色
 }) => {
   const [hoveredButton, setHoveredButton] = useState(null);
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const colorPickerRef = useRef(null);
+  
+  // 点击外部关闭颜色选择器
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target)) {
+        setShowColorPicker(false);
+      }
+    };
+    
+    if (showColorPicker) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showColorPicker]);
+  
+  // 处理颜色选择
+  const handleColorSelect = (color) => {
+    if (onColorFilter) {
+      onColorFilter(color);
+    }
+    // 选择颜色后不自动关闭，让用户可以继续选择或清除
+  };
   
   const calculateTooltipPosition = (buttonElement) => {
     if (!buttonElement) return;
@@ -108,50 +135,61 @@ export const SearchBar = ({
           //border: 'none',
         }}
       >
-        {/* 搜索按钮（左侧） */}
-        <motion.button
-          onClick={onSearch}
-          title="执行搜索"
-          style={{
-            position: 'relative',
-            zIndex: 1,
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            padding: 0,
-            marginLeft: `${UI_CONFIG.searchBar.searchButton.marginLeft}px`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-          onMouseEnter={(e) => {
-            calculateTooltipPosition(e.currentTarget);
-            setHoveredButton('search');
-          }}
-          onMouseLeave={() => {
-            setHoveredButton(null);
-            setTooltipPosition({ top: 0, left: 0 });
-          }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.95 }}
-          transition={{ type: "spring", stiffness: 400, damping: 17 }}
-        >
-          <img 
-            src={getImageUrl("search-button.png")} 
-            alt="Search button"
-            style={{ 
-              width: `${UI_CONFIG.searchBar.searchButton.size}px`, 
-              height: `${UI_CONFIG.searchBar.searchButton.size}px`, 
-              objectFit: 'contain' 
+        {/* 搜索按钮（左侧）- 🆕 点击弹出颜色选择器 */}
+        <div ref={colorPickerRef} style={{ position: 'relative' }}>
+          <motion.button
+            onClick={() => setShowColorPicker(!showColorPicker)}
+            title="颜色筛选"
+            style={{
+              position: 'relative',
+              zIndex: 1,
+              border: selectedColor ? `2px solid ${selectedColor.hex}` : 'none',
+              borderRadius: '50%',
+              background: selectedColor ? `${selectedColor.hex}20` : 'transparent',
+              cursor: 'pointer',
+              padding: 0,
+              marginLeft: `${UI_CONFIG.searchBar.searchButton.marginLeft}px`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
+            onMouseEnter={(e) => {
+              calculateTooltipPosition(e.currentTarget);
+              setHoveredButton('search');
+            }}
+            onMouseLeave={() => {
+              setHoveredButton(null);
+              setTooltipPosition({ top: 0, left: 0 });
+            }}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 400, damping: 17 }}
+          >
+            <img 
+              src={getImageUrl("search-button.png")} 
+              alt="Color filter"
+              style={{ 
+                width: `${UI_CONFIG.searchBar.searchButton.size}px`, 
+                height: `${UI_CONFIG.searchBar.searchButton.size}px`, 
+                objectFit: 'contain' 
+              }}
+            />
+            {hoveredButton === 'search' && createPortal(
+              <div className="tooltip" style={getTooltipStyle()}>
+                {selectedColor ? `筛选: ${selectedColor.name}` : '颜色筛选'}
+              </div>,
+              document.body
+            )}
+          </motion.button>
+          
+          {/* 🆕 颜色选择器弹出层 */}
+          <ColorPicker
+            isVisible={showColorPicker}
+            onColorSelect={handleColorSelect}
+            onClose={() => setShowColorPicker(false)}
+            selectedColor={selectedColor}
           />
-          {hoveredButton === 'search' && createPortal(
-            <div className="tooltip" style={getTooltipStyle()}>
-              执行搜索
-            </div>,
-            document.body
-          )}
-        </motion.button>
+        </div>
         
         {/* 输入框 */}
         {(() => {
@@ -281,7 +319,6 @@ export const SearchBar = ({
     </div>
   );
 };
-
 
 
 

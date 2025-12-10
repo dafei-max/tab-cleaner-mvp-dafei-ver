@@ -347,4 +347,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     asyncio.run(run_benchmark(args.user_id, args.max_items))
-

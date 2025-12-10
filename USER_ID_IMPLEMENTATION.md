@@ -157,3 +157,6 @@ chrome.storage.local.remove(['user_id', 'device_id'], () => {
 3. **隐私保护**：邮箱使用哈希处理，不存储原始邮箱
 4. **向后兼容**：如果无法获取用户ID，降级到 `"anonymous"`，所有匿名用户共享数据
 
+
+
+

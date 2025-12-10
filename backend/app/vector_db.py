@@ -1028,7 +1028,7 @@ async def batch_upsert_items(items: List[Dict], user_id: Optional[str], batch_si
             from search.caption import batch_enrich_items
             enriched_items = await batch_enrich_items(
                 items_to_enrich,
-                use_kmeans_colors=True,
+                use_kmeans_colors=False,
                 concurrent=min(5, len(items_to_enrich)),  # 限制并发数，避免 API 限流
             )
             print(f"[VectorDB] ✅ 成功补齐 {len(enriched_items)} 项的 Caption 和标签")

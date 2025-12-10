@@ -20,6 +20,9 @@ export const ViewContainer = ({
   onSessionOpenAll,
   sessionContainerRef,
   onSessionFocus,
+  selectedColorFilter, // 🆕 颜色筛选
+  onColorsExtracted, // 🆕 颜色提取回调
+  onThumbnailGenerated, // 🆕 缩略图回调
   // Radial props
   canvasRef,
   containerRef,
@@ -52,6 +55,8 @@ export const ViewContainer = ({
 }) => {
   // ✅ 修复：确保 sessions 是数组
   const safeSessions = Array.isArray(sessions) ? sessions : [];
+  const handleColorsExtracted = onColorsExtracted || (() => {});
+  const handleThumbnailGenerated = onThumbnailGenerated || (() => {});
   
   return (
     <AnimatePresence mode="wait">
@@ -73,6 +78,9 @@ export const ViewContainer = ({
             searchBarHeight={200}
             containerRef={sessionContainerRef}
             onSessionFocus={onSessionFocus}
+            selectedColorFilter={selectedColorFilter} // 🆕 颜色筛选
+            onColorsExtracted={handleColorsExtracted}
+            onThumbnailGenerated={handleThumbnailGenerated}
           />
           {/* Scroll Spy Indicator - 已禁用，避免影响正常滚动 */}
           {/* {safeSessions.length > 1 && (

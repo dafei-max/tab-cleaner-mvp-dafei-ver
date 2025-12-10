@@ -3,6 +3,37 @@
 // 导入 API 配置
 importScripts('api_config.js');
 
+// 🆕 统一图片代理：解决 CSP / CORS，返回 dataURL
+async function fetchImageAsDataUrl(url) {
+  try {
+    console.log('[Background] 🖼️ Fetching image:', url);
+    const resp = await fetch(url, {
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'force-cache',
+      headers: { Accept: 'image/*' },
+    });
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+    }
+    const blob = await resp.blob();
+    if (!blob.type.startsWith('image/')) {
+      throw new Error(`Invalid image type: ${blob.type || 'unknown'}`);
+    }
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('FileReader error'));
+      reader.readAsDataURL(blob);
+    });
+    console.log('[Background] ✅ Image loaded:', url.substring(0, 80));
+    return dataUrl;
+  } catch (error) {
+    console.error('[Background] ❌ Image fetch failed:', url, error.message || error);
+    throw error;
+  }
+}
+
 /**
  * ✅ 获取用户ID（用于发送到后端）
  * 从 Chrome Storage 读取，如果没有则返回 'anonymous'
@@ -569,106 +600,122 @@ async function collectTabWithGuaranteedImage(tab) {
   // 🆕 步骤0：激活 tab（对于 Pinterest/小红书等 SPA 站点必须）
   // 确保视口内容是最新的，图片已正确渲染
   try {
+    // 先激活 tab
     await chrome.tabs.update(tab.id, { active: true });
-    // 等待 tab 激活后渲染稳定
+    console.log(`[Collect] 🔄 Tab activation requested: ${tab.id}`);
+    
+    // 等待 tab 激活（浏览器需要时间切换）
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // 等待页面渲染稳定（SPA 网站需要更长时间）
+    // 特别是小红书、Pinterest 等需要等待图片加载
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    
+    // 额外等待：确保图片已加载到 DOM
     await new Promise(resolve => setTimeout(resolve, 500));
-    console.log(`[Collect] ✅ Tab activated: ${tab.id}`);
+    
+    console.log(`[Collect] ✅ Tab activated and rendered: ${tab.id} (total wait: 2000ms)`);
   } catch (e) {
     console.warn(`[Collect] Failed to activate tab ${tab.id}:`, e);
+    // 即使失败也继续，但等待一段时间
+    await new Promise(resolve => setTimeout(resolve, 1500));
   }
   
-  // 步骤1：注入脚本
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ['assets/opengraph_local.js']
-    });
-    console.log(`[Collect] ✅ Script injected for tab ${tab.id}`);
-  } catch (e) {
-    console.error(`[Collect] Failed to inject script for tab ${tab.id}:`, e);
-    // 如果无法注入，直接截图
-    const screenshot = await captureTabScreenshot(tab.id);
-    return {
-      url: tab.url,
-      title: tab.title,
-      image: screenshot,
-      is_screenshot: true,
-      success: !!screenshot,
-      error: screenshot ? null : 'Failed to inject script and screenshot failed'
-    };
-  }
+  // ✅ 步骤1：v2 版本已通过 manifest.json 作为 content script 加载，并通过 content.js 注入到页面上下文
+  // 使用 executeScript 在页面上下文中调用 v2 API（world: 'MAIN' 访问页面上下文）
+  let ogData = null;
   
-  // 等待脚本加载
-  await new Promise(resolve => setTimeout(resolve, 300));
-  
-  // ✅ 步骤1.5：对于 Pinterest 等 SPA，确保 URL 匹配并强制重新提取
   try {
-    const currentTab = await chrome.tabs.get(tab.id);
-    if (currentTab.url !== tab.url) {
-      console.log(`[Collect] ⚠️ Tab URL changed: ${tab.url} -> ${currentTab.url}`);
-      // URL 已变化，更新 tab 对象
-      tab = currentTab;
+    // 等待脚本加载（v2 通过 content.js 注入到页面上下文）
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // ✅ 步骤1.5：对于 Pinterest 等 SPA，确保 URL 匹配
+    try {
+      const currentTab = await chrome.tabs.get(tab.id);
+      if (currentTab.url !== tab.url) {
+        console.log(`[Collect] ⚠️ Tab URL changed: ${tab.url} -> ${currentTab.url}`);
+        tab = currentTab;
+      }
+    } catch (e) {
+      console.warn(`[Collect] Failed to sync URL:`, e);
     }
     
-    // 发送 URL 同步消息，确保 opengraph_local.js 使用最新的 URL
+    // 步骤2：通过 executeScript 在页面上下文中调用 v2 版本的提取函数
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: 'MAIN', // ✅ 关键：使用 MAIN world 访问页面上下文
+      func: async () => {
+        // 🆕 设置快速模式标志（清理操作时跳过 Data URL 转换）
+        window.__TAB_CLEANER_QUICK_MODE = true;
+        
+        try {
+          // 优先使用 v2 版本的增强 API
+          if (window.__TAB_CLEANER_OG_ENHANCED && window.__TAB_CLEANER_OG_ENHANCED.extract) {
+            console.log('[Collect] Using v2 enhanced API (quick mode)');
+            const result = await window.__TAB_CLEANER_OG_ENHANCED.extract();
+            return result;
+          }
+          // 降级到兼容 API
+          if (window.__TAB_CLEANER_GET_OPENGRAPH) {
+            console.log('[Collect] Using v2 compatible API (quick mode)');
+            return await window.__TAB_CLEANER_GET_OPENGRAPH(true); // waitForLoad = true
+          }
+          console.warn('[Collect] ⚠️ v2 API not available');
+          return null;
+        } finally {
+          // 清理标志
+          delete window.__TAB_CLEANER_QUICK_MODE;
+        }
+      }
+    });
+    
+    if (results && results[0] && results[0].result) {
+      ogData = results[0].result;
+      console.log(`[Collect] ✅ Got OG data via v2 API for ${tab.url.substring(0, 50)}...`);
+    } else {
+      console.warn(`[Collect] ⚠️ v2 API returned no data`);
+    }
+  } catch (e) {
+    console.warn(`[Collect] Failed to extract via v2 API:`, e);
+    // 如果 v2 API 失败，尝试通过消息方式（兼容旧版本）
     try {
       await chrome.tabs.sendMessage(tab.id, { 
-        action: 'sync-url',
-        url: tab.url
-      });
-    } catch (e) {
-      // 忽略错误，可能脚本还没准备好
-    }
-  } catch (e) {
-    console.warn(`[Collect] Failed to sync URL:`, e);
-  }
-  
-  // 步骤2：发送抓取消息（强制重新提取，忽略缓存）
-  try {
-    await chrome.tabs.sendMessage(tab.id, { 
-      action: 'extract-opengraph-with-wait',
-      maxWaitTime: 8000,
-      forceReextract: true  // ✅ 强制重新提取，不使用缓存
-    });
-    console.log(`[Collect] ✅ Extraction message sent for tab ${tab.id}`);
-  } catch (e) {
-    console.warn(`[Collect] Failed to send extraction message:`, e);
-  }
-  
-  // 步骤3：轮询等待（最多 8 秒）
-  let ogData = null;
-  const maxWaitTime = 8000;
-  const startTime = Date.now();
-  const checkInterval = 500;
-  
-  while (Date.now() - startTime < maxWaitTime) {
-    try {
-      const status = await chrome.tabs.sendMessage(tab.id, {
-        action: 'get-opengraph-status'
+        action: 'extract-opengraph-with-wait',
+        maxWaitTime: 8000,
+        forceReextract: true
       });
       
-      // 关键：检查是否有图片
-      if (status?.data?.image && status.data.image.trim()) {
-        console.log(`[Collect] ✅ Got OG image for ${tab.url.substring(0, 50)}...`);
-        ogData = status.data;
-        break;
-      }
+      // 轮询等待（最多 8 秒）
+      const maxWaitTime = 8000;
+      const startTime = Date.now();
+      const checkInterval = 500;
       
-      // 如果已完成但无图片，跳出（进入截图兜底）
-      if (status?.completed && !status?.data?.image) {
-        console.log(`[Collect] ⚠️ OG extraction completed but no image for ${tab.url.substring(0, 50)}...`);
-        // 尝试使用最后一次的数据（即使没有图片）
-        if (status.data) {
-          ogData = status.data;
+      while (Date.now() - startTime < maxWaitTime) {
+        try {
+          const status = await chrome.tabs.sendMessage(tab.id, {
+            action: 'get-opengraph-status'
+          });
+          
+          if (status?.data?.image && status.data.image.trim()) {
+            ogData = status.data;
+            break;
+          }
+          
+          if (status?.completed && !status?.data?.image) {
+            if (status.data) {
+              ogData = status.data;
+            }
+            break;
+          }
+        } catch (e) {
+          console.debug(`[Collect] Waiting for OG extraction... (${Date.now() - startTime}ms elapsed)`);
         }
-        break;
+        
+        await new Promise(resolve => setTimeout(resolve, checkInterval));
       }
-    } catch (e) {
-      // 消息可能失败（标签页已关闭等），继续等待
-      console.debug(`[Collect] Waiting for OG extraction... (${Date.now() - startTime}ms elapsed)`);
+    } catch (msgError) {
+      console.warn(`[Collect] Message-based extraction also failed:`, msgError);
     }
-    
-    await new Promise(resolve => setTimeout(resolve, checkInterval));
   }
   
   // 步骤4：如果没有 OG 图片，截图兜底
@@ -807,6 +854,22 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     handleScreenshotSelection(req, sender, sendResponse);
     return true; // 异步响应
   }
+
+  // 🆕 图片代理：解决 CSP/CORS，返回 dataURL
+  if (req.action === "fetchImage" && req.url) {
+    fetchImageAsDataUrl(req.url)
+      .then(dataUrl => sendResponse({ success: true, dataUrl }))
+      .catch(error => sendResponse({ success: false, error: error.message || String(error) }));
+    return true; // 异步
+  }
+
+  // 🦅 Eagle Storage: 下载图片为 Data URL（用于永久保存）
+  if (req.action === "download-image-as-dataurl" && req.url) {
+    fetchImageAsDataUrl(req.url)
+      .then(dataUrl => sendResponse({ success: true, dataUrl }))
+      .catch(error => sendResponse({ success: false, error: error.message || String(error) }));
+    return true; // 异步
+  }
   
   // 注册右键菜单
   if (req.action === "register-context-menu") {
@@ -937,13 +1000,58 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         console.log(`[Tab Cleaner Background] Collecting OpenGraph SEQUENTIALLY for ${uniqueTabs.length} tabs...`);
         const localOGResults = [];
         
+        // 🆕 全局超时：如果整个清理过程超过 5 分钟，强制完成
+        const globalTimeout = 5 * 60 * 1000; // 5 分钟
+        const globalStartTime = Date.now();
+        
         for (let index = 0; index < uniqueTabs.length; index++) {
+          // 🆕 检查全局超时
+          if (Date.now() - globalStartTime > globalTimeout) {
+            console.warn(`[Tab Cleaner Background] ⚠️ Global timeout reached (5min), stopping collection. Processed ${index}/${uniqueTabs.length} tabs.`);
+            // 为剩余 tab 创建占位记录
+            for (let j = index; j < uniqueTabs.length; j++) {
+              localOGResults.push({
+                status: 'fulfilled',
+                value: {
+                  url: uniqueTabs[j].url,
+                  title: uniqueTabs[j].title || uniqueTabs[j].url,
+                  tab_id: uniqueTabs[j].id,
+                  tab_title: uniqueTabs[j].title,
+                  success: false,
+                  error: 'Global timeout - collection stopped',
+                  id: `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                }
+              });
+            }
+            break;
+          }
+          
           const tab = uniqueTabs[index];
           console.log(`[Tab Cleaner Background] Processing tab ${index + 1}/${uniqueTabs.length}: ${tab.url.substring(0, 50)}...`);
           
           try {
-            // 使用三层保险策略收集函数（内部会激活 tab）
-            const ogData = await collectTabWithGuaranteedImage(tab);
+            // 🆕 单个 tab 超时：如果单个 tab 收集超过 30 秒，跳过
+            const tabTimeout = 30 * 1000; // 30 秒
+            const tabStartTime = Date.now();
+            
+            const ogDataPromise = collectTabWithGuaranteedImage(tab);
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Tab collection timeout (30s)')), tabTimeout)
+            );
+            
+            let ogData;
+            try {
+              ogData = await Promise.race([ogDataPromise, timeoutPromise]);
+            } catch (timeoutError) {
+              console.error(`[Tab Cleaner Background] ⚠️ Tab ${index + 1} collection timeout:`, timeoutError.message);
+              ogData = {
+                url: tab.url,
+                title: tab.title || tab.url,
+                success: false,
+                error: `Collection timeout after ${tabTimeout / 1000}s`,
+                image: '',
+              };
+            }
             
             // 添加调试日志
             console.log(`[Tab Cleaner Background] Collection result for ${tab.url.substring(0, 50)}...:`, {
@@ -1634,32 +1742,80 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
 
         console.log(`[Tab Cleaner Background] Found ${validTabs.length} valid tabs, ${uniqueTabs.length} unique tabs after deduplication`);
 
-        // ✅ 步骤 1: 使用三层保险策略收集 OpenGraph（每个网站）
-        console.log(`[Tab Cleaner Background] Collecting OpenGraph with guaranteed image for ${uniqueTabs.length} tabs...`);
-        const localOGResults = await Promise.allSettled(
-          uniqueTabs.map(async (tab, index) => {
-            // 添加延迟，避免过快切换标签页
-            if (index > 0) {
-              await new Promise(resolve => setTimeout(resolve, 200));
+        // ✅ 步骤 1: 串行收集 OpenGraph（每个 tab 需要激活后才能准确取图）
+        // 🆕 改为串行处理，确保每个 tab 都被正确激活，避免并发冲突
+        console.log(`[Tab Cleaner Background] Collecting OpenGraph SEQUENTIALLY for ${uniqueTabs.length} tabs...`);
+        const localOGResults = [];
+        
+        // 🆕 全局超时：如果整个清理过程超过 5 分钟，强制完成
+        const globalTimeout = 5 * 60 * 1000; // 5 分钟
+        const globalStartTime = Date.now();
+        
+        for (let index = 0; index < uniqueTabs.length; index++) {
+          // 🆕 检查全局超时
+          if (Date.now() - globalStartTime > globalTimeout) {
+            console.warn(`[Tab Cleaner Background] ⚠️ Global timeout reached (5min), stopping collection. Processed ${index}/${uniqueTabs.length} tabs.`);
+            // 为剩余 tab 创建占位记录
+            for (let j = index; j < uniqueTabs.length; j++) {
+              localOGResults.push({
+                status: 'fulfilled',
+                value: {
+                  url: uniqueTabs[j].url,
+                  title: uniqueTabs[j].title || uniqueTabs[j].url,
+                  tab_id: uniqueTabs[j].id,
+                  tab_title: uniqueTabs[j].title,
+                  success: false,
+                  error: 'Global timeout - collection stopped',
+                  id: `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                }
+              });
+            }
+            break;
+          }
+          
+          const tab = uniqueTabs[index];
+          console.log(`[Tab Cleaner Background] Processing tab ${index + 1}/${uniqueTabs.length}: ${tab.url.substring(0, 50)}...`);
+          
+          try {
+            // 🆕 单个 tab 超时：如果单个 tab 收集超过 30 秒，跳过
+            const tabTimeout = 30 * 1000; // 30 秒
+            const tabStartTime = Date.now();
+            
+            const ogDataPromise = collectTabWithGuaranteedImage(tab);
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Tab collection timeout (30s)')), tabTimeout)
+            );
+            
+            let ogData;
+            try {
+              ogData = await Promise.race([ogDataPromise, timeoutPromise]);
+            } catch (timeoutError) {
+              console.error(`[Tab Cleaner Background] ⚠️ Tab ${index + 1} collection timeout:`, timeoutError.message);
+              ogData = {
+                url: tab.url,
+                title: tab.title || tab.url,
+                success: false,
+                error: `Collection timeout after ${tabTimeout / 1000}s`,
+                image: '',
+              };
             }
             
-            try {
-              // 使用新的三层保险策略收集函数
-              const ogData = await collectTabWithGuaranteedImage(tab);
-              
-              // 添加调试日志
-              console.log(`[Tab Cleaner Background] Collection result for ${tab.url.substring(0, 50)}...:`, {
-                success: ogData?.success,
-                hasTitle: !!(ogData?.title),
-                hasImage: !!(ogData?.image),
-                isScreenshot: ogData?.is_screenshot || false,
-                title: ogData?.title?.substring(0, 50),
-                image: ogData?.image ? (ogData.image.substring(0, 50) + '...') : null,
-                error: ogData?.error
-              });
-              
-              if (ogData) {
-                return { 
+            // 添加调试日志
+            console.log(`[Tab Cleaner Background] Collection result for ${tab.url.substring(0, 50)}...:`, {
+              success: ogData?.success,
+              hasTitle: !!(ogData?.title),
+              hasImage: !!(ogData?.image),
+              isScreenshot: ogData?.is_screenshot || false,
+              title: ogData?.title?.substring(0, 50),
+              image: ogData?.image ? (ogData.image.substring(0, 50) + '...') : null,
+              error: ogData?.error,
+              elapsedTime: Date.now() - tabStartTime
+            });
+            
+            if (ogData) {
+              localOGResults.push({
+                status: 'fulfilled',
+                value: { 
                   ...ogData, 
                   tab_id: tab.id, 
                   tab_title: tab.title,
@@ -1668,23 +1824,29 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                   url: ogData.url || tab.url,
                   title: ogData.title || tab.title || tab.url,
                   is_local_fetch: true,
-                };
-              }
-              
+                }
+              });
+            } else {
               // 如果 ogData 为空，创建一个基础记录
-              return {
-                url: tab.url,
-                title: tab.title || tab.url,
-                tab_id: tab.id,
-                tab_title: tab.title,
-                success: false,
-                error: 'Collection returned empty',
-                id: `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-              };
-            } catch (error) {
-              console.error(`[Tab Cleaner Background] Collection failed for ${tab.url}:`, error);
-              // 返回基础记录
-              return {
+              localOGResults.push({
+                status: 'fulfilled',
+                value: {
+                  url: tab.url,
+                  title: tab.title || tab.url,
+                  tab_id: tab.id,
+                  tab_title: tab.title,
+                  success: false,
+                  error: 'Collection returned empty',
+                  id: `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                }
+              });
+            }
+          } catch (error) {
+            console.error(`[Tab Cleaner Background] Collection failed for ${tab.url}:`, error);
+            // 记录失败的结果
+            localOGResults.push({
+              status: 'fulfilled',
+              value: {
                 url: tab.url,
                 title: tab.title || tab.url,
                 tab_id: tab.id,
@@ -1692,10 +1854,15 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                 success: false,
                 error: error.message,
                 id: `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-              };
-            }
-          })
-        );
+              }
+            });
+          }
+          
+          // 每个 tab 之间稍作延迟，避免过快切换
+          if (index < uniqueTabs.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+        }
 
         // 收集所有结果（包括失败的）
         const opengraphItems = localOGResults
@@ -1761,6 +1928,109 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         });
 
         console.log(`[Tab Cleaner Background] ✓ Session saved immediately (${opengraphItems.length} items)`);
+        
+        // 🆕 步骤 2.5: 清理未被收入个人空间的 IndexedDB 数据（在 background 上下文中执行）
+        // 注意：background.js 可以访问 chrome.storage.local，所以在这里执行清理
+        (async () => {
+          try {
+            // 在 background 上下文中，我们需要通过 executeScript 在页面上下文中执行清理
+            // 或者直接在 background 中实现清理逻辑
+            // 由于 cleanupUnusedImages 需要访问 chrome.storage.local，我们在 background 中实现
+            console.log(`[Tab Cleaner Background] 🧹 Starting IndexedDB cleanup from background context...`);
+            
+            // 获取所有 sessions
+            const storageResult = await chrome.storage.local.get(['sessions']);
+            const sessions = storageResult.sessions || [];
+            
+            // 收集所有被引用的图片 hash 和 URL
+            const referencedHashes = new Set();
+            const referencedUrls = new Set();
+            
+            sessions.forEach(session => {
+              if (session?.opengraphData) {
+                session.opengraphData.forEach(item => {
+                  if (item.image && item.image.startsWith('eagle://')) {
+                    const hash = item.image.replace('eagle://', '');
+                    referencedHashes.add(hash);
+                  }
+                  if (item.original_image_url) {
+                    referencedUrls.add(item.original_image_url);
+                  }
+                });
+              }
+            });
+            
+            console.log(`[Tab Cleaner Background] 🧹 Found ${referencedHashes.size} referenced hashes, ${referencedUrls.size} referenced URLs`);
+            
+            // 通过 executeScript 在任意标签页中执行 IndexedDB 清理
+            // 注意：IndexedDB 是每个源（origin）共享的，所以可以在任意标签页中执行
+            try {
+              const tabs = await chrome.tabs.query({});
+              if (tabs.length > 0) {
+                // 使用第一个标签页执行清理（IndexedDB 是共享的）
+                await chrome.scripting.executeScript({
+                  target: { tabId: tabs[0].id },
+                  func: async (hashes, urls) => {
+                    if (!window.__TAB_CLEANER_EAGLE_STORAGE || !window.__TAB_CLEANER_EAGLE_STORAGE.initDB) {
+                      return { error: 'Eagle Storage not available' };
+                    }
+                    
+                    await window.__TAB_CLEANER_EAGLE_STORAGE.initDB();
+                    const db = window.__TAB_CLEANER_EAGLE_STORAGE._db || null;
+                    if (!db) {
+                      return { error: 'IndexedDB not initialized' };
+                    }
+                    
+                    // 获取所有图片
+                    const allImages = await new Promise((resolve, reject) => {
+                      const transaction = db.transaction(['images'], 'readonly');
+                      const store = transaction.objectStore('images');
+                      const request = store.getAll();
+                      request.onsuccess = () => resolve(request.result || []);
+                      request.onerror = () => reject(new Error('Failed to get all images'));
+                    });
+                    
+                    // 找出未引用的图片
+                    const unusedImages = allImages.filter(img => {
+                      if (hashes.includes(img.hash)) return false;
+                      if (urls.includes(img.originalUrl)) return false;
+                      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+                      if (img.timestamp && img.timestamp > sevenDaysAgo) return false;
+                      return true;
+                    });
+                    
+                    // 删除未引用的图片
+                    if (unusedImages.length > 0) {
+                      await Promise.all(unusedImages.map(img => {
+                        return new Promise((resolve, reject) => {
+                          const transaction = db.transaction(['images'], 'readwrite');
+                          const store = transaction.objectStore('images');
+                          const request = store.delete(img.hash);
+                          request.onsuccess = () => resolve();
+                          request.onerror = () => reject(new Error(`Failed to delete ${img.hash}`));
+                        });
+                      }));
+                    }
+                    
+                    return {
+                      total: allImages.length,
+                      referenced: hashes.length + urls.length,
+                      deleted: unusedImages.length,
+                      remaining: allImages.length - unusedImages.length,
+                    };
+                  },
+                  args: [Array.from(referencedHashes), Array.from(referencedUrls)],
+                });
+                
+                console.log(`[Tab Cleaner Background] ✅ IndexedDB cleanup completed`);
+              }
+            } catch (cleanupError) {
+              console.warn('[Tab Cleaner Background] ⚠️ IndexedDB cleanup failed:', cleanupError);
+            }
+          } catch (cleanupError) {
+            console.warn('[Tab Cleaner Background] ⚠️ IndexedDB cleanup error:', cleanupError);
+          }
+        })();
         
         // 验证保存是否成功
         const verifyResult = await chrome.storage.local.get(['sessions', 'currentSessionId']);
@@ -1835,122 +2105,74 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         });
         console.log(`[Tab Cleaner Background] ✓ Personal space opened`);
 
-        // ✅ 步骤 6: 异步生成 embedding（不阻塞主流程）
-        const apiUrl = API_CONFIG.getBaseUrlSync();
-        if (apiUrl) {
-          console.log(`[Tab Cleaner Background] Starting async embedding generation...`);
-          // 异步处理，不阻塞响应
-          (async () => {
-            try {
-              const successfulItems = opengraphItems.filter(item => item.success);
-              if (successfulItems.length === 0) {
-                console.log(`[Tab Cleaner Background] No successful items to generate embeddings for`);
-                return;
-              }
-
-              // ✅ 规范化函数：确保 image 是字符串，不是数组
-              const normalizeItem = (item) => {
-                const normalized = {
-                  url: String(item.url || '').trim(),
-                  title: item.title ? String(item.title).trim() : null,
-                  description: item.description ? String(item.description).trim() : null,
-                  image: null, // 先设为 null，然后处理
-                  site_name: item.site_name ? String(item.site_name).trim() : null,
-                  tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
-                  tab_title: item.tab_title ? String(item.tab_title).trim() : null,
-                  is_doc_card: Boolean(item.is_doc_card || false),
-                  is_screenshot: Boolean(item.is_screenshot || false),
-                  success: Boolean(item.success !== undefined ? item.success : true),
-                };
-                
-                // ✅ 关键：确保 image 是字符串，不是数组
-                let image = item.image;
-                if (image) {
-                  if (Array.isArray(image)) {
-                    // 如果是数组，取第一个元素
-                    image = image.length > 0 ? String(image[0]).trim() : null;
-                  } else if (typeof image === 'string') {
-                    image = image.trim() || null;
-                  } else {
-                    image = String(image).trim() || null;
-                  }
-                }
-                normalized.image = image;
-                
-                return normalized;
-              };
-
-              // 批量生成 embedding（每批 5 个，避免过载）
-              const batchSize = 5;
-              for (let i = 0; i < successfulItems.length; i += batchSize) {
-                const batch = successfulItems.slice(i, i + batchSize);
-                try {
-                  // ✅ 规范化每个项
-                  const normalizedBatch = batch.map(normalizeItem);
-                  
-                  const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
-                  const embedResponse = await fetch(embeddingUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      opengraph_items: normalizedBatch
-                    }),
-                  });
-                  
-                  if (embedResponse.ok) {
-                    const embedData = await embedResponse.json();
-                    if (embedData.data && embedData.data.length > 0) {
-                      // 更新 session 中的 embedding 数据
-                      const storageResult = await chrome.storage.local.get(['sessions']);
-                      const sessions = storageResult.sessions || [];
-                      const sessionIndex = sessions.findIndex(s => s.id === sessionId);
-                      
-                      if (sessionIndex !== -1) {
-                        const session = sessions[sessionIndex];
-                        const updatedData = session.opengraphData.map(item => {
-                          const embedItem = embedData.data.find(e => e.url === item.url);
-                          if (embedItem && (embedItem.text_embedding || embedItem.image_embedding)) {
-                            return {
-                              ...item,
-                              text_embedding: embedItem.text_embedding || item.text_embedding,
-                              image_embedding: embedItem.image_embedding || item.image_embedding,
-                            };
-                          }
-                          return item;
-                        });
-                        
-                        sessions[sessionIndex] = {
-                          ...session,
-                          opengraphData: updatedData,
-                        };
-                        
-                        await chrome.storage.local.set({ sessions });
-                        console.log(`[Tab Cleaner Background] ✓ Updated embeddings for batch ${Math.floor(i / batchSize) + 1}`);
-                      }
-                    }
-                  }
-                } catch (error) {
-                  console.warn(`[Tab Cleaner Background] Failed to generate embeddings for batch ${Math.floor(i / batchSize) + 1}:`, error);
-                }
-                
-                // 批次间延迟，避免过载
-                if (i + batchSize < successfulItems.length) {
-                  await new Promise(resolve => setTimeout(resolve, 200));
-                }
-              }
-              
-              console.log(`[Tab Cleaner Background] ✓ All embeddings generated asynchronously`);
-            } catch (error) {
-              console.error('[Tab Cleaner Background] Async embedding generation failed:', error);
-            }
-          })();
-        } else {
-          console.log(`[Tab Cleaner Background] No API URL configured, skipping embedding generation`);
-        }
+        // ✅ 步骤 6: 缩略图、颜色提取和 caption 生成已优化
+        // 🆕 优化：不再在 background.js 中批量处理
+        // - 缩略图和颜色提取：由 PersonalSpace 的 SessionCard 在渲染时自动生成（从 IndexedDB 读取，无 CORS）
+        // - Caption 生成：由 SessionCard 生成缩略图后自动发送到后端
+        // 这样更高效：只在需要显示时才处理，且图片数据已经在 IndexedDB 中，无需再次 fetch
+        console.log(`[Tab Cleaner Background] ℹ️ Thumbnail, colors, and caption will be generated on-demand in PersonalSpace (from IndexedDB)`);
 
         sendResponse({ ok: true, data: { items: opengraphItems, sessionId } });
       } catch (error) {
         console.error('[Tab Cleaner Background] Failed to clean all tabs:', error);
+        
+        // 🆕 兜底方案：即使出错，也尝试保存已收集的数据并打开个人空间
+        try {
+          // 尝试保存部分数据（如果有的话）
+          const storageResult = await chrome.storage.local.get(['sessions']);
+          const existingSessions = storageResult.sessions || [];
+          
+          // 检查是否有部分收集的数据可以保存
+          if (localOGResults && localOGResults.length > 0) {
+            const partialItems = localOGResults
+              .map((result) => {
+                if (result.status === 'fulfilled' && result.value) {
+                  return result.value;
+                }
+                return null;
+              })
+              .filter(item => item !== null);
+            
+            if (partialItems.length > 0) {
+              console.log(`[Tab Cleaner Background] 🆕 Fallback: Saving ${partialItems.length} partially collected items...`);
+              
+              const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+              const existingNames = existingSessions.map(s => s.name);
+              let counter = 1;
+              let sessionName = `洗衣筐${counter}`;
+              while (existingNames.includes(sessionName)) {
+                counter++;
+                sessionName = `洗衣筐${counter}`;
+              }
+              
+              const newSession = {
+                id: sessionId,
+                name: sessionName,
+                createdAt: Date.now(),
+                opengraphData: partialItems,
+                tabCount: partialItems.length,
+              };
+              
+              const updatedSessions = [newSession, ...existingSessions];
+              await chrome.storage.local.set({ 
+                sessions: updatedSessions,
+                lastCleanTime: Date.now(),
+                currentSessionId: sessionId,
+              });
+              
+              console.log(`[Tab Cleaner Background] ✅ Fallback: Saved ${partialItems.length} items`);
+            }
+          }
+          
+          // 打开个人空间
+          await chrome.tabs.create({
+            url: chrome.runtime.getURL("personalspace.html")
+          });
+          console.log(`[Tab Cleaner Background] ✅ Fallback: Personal space opened`);
+        } catch (fallbackError) {
+          console.error('[Tab Cleaner Background] ❌ Fallback also failed:', fallbackError);
+        }
+        
         sendResponse({ ok: false, error: error.message });
       }
     });

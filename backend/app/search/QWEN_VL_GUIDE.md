@@ -256,3 +256,6 @@ python test_qwen_vl.py
 3. 在搜索时使用视觉属性进行匹配
 4. 实现三阶段漏斗搜索（Caption → 视觉属性 → Embedding）
 
+
+
+

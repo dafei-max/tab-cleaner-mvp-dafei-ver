@@ -176,3 +176,6 @@ def get_caption_prompt(include_attributes: bool = True) -> str:
 2. **导入顺序**：确保在使用 prompt 之前正确导入 `ai_prompt_config`
 3. **错误处理**：如果 prompt 配置有问题，相关功能会回退到默认行为或报错
 
+
+
+

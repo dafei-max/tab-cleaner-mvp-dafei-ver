@@ -389,6 +389,125 @@
   }
 
   /**
+   * 🆕 从已渲染的 <img> 元素提取主色调
+   * 使用 Canvas API + 简单采样算法
+   * @param {HTMLImageElement} imgElement - 图片元素
+   * @returns {string[]|null} - 主色调数组（CSS 颜色名称）
+   */
+  function extractDominantColorsFromElement(imgElement) {
+    if (!imgElement || !imgElement.complete || imgElement.naturalWidth === 0) {
+      return null;
+    }
+    
+    try {
+      const SAMPLE_SIZE = 50;
+      const ratio = Math.min(1, SAMPLE_SIZE / Math.max(imgElement.naturalWidth, imgElement.naturalHeight));
+      const w = Math.max(1, Math.round(imgElement.naturalWidth * ratio));
+      const h = Math.max(1, Math.round(imgElement.naturalHeight * ratio));
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgElement, 0, 0, w, h);
+      
+      let imageData;
+      try {
+        imageData = ctx.getImageData(0, 0, w, h);
+      } catch (corsError) {
+        return null;
+      }
+      
+      const pixels = imageData.data;
+      const colorCounts = {};
+      
+      for (let i = 0; i < pixels.length; i += 16) {
+        const r = pixels[i];
+        const g = pixels[i + 1];
+        const b = pixels[i + 2];
+        const a = pixels[i + 3];
+        
+        if (a < 128) continue;
+        
+        const qr = Math.round(r / 32) * 32;
+        const qg = Math.round(g / 32) * 32;
+        const qb = Math.round(b / 32) * 32;
+        const key = `${qr},${qg},${qb}`;
+        
+        colorCounts[key] = (colorCounts[key] || 0) + 1;
+      }
+      
+      // 🆕 直接返回 Hex 值，用于精确颜色距离计算
+      const normalizeHex = (hex) => {
+        if (!hex || typeof hex !== 'string') return null;
+        const match = hex.trim().match(/^#?([0-9a-fA-F]{6})$/);
+        if (!match) return null;
+        return `#${match[1].toUpperCase()}`;
+      };
+      const normalizeList = (arr) => (arr || []).map(normalizeHex).filter(Boolean);
+
+      const sortedColors = Object.entries(colorCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([key]) => {
+          const [r, g, b] = key.split(',').map(Number);
+          return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase();
+        });
+      
+      const uniqueColors = [...new Set(sortedColors)];
+      const normalized = normalizeList(uniqueColors);
+      console.log(`[Image Capture] 🎨 Extracted Hex: ${normalized.join(', ')}`);
+      return normalized.length > 0 ? normalized : null;
+    } catch (e) {
+      console.warn('[Image Capture] Failed to extract colors:', e.message);
+      return null;
+    }
+  }
+  
+  /**
+   * 🆕 将 RGB 值转换为 CSS 颜色名称
+   */
+  function rgbToColorName(r, g, b) {
+    const max = Math.max(r, g, b) / 255;
+    const min = Math.min(r, g, b) / 255;
+    const l = (max + min) / 2;
+    const d = max - min;
+    
+    let h = 0, s = 0;
+    if (d !== 0) {
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r / 255: h = ((g - b) / 255 / d + (g < b ? 6 : 0)) / 6; break;
+        case g / 255: h = ((b - r) / 255 / d + 2) / 6; break;
+        case b / 255: h = ((r - g) / 255 / d + 4) / 6; break;
+      }
+    }
+    
+    h *= 360;
+    s *= 100;
+    const lPercent = l * 100;
+    
+    if (s < 10) {
+      if (lPercent < 15) return 'black';
+      if (lPercent < 40) return 'darkgray';
+      if (lPercent < 60) return 'gray';
+      if (lPercent < 85) return 'lightgray';
+      return 'white';
+    }
+    
+    if (h < 15 || h >= 345) return lPercent < 40 ? 'darkred' : (lPercent > 70 ? 'lightpink' : 'red');
+    if (h < 45) return lPercent < 40 ? 'saddlebrown' : (lPercent > 70 ? 'peachpuff' : 'orange');
+    if (h < 70) return lPercent < 40 ? 'olive' : (lPercent > 70 ? 'lightyellow' : 'yellow');
+    if (h < 150) return lPercent < 40 ? 'darkgreen' : (lPercent > 70 ? 'lightgreen' : 'green');
+    if (h < 200) return lPercent < 40 ? 'teal' : (lPercent > 70 ? 'lightcyan' : 'cyan');
+    if (h < 260) return lPercent < 40 ? 'darkblue' : (lPercent > 70 ? 'lightblue' : 'blue');
+    if (h < 290) return lPercent < 40 ? 'indigo' : (lPercent > 70 ? 'lavender' : 'purple');
+    if (h < 345) return lPercent < 40 ? 'darkmagenta' : (lPercent > 70 ? 'lightpink' : 'pink');
+    
+    return 'gray';
+  }
+
+  /**
    * 🆕 生成 200px 缩略图用于后端打标（解决 URL 403 问题）
    * @param {string} imageUrl - 图片 URL 或 base64
    * @param {HTMLImageElement} imgElement - 可选，已渲染的图片元素（优先使用）
@@ -1827,12 +1946,18 @@
     // ✅ 对 dataURL 图片做一次压缩，避免写入过大的 base64
     const finalImageUrl = await compressImageIfNeeded(imageUrl);
     
-    // 🆕 生成 200px 缩略图（用于后端打标，解决 URL 403 问题）
-    // 优先从已渲染的元素生成（绕过 CORS）
+    // 🆕 生成 200px 缩略图（用于前端直接使用，避免后续下载/CORS）
+    // 优先从已渲染的元素生成（绕过 CORS），否则仅对 data:image 生成
     const thumbnailStart = performance.now();
-    const thumbnail = await generateThumbnail(imageUrl, imageElement);
+    const thumbnail = await generateThumbnail(finalImageUrl, imageElement);
     const thumbnailTime = (performance.now() - thumbnailStart).toFixed(0);
     console.log(`[Image Capture] 🖼️ Thumbnail generated in ${thumbnailTime}ms, success: ${!!thumbnail}`);
+    
+    // 🆕 提取主色调（用于颜色筛选）
+    let dominantColors = null;
+    if (imageElement) {
+      dominantColors = extractDominantColorsFromElement(imageElement);
+    }
     
     // 构建 OpenGraph 数据
     const ogData = {
@@ -1840,7 +1965,8 @@
       title: document.title || window.location.href,
       description: '',
       image: finalImageUrl,
-      thumbnail: thumbnail,        // 🆕 200px 缩略图用于打标
+      thumbnail: thumbnail,           // 🆕 200px 缩略图用于打标
+      dominant_colors: dominantColors, // 🆕 主色调用于颜色筛选
       site_name: window.location.hostname.replace(/^www\./, ''),
       success: true,
       is_local_fetch: true,

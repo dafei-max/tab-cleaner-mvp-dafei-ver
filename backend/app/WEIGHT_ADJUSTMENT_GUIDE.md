@@ -217,3 +217,6 @@ python test_search.py --user-id anonymous
 - 文本相关权重降低（10% + 10% = 20%）
 - 更适合设计师找图场景
 
+
+
+

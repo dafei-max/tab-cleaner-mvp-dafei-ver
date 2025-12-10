@@ -40,7 +40,25 @@
    * @param {HTMLImageElement} imgElement - 图片元素
    * @returns {string|null} - thumbnail base64 或 null
    */
-  function generateThumbnailFromElement(imgElement) {
+  // 兜底：通过 background 代理获取 dataURL
+  function fetchImageViaBackground(url) {
+    return new Promise((resolve, reject) => {
+      if (typeof chrome === 'undefined' || !chrome.runtime?.id) {
+        reject(new Error('chrome.runtime unavailable'));
+        return;
+      }
+      chrome.runtime.sendMessage({ action: 'fetchImage', url }, (resp) => {
+        if (resp && resp.success && resp.dataUrl) {
+          resolve(resp.dataUrl);
+        } else {
+          reject(new Error(resp?.error || 'fetchImage failed'));
+        }
+      });
+    });
+  }
+
+  // 从已渲染 <img> 生成缩略图，若 CORS 污染则尝试后台代理拉取
+  async function generateThumbnailFromElement(imgElement) {
     if (!imgElement || !imgElement.complete || imgElement.naturalWidth === 0) {
       return null;
     }
@@ -63,7 +81,21 @@
       try {
         ctx.getImageData(0, 0, 1, 1);
       } catch (corsError) {
-        console.warn('[OG Thumbnail] Canvas tainted by CORS:', imgElement.src?.substring(0, 50));
+        console.warn('[OG Thumbnail] Canvas tainted by CORS, will proxy fetch:', imgElement.src?.substring(0, 80));
+        // 尝试通过 background 代理拉取，转 dataURL 再生成
+        if (imgElement.src) {
+          const proxied = await fetchImageViaBackground(imgElement.src).catch(() => null);
+          if (proxied) {
+            try {
+              const proxyImg = new Image();
+              proxyImg.src = proxied;
+              await proxyImg.decode();
+              return generateThumbnailFromElement(proxyImg); // 递归用可读像素的 dataURL
+            } catch (e) {
+              console.warn('[OG Thumbnail] Proxy fetch failed for thumbnail:', e.message);
+            }
+          }
+        }
         return null;
       }
       
@@ -78,10 +110,155 @@
   }
 
   /**
+   * 🆕 从已渲染的 <img> 元素提取主色调（前端 Color Thief 替代方案）
+   * 使用 Canvas API + 简单采样算法
+   * @param {HTMLImageElement} imgElement - 图片元素
+   * @returns {string[]|null} - 主色调数组（CSS 颜色名称），最多 5 个
+   */
+  // 从已渲染 <img> 提取主色调，若 CORS 污染则尝试后台代理拉取
+  async function extractDominantColorsFromElement(imgElement) {
+    if (!imgElement || !imgElement.complete || imgElement.naturalWidth === 0) {
+      return null;
+    }
+    
+    const normalizeHex = (hex) => {
+      if (!hex || typeof hex !== 'string') return null;
+      const match = hex.trim().match(/^#?([0-9a-fA-F]{6})$/);
+      if (!match) return null;
+      return `#${match[1].toUpperCase()}`;
+    };
+    const normalizeList = (arr) => (arr || []).map(normalizeHex).filter(Boolean);
+    
+    try {
+      // 缩小图片以加速处理
+      const SAMPLE_SIZE = 50;
+      const ratio = Math.min(1, SAMPLE_SIZE / Math.max(imgElement.naturalWidth, imgElement.naturalHeight));
+      const w = Math.max(1, Math.round(imgElement.naturalWidth * ratio));
+      const h = Math.max(1, Math.round(imgElement.naturalHeight * ratio));
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgElement, 0, 0, w, h);
+      
+      // 获取像素数据
+      let imageData;
+      try {
+        imageData = ctx.getImageData(0, 0, w, h);
+      } catch (corsError) {
+        console.warn('[OG Colors] Canvas tainted by CORS, will proxy fetch:', imgElement.src?.substring(0, 80));
+        if (imgElement.src) {
+          const proxied = await fetchImageViaBackground(imgElement.src).catch(() => null);
+          if (proxied) {
+            try {
+              const proxyImg = new Image();
+              proxyImg.src = proxied;
+              await proxyImg.decode();
+              return extractDominantColorsFromElement(proxyImg); // 用可读像素的 dataURL 重试
+            } catch (e) {
+              console.warn('[OG Colors] Proxy fetch failed:', e.message);
+            }
+          }
+        }
+        return null; // 兜底失败
+      }
+      
+      const pixels = imageData.data;
+      const colorCounts = {};
+      
+      // 采样像素，统计颜色频率
+      for (let i = 0; i < pixels.length; i += 16) { // 每 4 个像素采样一次
+        const r = pixels[i];
+        const g = pixels[i + 1];
+        const b = pixels[i + 2];
+        const a = pixels[i + 3];
+        
+        if (a < 128) continue; // 跳过透明像素
+        
+        // 量化颜色（减少颜色种类）
+        const qr = Math.round(r / 32) * 32;
+        const qg = Math.round(g / 32) * 32;
+        const qb = Math.round(b / 32) * 32;
+        const key = `${qr},${qg},${qb}`;
+        
+        colorCounts[key] = (colorCounts[key] || 0) + 1;
+      }
+      
+      // 排序获取最常见的颜色
+      // 🆕 直接返回 Hex 值，不转换为颜色名称（用于精确颜色距离计算）
+      const sortedColors = Object.entries(colorCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([key]) => {
+          const [r, g, b] = key.split(',').map(Number);
+          // 返回 Hex 值
+          return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase();
+        });
+      
+      // 去重
+      const uniqueColors = [...new Set(sortedColors)];
+      const normalized = normalizeList(uniqueColors);
+      console.log(`[OG Colors] ✅ Extracted Hex: ${normalized.join(', ')}`);
+      return normalized.length > 0 ? normalized : null;
+    } catch (e) {
+      console.warn('[OG Colors] Failed:', e.message);
+      return null;
+    }
+  }
+  
+  /**
+   * 🆕 将 RGB 值转换为 CSS 颜色名称（用于颜色筛选匹配）
+   */
+  function rgbToColorName(r, g, b) {
+    // 计算 HSL
+    const max = Math.max(r, g, b) / 255;
+    const min = Math.min(r, g, b) / 255;
+    const l = (max + min) / 2;
+    const d = max - min;
+    
+    let h = 0, s = 0;
+    if (d !== 0) {
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r / 255: h = ((g - b) / 255 / d + (g < b ? 6 : 0)) / 6; break;
+        case g / 255: h = ((b - r) / 255 / d + 2) / 6; break;
+        case b / 255: h = ((r - g) / 255 / d + 4) / 6; break;
+      }
+    }
+    
+    h *= 360;
+    s *= 100;
+    const lPercent = l * 100;
+    
+    // 根据 HSL 值判断颜色名称
+    if (s < 10) {
+      // 灰度色
+      if (lPercent < 15) return 'black';
+      if (lPercent < 40) return 'darkgray';
+      if (lPercent < 60) return 'gray';
+      if (lPercent < 85) return 'lightgray';
+      return 'white';
+    }
+    
+    // 彩色
+    if (h < 15 || h >= 345) return lPercent < 40 ? 'darkred' : (lPercent > 70 ? 'lightpink' : 'red');
+    if (h < 45) return lPercent < 40 ? 'saddlebrown' : (lPercent > 70 ? 'peachpuff' : 'orange');
+    if (h < 70) return lPercent < 40 ? 'olive' : (lPercent > 70 ? 'lightyellow' : 'yellow');
+    if (h < 150) return lPercent < 40 ? 'darkgreen' : (lPercent > 70 ? 'lightgreen' : 'green');
+    if (h < 200) return lPercent < 40 ? 'teal' : (lPercent > 70 ? 'lightcyan' : 'cyan');
+    if (h < 260) return lPercent < 40 ? 'darkblue' : (lPercent > 70 ? 'lightblue' : 'blue');
+    if (h < 290) return lPercent < 40 ? 'indigo' : (lPercent > 70 ? 'lavender' : 'purple');
+    if (h < 345) return lPercent < 40 ? 'darkmagenta' : (lPercent > 70 ? 'lightpink' : 'pink');
+    
+    return 'gray';
+  }
+
+  /**
    * 从当前页面提取 OpenGraph 数据
    * @returns {Object} OpenGraph 数据
    */
-  function extractOpenGraphLocal() {
+  async function extractOpenGraphLocal() {
     const result = {
       url: window.location.href,
       title: '',
@@ -151,6 +328,14 @@
         });
         if (matchingImg && matchingImg.complete && matchingImg.naturalWidth > 0) {
           result.thumbnail = generateThumbnailFromElement(matchingImg);
+          // 🆕 同时提取主色调
+          const colors = await extractDominantColorsFromElement(matchingImg);
+          if (colors && colors.length > 0) {
+            result.dominant_colors = colors;
+          }
+          if (!result.thumbnail) {
+            console.warn('[OG Thumbnail] No thumbnail generated from matchingImg (CORS?)', matchingImg.src?.substring(0, 80));
+          }
         }
       } else {
         // ✅ 瀑布流站点特殊处理：Pinterest、小红书等
@@ -221,9 +406,16 @@
 
           if (largestImage) {
             result.image = largestImage;
-            // 🆕 尝试从已渲染的元素生成 thumbnail
+            // 🆕 尝试从已渲染的元素生成 thumbnail 和提取颜色
             if (largestImageElement) {
               result.thumbnail = generateThumbnailFromElement(largestImageElement);
+              const colors = extractDominantColorsFromElement(largestImageElement);
+              if (colors && colors.length > 0) {
+                result.dominant_colors = colors;
+              }
+              if (!result.thumbnail) {
+                console.warn('[OG Thumbnail] No thumbnail from largestImageElement (CORS?)', largestImageElement.src?.substring(0, 80));
+              }
             }
           }
         }
@@ -250,9 +442,18 @@
           
           if (largeImage) {
             result.image = largeImage.src || largeImage.getAttribute('data-src') || largeImage.getAttribute('data-lazy-src') || '';
-            // 🆕 尝试从已渲染的元素生成 thumbnail
+            // 🆕 尝试从已渲染的元素生成 thumbnail 和提取颜色
             if (!result.thumbnail) {
               result.thumbnail = generateThumbnailFromElement(largeImage);
+            }
+            if (!result.dominant_colors) {
+              const colors = extractDominantColorsFromElement(largeImage);
+              if (colors && colors.length > 0) {
+                result.dominant_colors = colors;
+              }
+            }
+            if (!result.thumbnail) {
+              console.warn('[OG Thumbnail] No thumbnail from largeImage (CORS?)', largeImage.src?.substring(0, 80));
             }
           }
         }

@@ -243,3 +243,6 @@ ERROR: permission denied to create index
 3. **验证数据**：检查新字段是否有数据
 4. **更新查询代码**：使用新字段进行搜索
 
+
+
+

@@ -1,7 +1,257 @@
 import React, { useLayoutEffect, useRef, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { MASONRY_CONFIG } from '../../config/masonryConfig';
-import { getBestImageSource, handleImageError, getPlaceholderImage } from '../../utils/imagePlaceholder';
+import { getBestImageSource, getImageFromIndexedDB, handleImageError, getPlaceholderImage } from '../../utils/imagePlaceholder';
+import { extractColorsFromLoadedImage } from '../../utils/colorUtils';
+
+/**
+ * 🆕 从 IndexedDB 加载图片（优先使用，无 CORS 限制）
+ */
+async function loadImageFromIndexedDB(imageUrl) {
+  try {
+    if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.loadImage) {
+      const imageData = await window.__TAB_CLEANER_EAGLE_STORAGE.loadImage(imageUrl);
+      if (imageData && imageData.dataUrl) {
+        console.log('[SessionCard] ✅ Loaded from IndexedDB for processing:', imageUrl.substring(0, 50));
+        return imageData.dataUrl;
+      }
+    }
+  } catch (error) {
+    console.warn('[SessionCard] ⚠️ Failed to load from IndexedDB:', error);
+  }
+  return null;
+}
+
+// 从已加载的 <img> 或 IndexedDB 生成 base64 缩略图（优先 IndexedDB，无 CORS 限制）
+async function generateThumbnailFromImage(imgElement, maxSize = 200, quality = 0.7) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      // 🆕 优先从 IndexedDB 加载（如果图片元素有 src 且不是 Data URL）
+      let imageSrc = imgElement.src;
+      let useIndexedDB = false;
+      
+      if (imageSrc && !imageSrc.startsWith('data:') && !imageSrc.startsWith('blob:')) {
+        const indexedDbImage = await loadImageFromIndexedDB(imageSrc);
+        if (indexedDbImage) {
+          // 使用 IndexedDB 中的图片创建新的 Image 元素
+          const indexedImg = new Image();
+          indexedImg.onload = () => {
+            try {
+              const canvas = document.createElement('canvas');
+              const ratio = Math.min(1, maxSize / Math.max(indexedImg.width, indexedImg.height));
+              canvas.width = Math.round(indexedImg.width * ratio);
+              canvas.height = Math.round(indexedImg.height * ratio);
+              
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(indexedImg, 0, 0, canvas.width, canvas.height);
+              
+              const thumbnail = canvas.toDataURL('image/jpeg', quality);
+              console.log('[SessionCard] ✅ Thumbnail generated from IndexedDB (no CORS)');
+              resolve(thumbnail);
+            } catch (err) {
+              reject(err);
+            }
+          };
+          indexedImg.onerror = () => {
+            // IndexedDB 加载失败，回退到原始元素
+            generateFromElement();
+          };
+          indexedImg.src = indexedDbImage;
+          return;
+        }
+      }
+      
+      // 回退：使用原始图片元素
+      generateFromElement();
+      
+      function generateFromElement() {
+        if (!imgElement || !imgElement.complete || imgElement.naturalWidth === 0) {
+          reject(new Error('Image not loaded'));
+          return;
+        }
+        
+        try {
+          const w = imgElement.naturalWidth;
+          const h = imgElement.naturalHeight;
+          const ratio = w / h;
+          let tw, th;
+          if (w > h) {
+            tw = Math.min(maxSize, w);
+            th = Math.round(tw / ratio);
+          } else {
+            th = Math.min(maxSize, h);
+            tw = Math.round(th * ratio);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = tw;
+          canvas.height = th;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(imgElement, 0, 0, tw, th);
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(dataUrl);
+        } catch (err) {
+          reject(err);
+        }
+      }
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+// 一次性生成缩略图 + 颜色（优先从 IndexedDB，无 CORS 限制）
+async function generateThumbnailAndColors(imgElement, maxSize = 200, quality = 0.7) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const cardUrl = imgElement.src?.substring(0, 50) || 'unknown';
+      console.log(`[SessionCard] 🎨 Starting thumbnail + colors generation for: ${cardUrl}...`);
+      
+      // 🆕 优先从 IndexedDB 加载（如果图片元素有 src 且不是 Data URL）
+      let imageSrc = imgElement.src;
+      let useIndexedDB = false;
+      
+      if (imageSrc && !imageSrc.startsWith('data:') && !imageSrc.startsWith('blob:')) {
+        console.log(`[SessionCard] 🔍 Attempting to load from IndexedDB: ${imageSrc.substring(0, 50)}...`);
+        const indexedDbImage = await loadImageFromIndexedDB(imageSrc);
+        if (indexedDbImage) {
+          // 使用 IndexedDB 中的图片
+          imageSrc = indexedDbImage;
+          useIndexedDB = true;
+          console.log(`[SessionCard] ✅ Loaded from IndexedDB (${(imageSrc.length / 1024).toFixed(1)} KB)`);
+        } else {
+          console.log(`[SessionCard] ⚠️ IndexedDB load failed, using original src`);
+        }
+      } else {
+        console.log(`[SessionCard] ℹ️ Using original image element (${imageSrc.startsWith('data:') ? 'Data URL' : 'other'})`);
+      }
+      
+      // 创建 Image 元素（从 IndexedDB 或使用原始元素）
+      const img = useIndexedDB ? new Image() : imgElement;
+      
+      if (useIndexedDB) {
+        // 等待 IndexedDB 图片加载
+        await new Promise((imgResolve, imgReject) => {
+          img.onload = () => {
+            console.log(`[SessionCard] 📐 IndexedDB image loaded: ${img.width}x${img.height}px`);
+            imgResolve();
+          };
+          img.onerror = (err) => {
+            console.error(`[SessionCard] ❌ IndexedDB image load failed:`, err);
+            imgReject(err);
+          };
+          img.src = imageSrc;
+        });
+      } else {
+        // 使用原始元素，检查是否已加载
+        if (!imgElement.complete || imgElement.naturalWidth === 0) {
+          console.error(`[SessionCard] ❌ Image element not loaded: complete=${imgElement.complete}, naturalWidth=${imgElement.naturalWidth}`);
+          reject(new Error('Image not loaded'));
+          return;
+        }
+        console.log(`[SessionCard] 📐 Original image element: ${imgElement.naturalWidth}x${imgElement.naturalHeight}px`);
+      }
+      
+      const canvas = document.createElement('canvas');
+      const sourceWidth = useIndexedDB ? img.width : imgElement.naturalWidth;
+      const sourceHeight = useIndexedDB ? img.height : imgElement.naturalHeight;
+      const ratio = Math.min(1, maxSize / Math.max(sourceWidth, sourceHeight));
+      canvas.width = Math.round(sourceWidth * ratio);
+      canvas.height = Math.round(sourceHeight * ratio);
+      
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      // 生成缩略图（从 IndexedDB 加载的图片不会有 CORS 问题）
+      let thumbnail;
+      try {
+        thumbnail = canvas.toDataURL('image/jpeg', quality);
+        if (useIndexedDB) {
+          console.log('[SessionCard] ✅ Thumbnail generated from IndexedDB (no CORS)');
+        }
+      } catch (error) {
+        // 如果还是失败（不应该发生，因为 IndexedDB 的 Data URL 不会有 CORS）
+        reject(new Error('Canvas error: ' + error.message));
+        return;
+      }
+      
+      // 提取颜色（从 Canvas 提取，无 CORS 限制）
+      const colors = extractColorsFromCanvas(canvas);
+      
+      resolve({ thumbnail, colors });
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+/**
+ * 🆕 从 Canvas 提取颜色（无 CORS 限制）
+ */
+function extractColorsFromCanvas(canvas) {
+  try {
+    console.log(`[SessionCard] 🎨 Extracting colors from canvas: ${canvas.width}x${canvas.height}px`);
+    
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const pixels = imageData.data;
+    
+    // 快速采样
+    const samples = [];
+    const sampleRate = 10;
+    
+    for (let i = 0; i < pixels.length; i += 4 * sampleRate) {
+      const r = pixels[i];
+      const g = pixels[i + 1];
+      const b = pixels[i + 2];
+      const a = pixels[i + 3];
+      
+      // 跳过透明、纯白、纯黑
+      if (a < 128) continue;
+      if (r > 250 && g > 250 && b > 250) continue;
+      if (r < 5 && g < 5 && b < 5) continue;
+      
+      samples.push([r, g, b]);
+    }
+    
+    console.log(`[SessionCard] 🎨 Color samples collected: ${samples.length}`);
+    
+    if (samples.length === 0) {
+      console.warn(`[SessionCard] ⚠️ No valid color samples found`);
+      return [];
+    }
+    
+    // 简化：取前 N 个颜色的平均值（快速算法）
+    const maxColors = 5;
+    const step = Math.floor(samples.length / maxColors);
+    const colors = [];
+    
+    for (let i = 0; i < maxColors && i * step < samples.length; i++) {
+      const sample = samples[i * step];
+      const hex = rgbToHex(sample);
+      colors.push({
+        hex: hex,
+        rgb: sample,
+        percentage: 100 / maxColors,
+      });
+    }
+    
+    const colorHexList = colors.map(c => c.hex).join(', ');
+    console.log(`[SessionCard] ✅ Colors extracted: ${colorHexList} (${colors.length} colors)`);
+    
+    return colors;
+  } catch (error) {
+    console.error('[SessionCard] ❌ Color extraction failed:', error);
+    return [];
+  }
+}
+
+function rgbToHex(rgb) {
+  const [r, g, b] = rgb;
+  return '#' + [r, g, b].map(x => {
+    const hex = Math.max(0, Math.min(255, Math.round(x))).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('');
+}
 import { getImageUrl } from '../../shared/utils';
 import { UI_CONFIG } from './uiConfig';
 
@@ -9,23 +259,29 @@ import { UI_CONFIG } from './uiConfig';
  * 带错误处理和重试的图片组件
  * 确保即使图片加载失败，也会显示占位符
  */
-const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCardWidth, appearDelay }) => {
+const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCardWidth, appearDelay, onColorsExtracted, onThumbnailGenerated }) => {
   const [imageSrc, setImageSrc] = useState(() => 
     getBestImageSource(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75)
   );
   const [hasError, setHasError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const maxRetries = 2; // 最多重试 2 次
+  const imgRef = useRef(null);
+  const [colorExtracted, setColorExtracted] = useState(false);
+  const [thumbDone, setThumbDone] = useState(false);
   
   // 当 og 改变时，重置状态
   useEffect(() => {
+    // ✅ 优先使用 chrome.storage.local 中的图片（可能是 URL 或 Data URL）
     const newSrc = getBestImageSource(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75);
     setImageSrc(newSrc);
     setHasError(false);
     setRetryCount(0);
+    setColorExtracted(false);
+    setThumbDone(false);
   }, [og, resolvedCardWidth]);
   
-  const handleError = (e) => {
+  const handleError = async (e) => {
     const img = e.target;
     const currentSrc = img.src;
     
@@ -71,6 +327,19 @@ const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCar
         return;
       }
       
+      // 🆕 尝试从 IndexedDB 加载（作为兜底）
+      try {
+        const indexedDbImage = await getImageFromIndexedDB(og);
+        if (indexedDbImage) {
+          setRetryCount(prev => prev + 1);
+          setImageSrc(indexedDbImage);
+          console.log('[ImageWithFallback] ✅ Loaded from IndexedDB (fallback)');
+          return;
+        }
+      } catch (error) {
+        console.warn('[ImageWithFallback] ⚠️ Failed to load from IndexedDB:', error);
+      }
+      
       // 尝试使用截图
       if (og.screenshot_image && og.screenshot_image.trim() && currentSrc !== og.screenshot_image) {
         setRetryCount(prev => prev + 1);
@@ -89,10 +358,55 @@ const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCar
     }
   };
   
-  const handleLoad = () => {
+  const handleLoad = async () => {
     setHasError(false);
     if (process.env.NODE_ENV === 'development') {
       console.log('[ImageWithFallback] Image loaded successfully:', og.url?.substring(0, 50));
+    }
+    // 本地缩略图/提色：仅当还缺失时执行
+    const needsThumb = !thumbDone && (!og?.thumbnail || !og.thumbnail.startsWith('data:image'));
+    const needsColor = !colorExtracted && (!og?.dominant_colors || og.dominant_colors.length === 0);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[ImageWithFallback] Debug load state', {
+        url: og.url?.substring(0, 80),
+        needsThumb,
+        needsColor,
+        hasThumb: !!og?.thumbnail,
+        hasColor: og?.dominant_colors?.length || 0,
+      });
+    }
+    if (!needsThumb && !needsColor) return;
+    const imgEl = imgRef.current;
+    if (!imgEl) return;
+    try {
+      const cardId = og.id || og.url || og.tab_id;
+      if (needsThumb && needsColor) {
+        const { thumbnail, colors } = await generateThumbnailAndColors(imgEl, 200, 0.7);
+        setThumbDone(true);
+        setColorExtracted(true);
+        onThumbnailGenerated && onThumbnailGenerated(cardId, thumbnail);
+        if (colors && colors.length > 0) {
+          onColorsExtracted && onColorsExtracted(cardId, colors);
+        }
+        console.log('[ImageWithFallback] ✅ Local thumb+color generated');
+      } else if (needsThumb) {
+        const thumbnail = await generateThumbnailFromImage(imgEl, 200, 0.7);
+        setThumbDone(true);
+        onThumbnailGenerated && onThumbnailGenerated(cardId, thumbnail);
+        console.log('[ImageWithFallback] ✅ Local thumbnail generated');
+      } else if (needsColor) {
+        const colors = await extractColorsFromLoadedImage(imgEl);
+        if (colors && colors.length > 0) {
+          setColorExtracted(true);
+          onColorsExtracted && onColorsExtracted(cardId, colors);
+          console.log('[ImageWithFallback] ✅ Local color extracted', colors);
+        } else {
+          console.log('[ImageWithFallback] ⚠️ Local color extraction returned empty', { url: og.url?.substring(0, 80) });
+        }
+      }
+    } catch (e) {
+      // 静默，可能是 CORS
+      console.debug('[ImageWithFallback] Local processing failed (likely CORS)', e?.message);
     }
   };
   
@@ -122,6 +436,7 @@ const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCar
   
   return (
     <img
+      ref={imgRef}
       src={imageSrc}
       alt={og.title || og.url}
       className={`opengraph-image ${isDocCard ? 'doc-card' : ''} ${isTopResult ? 'top-result' : ''} ${isSelected ? 'selected' : ''}`}
@@ -140,6 +455,8 @@ const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCar
       loading={appearDelay < 10 ? 'eager' : 'lazy'}
       onError={handleError}
       onLoad={handleLoad}
+      crossOrigin="anonymous"
+      referrerPolicy="no-referrer"
     />
   );
 };
@@ -165,6 +482,8 @@ export const SessionCard = ({
   onCardClick,
   searchIndex,        // 搜索结果中的索引（用于计算圆形分布位置）
   searchTotal,        // 搜索结果总数
+  onColorsExtracted,
+  onThumbnailGenerated,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [hoveredButton, setHoveredButton] = useState(null);
@@ -678,6 +997,8 @@ export const SessionCard = ({
           isSelected={isSelected}
           resolvedCardWidth={resolvedCardWidth}
           appearDelay={appearDelay}
+          onColorsExtracted={onColorsExtracted}
+          onThumbnailGenerated={onThumbnailGenerated}
         />
         
         {isCaptionPending && (

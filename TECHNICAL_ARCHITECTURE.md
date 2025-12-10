@@ -673,3 +673,6 @@ background.js: collectTabWithGuaranteedImage()
 
 Tab Cleaner MVP 采用**前后端分离**、**本地优先**的架构设计，通过 Chrome Extension 实现标签页管理，通过向量数据库实现语义搜索，通过 AI 服务实现智能分析。整个系统支持用户隔离、软删除、异步处理等特性，具有良好的扩展性和性能。
 
+
+
+

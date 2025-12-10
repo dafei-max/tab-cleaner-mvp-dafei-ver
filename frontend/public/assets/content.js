@@ -2,28 +2,81 @@
   if (window.__TAB_CLEANER_CONTENT_INSTALLED) return;
   window.__TAB_CLEANER_CONTENT_INSTALLED = true;
 
-  // 加载本地 OpenGraph 抓取工具
+  // 🆕 先加载 Eagle Storage（opengraph_local_v2.js 需要它）
+  (function loadEagleStorage() {
+    if (window.__TAB_CLEANER_EAGLE_STORAGE_LOADED) {
+      console.log('[Tab Cleaner] eagle_storage.js already injected');
+      return;
+    }
+
+    const eagleScript = document.createElement('script');
+    eagleScript.src = chrome.runtime.getURL('assets/eagle_storage.js');
+    eagleScript.onload = () => {
+      console.log('[Tab Cleaner] Eagle Storage script injected into page');
+      window.__TAB_CLEANER_EAGLE_STORAGE_LOADED = true;
+      
+      // 🆕 等待 Eagle Storage 完全初始化（包括 IndexedDB）
+      const checkEagleStorageReady = (attempts = 0) => {
+        if (attempts > 20) { // 最多等待 2 秒（20 * 100ms）
+          console.warn('[Tab Cleaner] ⚠️ Eagle Storage initialization timeout, proceeding anyway');
+          loadOpenGraphLocalV2();
+          return;
+        }
+        
+        if (window.__TAB_CLEANER_EAGLE_STORAGE && 
+            window.__TAB_CLEANER_EAGLE_STORAGE.saveImage && 
+            window.__TAB_CLEANER_EAGLE_STORAGE.loadImage) {
+          console.log('[Tab Cleaner] ✅ Eagle Storage is fully ready');
+          loadOpenGraphLocalV2();
+        } else {
+          // 继续等待
+          setTimeout(() => checkEagleStorageReady(attempts + 1), 100);
+        }
+      };
+      
+      // 开始检查（给一点时间让脚本执行）
+      setTimeout(() => checkEagleStorageReady(), 100);
+    };
+    eagleScript.onerror = (e) => {
+      console.error('[Tab Cleaner] Failed to load eagle_storage.js:', e);
+      // 即使失败也继续加载 opengraph_local_v2.js（会降级处理）
+      loadOpenGraphLocalV2();
+    };
+
+    (document.head || document.documentElement).appendChild(eagleScript);
+  })();
+
+  // 加载本地 OpenGraph 抓取工具 V2
   // Note: Content scripts run in an isolated world and cannot access page-world globals,
   // so we inject the script and let it communicate via window.postMessage
-  (function loadOpenGraphLocal() {
+  function loadOpenGraphLocalV2() {
     // 用 content script 自己的 flag 防止重复注入
-    if (window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED) {
-      console.log('[Tab Cleaner] opengraph_local.js already injected (content world flag)');
+    if (window.__TAB_CLEANER_OPENGRAPH_LOCAL_V2_LOADED) {
+      console.log('[Tab Cleaner] opengraph_local_v2.js already injected (content world flag)');
       return;
     }
 
     const script = document.createElement('script');
-    script.src = chrome.runtime.getURL('assets/opengraph_local.js');
+    script.src = chrome.runtime.getURL('assets/opengraph_local_v2.js');
     script.onload = () => {
-      console.log('[Tab Cleaner] OpenGraph local script injected into page');
+      console.log('[Tab Cleaner] OpenGraph local V2 script injected into page');
+      
+      // 等待一小段时间，确保 Eagle Storage 已初始化
+      setTimeout(() => {
+        if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.saveImage) {
+          console.log('[Tab Cleaner] ✅ Eagle Storage is ready for opengraph_local_v2.js');
+        } else {
+          console.warn('[Tab Cleaner] ⚠️ Eagle Storage not ready, opengraph_local_v2.js will use fallback');
+        }
+      }, 500);
     };
     script.onerror = (e) => {
-      console.error('[Tab Cleaner] Failed to load opengraph_local.js:', e);
+      console.error('[Tab Cleaner] Failed to load opengraph_local_v2.js:', e);
     };
 
     (document.head || document.documentElement).appendChild(script);
-    window.__TAB_CLEANER_OPENGRAPH_LOCAL_LOADED = true;
-  })();
+    window.__TAB_CLEANER_OPENGRAPH_LOCAL_V2_LOADED = true;
+  }
 
   // ✅ v2.4: pet.js 现在作为 content script 在 manifest.json 中加载
   // 不再需要通过 <script> 标签注入
@@ -516,7 +569,7 @@
 
   function toggleCard() { isVisible ? hideCard() : showCard(); }
 
-  // 监听来自页面上下文的 postMessage（opengraph_local.js 发送）
+  // 监听来自页面上下文的 postMessage（opengraph_local_v2.js 发送）
   window.addEventListener('message', (event) => {
     // 安全检查：只处理来自同源的消息
     if (event.data && event.data.type === 'TAB_CLEANER_CACHE_OPENGRAPH') {
@@ -569,9 +622,18 @@
                   } : null
                 });
                 
+                // 扩展上下文失效时跳过存储，避免报错刷屏
+                if (!chrome.runtime?.id) {
+                  console.warn('[Tab Cleaner Content] ⚠️ Extension context invalidated, skip saving recent_opengraph');
+                  return;
+                }
                 chrome.storage.local.set({ recent_opengraph: limited }, () => {
                   if (chrome.runtime.lastError) {
-                    console.error('[Tab Cleaner Content] ❌ Failed to save recent_opengraph:', chrome.runtime.lastError);
+                    if (!chrome.runtime.lastError.message?.includes('Extension context invalidated')) {
+                      console.error('[Tab Cleaner Content] ❌ Failed to save recent_opengraph:', chrome.runtime.lastError);
+                    } else {
+                      console.warn('[Tab Cleaner Content] ⚠️ Skip save (context invalidated)');
+                    }
                   } else {
                     console.log('[Tab Cleaner Content] ✅ Added to recent_opengraph list (total:', limited.length, ')');
 
@@ -833,6 +895,33 @@
     `;
     document.head.appendChild(fadeOutStyle);
   }
+
+  // 🦅 监听来自页面上下文的图片下载请求（opengraph_local_v2.js）
+  window.addEventListener('message', (event) => {
+    // 只处理来自同源的消息
+    if (event.source !== window) return;
+    
+    if (event.data && event.data.type === 'TAB_CLEANER_DOWNLOAD_IMAGE_REQUEST') {
+      const { messageId, imageUrl } = event.data;
+      
+      console.log('[Tab Cleaner Content] 🦅 Received image download request:', imageUrl.substring(0, 60));
+      
+      // 通过 background.js 下载图片
+      chrome.runtime.sendMessage({
+        action: 'download-image-as-dataurl',
+        url: imageUrl,
+      }, (response) => {
+        // 发送响应回页面上下文
+        window.postMessage({
+          type: 'TAB_CLEANER_DOWNLOAD_IMAGE_RESPONSE',
+          messageId,
+          success: response?.success || false,
+          dataUrl: response?.dataUrl || null,
+          error: response?.error || null,
+        }, '*');
+      });
+    }
+  });
 
   chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     if (!req || !req.action) return false;

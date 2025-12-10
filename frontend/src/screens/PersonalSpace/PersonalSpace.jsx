@@ -29,6 +29,15 @@ import { useClustering } from "./hooks/useClustering";
 import { PersonalSpaceHeader } from "./components/PersonalSpaceHeader";
 import { SearchOverlay } from "./components/SearchOverlay";
 import { ViewContainer } from "./components/ViewContainer";
+import { 
+  calculateDeltaE, 
+  hexToLab, 
+  COLOR_MATCH_THRESHOLD, 
+  extractColorsFromBase64,
+  hexToHsv,
+  calculateHueDifference,
+  areComplementaryColors
+} from "../../utils/colorUtils";
 import "./style.css";
 
 export const PersonalSpace = () => {
@@ -116,6 +125,11 @@ export const PersonalSpace = () => {
   // AI 聚类面板显示状态
   const [showAIClusteringPanel, setShowAIClusteringPanel] = useState(false);
 
+  // 🆕 颜色筛选状态
+  const [selectedColorFilter, setSelectedColorFilter] = useState(null);
+  const colorEnrichRunningRef = useRef(false); // 前端渲染后兜底补色，避免并发
+  const colorFetchRunningRef = useRef(false); // 远程 fetch 补色并发控制
+
   // 选中分组名称
   const [selectedGroupName, setSelectedGroupName] = useState("未命名分组");
 
@@ -157,6 +171,331 @@ export const PersonalSpace = () => {
     renameSession,
   } = useSessionManager();
 
+  // 🆕 渲染后兜底补色（针对一键清理/跨域图）：有 base64 但无 dominant_colors 时，前端再提色
+  useEffect(() => {
+    if (colorEnrichRunningRef.current) return;
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    const candidates = [];
+    safeSessions.forEach((session, sIdx) => {
+      (session?.opengraphData || []).forEach((item, iIdx) => {
+        if (!item || (item.dominant_colors && item.dominant_colors.length > 0)) return;
+        // 🆕 优先从 IndexedDB 加载（无 CORS 限制）
+        candidates.push({ sIdx, iIdx, item });
+      });
+    });
+
+    if (candidates.length === 0) return;
+
+    const toProcess = candidates.slice(0, 10); // 每次最多 10 条，避免阻塞
+    colorEnrichRunningRef.current = true;
+    console.log(`[ColorEnrich] 🖼️ 渲染后补色：待处理 ${candidates.length}，本轮 ${toProcess.length}（优先从 IndexedDB）`);
+
+    (async () => {
+      try {
+        const sessionUpdates = new Map(); // sIdx -> updated og list
+        for (const c of toProcess) {
+          try {
+            // 🆕 优先从 IndexedDB 加载图片（无 CORS 限制）
+            let imageDataUrl = null;
+            
+            // 1. 尝试从 IndexedDB 加载（通过 original_image_url 或 image）
+            if (c.item.original_image_url) {
+              try {
+                if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.loadImage) {
+                  const indexedDbData = await window.__TAB_CLEANER_EAGLE_STORAGE.loadImage(c.item.original_image_url);
+                  if (indexedDbData && indexedDbData.dataUrl) {
+                    imageDataUrl = indexedDbData.dataUrl;
+                    console.log('[ColorEnrich] ✅ Loaded from IndexedDB for color extraction');
+                  }
+                }
+              } catch (error) {
+                console.warn('[ColorEnrich] ⚠️ Failed to load from IndexedDB:', error);
+              }
+            }
+            
+            // 2. 如果没有从 IndexedDB 加载到，尝试使用已有的 base64
+            if (!imageDataUrl) {
+              imageDataUrl =
+                c.item.thumbnail ||
+                c.item.screenshot_image ||
+                (c.item.image && c.item.image.startsWith('data:image') ? c.item.image : null);
+            }
+            
+            if (imageDataUrl && typeof imageDataUrl === 'string' && imageDataUrl.startsWith('data:image')) {
+              const colors = await extractColorsFromBase64(imageDataUrl);
+              if (colors && colors.length > 0) {
+                const session = safeSessions[c.sIdx];
+                if (!sessionUpdates.has(c.sIdx)) {
+                  sessionUpdates.set(c.sIdx, [...(session?.opengraphData || [])]);
+                }
+                const ogList = sessionUpdates.get(c.sIdx);
+                ogList[c.iIdx] = { ...ogList[c.iIdx], dominant_colors: colors };
+              }
+            }
+          } catch (e) {
+            console.warn('[ColorEnrich] ⚠️ Color extraction failed:', e);
+          }
+        }
+
+        // 批量写回
+        sessionUpdates.forEach((ogList, sIdx) => {
+          const session = safeSessions[sIdx];
+          if (session && Array.isArray(ogList)) {
+            updateSession(session.id, { opengraphData: ogList });
+          }
+        });
+
+        if (sessionUpdates.size > 0) {
+          console.log(`[ColorEnrich] ✅ 本轮补色完成，更新 ${sessionUpdates.size} 个 session`);
+        }
+      } finally {
+        colorEnrichRunningRef.current = false;
+      }
+    })();
+  }, [sessions, isSessionsLoading, updateSession]);
+
+  // ❌ 已禁用：远程 HTTP 图片颜色提取（避免 CORS 错误）
+  // 改为使用 ps_color_analyzer.js 在 PersonalSpace 中批量提取颜色
+  // useEffect(() => {
+  //   // ColorEnrichFetch 逻辑已禁用
+  // }, [sessions, isSessionsLoading, updateSession]);
+
+  // 🆕 使用 ps_color_analyzer.js 批量提取颜色（延迟执行，避免阻塞首次渲染）
+  useEffect(() => {
+    // 延迟 2 秒，避免阻塞首次渲染
+    const timer = setTimeout(() => {
+      analyzeColorsInBackground();
+    }, 2000);
+    
+    return () => clearTimeout(timer);
+  }, [sessions, isSessionsLoading, updateSession]);
+
+  // 🦅 Eagle Storage: 自动迁移远程图片到本地存储（延迟执行）
+  useEffect(() => {
+    // 延迟 3 秒，在颜色分析之后执行
+    const timer = setTimeout(() => {
+      migrateToEagleStorage();
+    }, 3000);
+    
+    return () => clearTimeout(timer);
+  }, [sessions, isSessionsLoading, updateSession]);
+
+  // 🆕 为 session 中的图片补充 caption 和 tags（延迟执行）
+  useEffect(() => {
+    // 延迟 5 秒，在迁移之后执行
+    const timer = setTimeout(() => {
+      enrichSessionImages();
+    }, 5000);
+    
+    return () => clearTimeout(timer);
+  }, [sessions, isSessionsLoading]);
+
+  // 🆕 补充 session 图片的 caption 和 tags
+  const enrichSessionImages = useCallback(async () => {
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+    
+    const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+    if (!eagleStorage || !eagleStorage.enrichSessionImages) {
+      console.warn('[Eagle Storage] ⚠️ enrichSessionImages not available');
+      return;
+    }
+
+    console.log('[Eagle Storage] 🔍 Starting session images caption/tags enrichment...');
+    
+    try {
+      const result = await eagleStorage.enrichSessionImages({
+        onProgress: (current, total, enriched, failed, skipped) => {
+          if (current % 10 === 0 || current === total) {
+            console.log(`[Eagle Storage] 📊 Enrichment progress: ${current}/${total} (${enriched} enriched, ${failed} failed, ${skipped} skipped)`);
+          }
+        },
+        batchSize: 5,
+        maxItems: 50, // 最多处理 50 个
+      });
+      
+      if (result && !result.error) {
+        console.log('[Eagle Storage] ✅ Enrichment complete:', result);
+      } else if (result && result.error) {
+        console.warn('[Eagle Storage] ⚠️ Enrichment error:', result.error);
+      }
+    } catch (error) {
+      console.error('[Eagle Storage] ❌ Enrichment failed:', error);
+    }
+  }, [sessions, isSessionsLoading]);
+
+  // 🆕 监听 Pinterest 卡片标题更新事件（实时更新 UI）
+  useEffect(() => {
+    const handlePinterestTitleUpdate = async (event) => {
+      const { imageUrl, caption } = event.detail || {};
+      if (!imageUrl || !caption) return;
+      
+      console.log('[PersonalSpace] 🎨 Received Pinterest title update:', { imageUrl: imageUrl.substring(0, 50), caption: caption.substring(0, 50) });
+      
+      // 重新加载 sessions 以获取最新数据（chrome.storage.local 已更新）
+      try {
+        const storageResult = await chrome.storage.local.get(['sessions']);
+        const updatedSessions = storageResult.sessions || [];
+        
+        if (Array.isArray(updatedSessions) && updatedSessions.length > 0) {
+          // 找到更新的卡片并触发 UI 更新
+          const safeSessions = Array.isArray(sessions) ? sessions : [];
+          updatedSessions.forEach((updatedSession, idx) => {
+            const currentSession = safeSessions[idx];
+            if (!currentSession || currentSession.id !== updatedSession.id) return;
+            
+            // 检查是否有卡片被更新
+            const hasUpdate = updatedSession.opengraphData?.some((item, itemIdx) => {
+              const currentItem = currentSession.opengraphData?.[itemIdx];
+              return currentItem && item.title !== currentItem.title;
+            });
+            
+            if (hasUpdate) {
+              // 更新 session（这会触发 UI 重新渲染）
+              updateSession(updatedSession.id, { opengraphData: updatedSession.opengraphData });
+              console.log('[PersonalSpace] ✅ Pinterest card title updated in UI');
+            }
+          });
+        }
+      } catch (error) {
+        console.warn('[PersonalSpace] ⚠️ Failed to update Pinterest card title in UI:', error);
+      }
+    };
+    
+    window.addEventListener('pinterest-card-title-updated', handlePinterestTitleUpdate);
+    
+    return () => {
+      window.removeEventListener('pinterest-card-title-updated', handlePinterestTitleUpdate);
+    };
+  }, [sessions, updateSession]);
+
+  // Eagle Storage 迁移函数
+  const migrateToEagleStorage = useCallback(async () => {
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+    
+    const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+    if (!eagleStorage) {
+      console.warn('[Eagle Storage] ⚠️ Eagle Storage not loaded, skipping migration');
+      return;
+    }
+
+    console.log('[Eagle Storage] 🦅 Starting automatic migration...');
+    
+    try {
+      // 收集所有需要迁移的卡片
+      const allCards = [];
+      const safeSessions = Array.isArray(sessions) ? sessions : [];
+      
+      safeSessions.forEach(session => {
+        if (session?.opengraphData) {
+          session.opengraphData.forEach(item => {
+            // 只迁移远程 URL（不是 data: URL）
+            if (item.image && 
+                item.image.startsWith('http') && 
+                !item.image.startsWith('data:')) {
+              allCards.push({
+                ...item,
+                sessionId: session.id,
+              });
+            }
+          });
+        }
+      });
+
+      if (allCards.length === 0) {
+        console.log('[Eagle Storage] ✅ No images to migrate');
+        return;
+      }
+
+      console.log(`[Eagle Storage] 📊 Found ${allCards.length} images to migrate`);
+
+      // 🆕 优化：不再批量迁移和 fetch
+      // 新图片已经在 opengraph_local_v2.js 中保存到 IndexedDB 了
+      // 旧图片如果还在用 URL，会在渲染时由 SessionCard 自动从 IndexedDB 加载
+      console.log('[Eagle Storage] ℹ️ Migration skipped - new images are already in IndexedDB');
+      console.log('[Eagle Storage] ℹ️ Old images will be loaded from IndexedDB on-demand during rendering');
+      
+      // 检查是否有需要从 IndexedDB 加载的图片（只检查，不 fetch）
+      let foundInIndexedDB = 0;
+      for (const card of allCards) {
+        if (card.image && card.image.startsWith('http') && !card.image.startsWith('data:')) {
+          const indexedDbData = await eagleStorage.loadImage(card.image);
+          if (indexedDbData && indexedDbData.dataUrl) {
+            foundInIndexedDB++;
+            // 更新卡片数据（使用 IndexedDB 中的数据）
+            card.image = indexedDbData.dataUrl;
+            if (indexedDbData.colors && indexedDbData.colors.length > 0) {
+              card.colors = indexedDbData.colors.map(c => typeof c === 'string' ? c : c.hex);
+            }
+          }
+        }
+      }
+      
+      console.log(`[Eagle Storage] ✅ Found ${foundInIndexedDB} images in IndexedDB (no fetch needed)`);
+
+      // 更新 sessions（使用 IndexedDB 中的数据）
+      if (foundInIndexedDB > 0) {
+        safeSessions.forEach(session => {
+          const updated = session.opengraphData.map(item => {
+            const migratedCard = allCards.find(c => 
+              (c.id === item.id || c.url === item.url) && 
+              c.sessionId === session.id &&
+              c.image !== item.image // 图片已更新
+            );
+            if (migratedCard && migratedCard.image && migratedCard.image.startsWith('data:')) {
+              return {
+                ...item,
+                image: migratedCard.image, // 使用 IndexedDB 中的 dataUrl
+                dominant_colors: migratedCard.colors || item.dominant_colors,
+              };
+            }
+            return item;
+          });
+          
+          updateSession(session.id, { opengraphData: updated });
+        });
+      }
+    } catch (error) {
+      console.error('[Eagle Storage] ❌ Migration failed:', error);
+    }
+  }, [sessions, isSessionsLoading, updateSession]);
+
+  // 后台颜色分析函数
+  const analyzeColorsInBackground = useCallback(async () => {
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+    
+    const analyzer = window.__TAB_CLEANER_PS_COLOR_ANALYZER;
+    if (!analyzer) {
+      console.warn('[PS Color Analyzer] ⚠️ Color analyzer not loaded, skipping background analysis');
+      return;
+    }
+
+    console.log('[PS Color Analyzer] 🎨 Starting background color analysis...');
+    
+    try {
+      const result = await analyzer.analyzeSessions(sessions, {
+        onProgress: (current, total) => {
+          if (current % 10 === 0 || current === total) {
+            console.log(`[PS Color Analyzer] 🎨 Progress: ${current}/${total}`);
+          }
+        },
+        onCardComplete: (card, analyzed, total) => {
+          // 可选：显示进度
+        },
+        onUpdateSession: (sessionId, updates) => {
+          // 更新 session 数据
+          updateSession(sessionId, updates);
+        },
+        forceReanalyze: false, // 不强制重新分析已有颜色的卡片
+      });
+      
+      console.log('[PS Color Analyzer] ✅ Color analysis complete:', result);
+    } catch (error) {
+      console.error('[PS Color Analyzer] ❌ Color analysis failed:', error);
+    }
+  }, [sessions, isSessionsLoading, updateSession]);
+
   // 搜索相关状态（使用 hook）
   // 注意：对于 masonry 视图，搜索应该基于所有 sessions 的数据
   // 对于 radial 视图，搜索基于当前 session 的数据
@@ -192,6 +531,122 @@ export const PersonalSpace = () => {
     performSearch,
     clearSearch,
   } = useSearch(searchDataSource);
+
+  // 🆕 图片加载时本地提色回调（由 SessionCard 触发）
+  const handleColorsExtracted = useCallback((cardId, colors) => {
+    if (!cardId || !Array.isArray(colors) || colors.length === 0) return;
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    for (const session of safeSessions) {
+      if (!session?.opengraphData) continue;
+      const idx = session.opengraphData.findIndex(item => {
+        const itemId = item?.id || item?.tab_id || item?.url;
+        return itemId === cardId;
+      });
+      if (idx >= 0) {
+        const updated = [...session.opengraphData];
+        updated[idx] = { ...updated[idx], dominant_colors: colors };
+        updateSession(session.id, { opengraphData: updated });
+        break;
+      }
+    }
+  }, [sessions, updateSession]);
+  
+  // 🆕 图片加载时本地缩略图回调（由 SessionCard 触发）
+  // 🆕 优化：生成缩略图后自动发送给后端生成 caption
+  const handleThumbnailGenerated = useCallback((cardId, thumbnail) => {
+    if (!cardId || !thumbnail) return;
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[PersonalSpace] 收到缩略图', cardId, `${(thumbnail.length / 1024).toFixed(1)} KB`);
+    }
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    for (const session of safeSessions) {
+      if (!session?.opengraphData) continue;
+      const idx = session.opengraphData.findIndex(item => {
+        const itemId = item?.id || item?.tab_id || item?.url;
+        return itemId === cardId;
+      });
+      if (idx >= 0) {
+        const updated = [...session.opengraphData];
+        updated[idx] = { ...updated[idx], thumbnail };
+        updateSession(session.id, { opengraphData: updated });
+        
+        // 🆕 异步发送缩略图到后端生成 caption（不阻塞）
+        const item = updated[idx];
+        if (item && item.url && thumbnail) {
+          (async () => {
+            try {
+              // 使用 embedding API，它会自动触发 caption 生成
+              const apiUrl = window.__TAB_CLEANER_API_CONFIG?.getBaseUrlSync?.() || 'https://tab-cleaner-mvp-app-production.up.railway.app';
+              const userId = await chrome.storage.local.get(['user_id']).then(r => r.user_id || 'anonymous');
+              
+              // 发送到后端 embedding API（会自动生成 caption）
+              const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
+              const response = await fetch(embeddingUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-User-ID': userId,
+                },
+                body: JSON.stringify({
+                  opengraph_items: [{
+                    url: item.url,
+                    image: thumbnail, // 使用缩略图作为 image
+                    title: item.title,
+                    description: item.description,
+                  }],
+                }),
+              });
+              
+              if (response.ok) {
+                const result = await response.json();
+                if (result.data && result.data.length > 0) {
+                  const enrichedItem = result.data[0];
+                  // 更新 session 中的 caption 和其他字段
+                  const storageResult = await chrome.storage.local.get(['sessions']);
+                  const sessions = storageResult.sessions || [];
+                  const sessionIndex = sessions.findIndex(s => s.id === session.id);
+                  
+                  if (sessionIndex !== -1) {
+                    const session = sessions[sessionIndex];
+                    const itemIndex = session.opengraphData.findIndex(og => 
+                      (og.id === item.id || og.url === item.url)
+                    );
+                    
+                    if (itemIndex >= 0) {
+                      const updatedData = [...session.opengraphData];
+                      updatedData[itemIndex] = {
+                        ...updatedData[itemIndex],
+                        image_caption: enrichedItem.image_caption || updatedData[itemIndex].image_caption,
+                        caption_embedding: enrichedItem.caption_embedding || updatedData[itemIndex].caption_embedding,
+                        style_tags: enrichedItem.style_tags || updatedData[itemIndex].style_tags,
+                        object_tags: enrichedItem.object_tags || updatedData[itemIndex].object_tags,
+                        text_embedding: enrichedItem.text_embedding || updatedData[itemIndex].text_embedding,
+                        image_embedding: enrichedItem.image_embedding || updatedData[itemIndex].image_embedding,
+                      };
+                      
+                      sessions[sessionIndex] = {
+                        ...session,
+                        opengraphData: updatedData,
+                      };
+                      
+                      await chrome.storage.local.set({ sessions });
+                      console.log('[PersonalSpace] ✅ Caption and embeddings generated and saved:', item.url.substring(0, 50));
+                    }
+                  }
+                }
+              } else {
+                console.warn('[PersonalSpace] ⚠️ Caption/embedding generation failed:', response.status);
+              }
+            } catch (error) {
+              console.warn('[PersonalSpace] ⚠️ Caption generation error:', error);
+            }
+          })();
+        }
+        
+        break;
+      }
+    }
+  }, [sessions, updateSession]);
   
   // Radial 视图使用的数据（当前 session）
   // 如果当前 session 有数据，使用 session 数据；否则使用旧的 opengraphData（向后兼容）
@@ -891,6 +1346,305 @@ export const PersonalSpace = () => {
     console.log('[PersonalSpace] Search cleared, restored original layout and order');
   };
 
+  // 🆕 处理颜色筛选
+  const handleColorFilter = useCallback((color) => {
+    setSelectedColorFilter(color);
+    
+    if (!color) {
+      // 清除颜色筛选：恢复所有卡片的可见性
+      console.log('[PersonalSpace] Color filter cleared');
+      return;
+    }
+    
+    console.log('[PersonalSpace] Color filter applied:', color.name, color.hex);
+    
+    // 颜色筛选逻辑：
+    // 1. 获取当前数据
+    // 2. 为匹配颜色的卡片设置高相似度
+    // 3. 不匹配的设置低相似度（或隐藏）
+    
+    // 🆕 使用 Delta E + 色相（Hue）双重检查，提高精确度
+    // 🆕 优化：降低 Delta E 阈值，并添加色相检查，避免互补色误匹配
+    const COLOR_THRESHOLD = 30; // Delta E 阈值（更严格，只匹配相似颜色）
+    const HUE_THRESHOLD = 60; // 色相差阈值（度），允许 ±60 度的色相范围
+
+    // Hex 规范化工具：确保带 # 且为大写
+    const normalizeHex = (hex) => {
+      if (!hex || typeof hex !== 'string') return null;
+      const h = hex.trim();
+      const match = h.match(/^#?([0-9a-fA-F]{6})$/);
+      if (!match) return null;
+      return `#${match[1].toUpperCase()}`;
+    };
+
+    const targetHex = normalizeHex(color.hex);
+    if (!targetHex) {
+      console.warn('[ColorFilter] Invalid target color:', color.hex);
+      return;
+    }
+    
+    const filterByColor = async (items) => {
+      if (!Array.isArray(items)) return items;
+      
+      let matchCount = 0;
+      let noColorCount = 0;
+      let invalidColorCount = 0;
+      let extractedCount = 0;
+      
+      // 将目标颜色转换为 Lab 颜色空间和 HSV（只需转换一次）
+      const targetLab = hexToLab(targetHex);
+      const targetHsv = hexToHsv(targetHex);
+      
+      // 🆕 第一步：为没有颜色的卡片从 IndexedDB 提取颜色
+      const itemsToExtract = [];
+      const itemsCopy = [...items]; // 创建副本，避免直接修改原数组
+      
+      for (let i = 0; i < itemsCopy.length; i++) {
+        const item = itemsCopy[i];
+        const rawColors = item.dominant_colors || [];
+        const itemColors = rawColors
+          .map(normalizeHex)
+          .filter(Boolean);
+        
+        if (itemColors.length === 0) {
+          // 没有颜色数据，尝试从 IndexedDB 提取
+          itemsToExtract.push({ index: i, item });
+        }
+      }
+      
+      // 🆕 批量从 IndexedDB 提取颜色（最多同时处理 10 个，避免阻塞）
+      if (itemsToExtract.length > 0) {
+        console.log(`[ColorFilter] 🎨 发现 ${itemsToExtract.length} 个卡片没有颜色数据，尝试从 IndexedDB 提取...`);
+        
+        const extractPromises = itemsToExtract.slice(0, 10).map(async ({ index, item }) => {
+          try {
+            // 1. 优先从 IndexedDB 加载图片
+            let imageDataUrl = null;
+            
+            if (item.original_image_url) {
+              try {
+                if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.loadImage) {
+                  const indexedDbData = await window.__TAB_CLEANER_EAGLE_STORAGE.loadImage(item.original_image_url);
+                  if (indexedDbData && indexedDbData.dataUrl) {
+                    imageDataUrl = indexedDbData.dataUrl;
+                  }
+                }
+              } catch (error) {
+                console.warn(`[ColorFilter] ⚠️ Failed to load from IndexedDB for ${item.url?.substring(0, 50)}:`, error);
+              }
+            }
+            
+            // 2. 如果没有从 IndexedDB 加载到，尝试使用已有的 base64
+            if (!imageDataUrl) {
+              imageDataUrl =
+                item.thumbnail ||
+                item.screenshot_image ||
+                (item.image && item.image.startsWith('data:image') ? item.image : null);
+            }
+            
+            // 3. 如果有图片数据，提取颜色
+            if (imageDataUrl && typeof imageDataUrl === 'string' && imageDataUrl.startsWith('data:image')) {
+              const colors = await extractColorsFromBase64(imageDataUrl);
+              if (colors && colors.length > 0) {
+                extractedCount++;
+                console.log(`[ColorFilter] ✅ 从 IndexedDB 提取颜色成功: ${item.url?.substring(0, 50)}`);
+                return { index, colors, itemId: item.id, itemUrl: item.url };
+              }
+            }
+          } catch (error) {
+            console.warn(`[ColorFilter] ⚠️ 颜色提取失败: ${item.url?.substring(0, 50)}`, error);
+          }
+          return null;
+        });
+        
+        // 等待所有提取完成（最多等待 5 秒）
+        const extractResults = await Promise.race([
+          Promise.all(extractPromises),
+          new Promise(resolve => setTimeout(() => resolve([]), 5000))
+        ]);
+        
+        if (extractedCount > 0 && extractResults && extractResults.length > 0) {
+          console.log(`[ColorFilter] ✅ 成功从 IndexedDB 提取 ${extractedCount} 个卡片的颜色`);
+          
+          // 更新 itemsCopy，确保后续筛选使用最新数据
+          extractResults.forEach(result => {
+            if (result && result.colors && result.index !== undefined) {
+              itemsCopy[result.index] = { ...itemsCopy[result.index], dominant_colors: result.colors };
+            }
+          });
+          
+          // 更新 session 数据（保存提取的颜色）
+          const safeSessions = Array.isArray(sessions) ? sessions : [];
+          for (const session of safeSessions) {
+            if (session && Array.isArray(session.opengraphData)) {
+              let updated = false;
+              const updatedData = session.opengraphData.map(ogItem => {
+                const extractedResult = extractResults.find(r => 
+                  r && r.colors && (r.itemId === ogItem.id || r.itemUrl === ogItem.url)
+                );
+                if (extractedResult && extractedResult.colors) {
+                  updated = true;
+                  return { ...ogItem, dominant_colors: extractedResult.colors };
+                }
+                return ogItem;
+              });
+              
+              if (updated) {
+                updateSession(session.id, { opengraphData: updatedData });
+              }
+            }
+          }
+        }
+      }
+      
+      // 第二步：基于颜色数据进行筛选（使用更新后的 itemsCopy）
+      const result = itemsCopy.map(item => {
+        const rawColors = item.dominant_colors || [];
+
+        // 规范化并过滤无效颜色
+        const itemColors = rawColors
+          .map(normalizeHex)
+          .filter(Boolean);
+        if (rawColors.length !== itemColors.length) {
+          invalidColorCount += (rawColors.length - itemColors.length);
+        }
+        
+        if (itemColors.length === 0) {
+          noColorCount++;
+          return { ...item, similarity: 0.1, _colorMatched: false };
+        }
+        
+        // 🆕 优化：计算与目标颜色的最小 Delta E 距离和色相差
+        let minDeltaE = 999;
+        let minHueDiff = 999;
+        let bestMatchHex = null;
+        
+        for (const itemHex of itemColors) {
+          try {
+            const itemLab = hexToLab(itemHex);
+            const deltaE = calculateDeltaE(targetLab, itemLab);
+            
+            // 🆕 计算色相差
+            const itemHsv = hexToHsv(itemHex);
+            const hueDiff = calculateHueDifference(targetHsv.h, itemHsv.h);
+            
+            // 如果这个颜色更接近目标，更新最小值
+            if (deltaE < minDeltaE) {
+              minDeltaE = deltaE;
+              minHueDiff = hueDiff;
+              bestMatchHex = itemHex;
+            }
+          } catch (e) {
+            // 如果颜色转换失败，跳过这个颜色
+            console.warn('[ColorFilter] Failed to convert color:', itemHex, e);
+          }
+        }
+        
+        // 🆕 优化：双重检查 - Delta E 和色相差
+        // 1. Delta E 必须小于阈值（颜色相似）
+        // 2. 色相差必须小于阈值（同一色系）
+        // 3. 不能是互补色（如红色和蓝色）
+        const deltaEMatch = minDeltaE < COLOR_THRESHOLD;
+        const hueMatch = minHueDiff < HUE_THRESHOLD;
+        const notComplementary = bestMatchHex ? !areComplementaryColors(targetHex, bestMatchHex) : true;
+        
+        // 🆕 对于低饱和度颜色（接近灰色），放宽色相要求
+        const isLowSaturation = targetHsv.s < 0.3;
+        const hueCheck = isLowSaturation ? true : hueMatch; // 灰色系不检查色相
+        
+        const isMatch = deltaEMatch && hueCheck && notComplementary;
+        
+        // 相似度计算：综合考虑 Delta E 和色相差
+        const deltaESimilarity = Math.max(0, 1 - (minDeltaE / COLOR_THRESHOLD));
+        const hueSimilarity = isLowSaturation ? 1 : Math.max(0, 1 - (minHueDiff / HUE_THRESHOLD));
+        const similarity = isMatch ? (deltaESimilarity * 0.7 + hueSimilarity * 0.3) : 0.1;
+        
+        if (isMatch) matchCount++;
+        
+        return {
+          ...item,
+          similarity: similarity,
+          _colorMatched: isMatch,
+          _colorDistance: minDeltaE,
+        };
+      });
+      
+      // 🆕 详细调试信息
+      const withThumbnail = items.filter(item => item.thumbnail && item.thumbnail.startsWith('data:image')).length;
+      const withColors = items.filter(item => item.dominant_colors && Array.isArray(item.dominant_colors) && item.dominant_colors.length > 0).length;
+      
+      console.log(`[ColorFilter] 筛选结果: ${matchCount}/${items.length} 匹配 (阈值=${COLOR_THRESHOLD})`);
+      console.log(`[ColorFilter] 数据统计: ${withColors} 有颜色, ${withThumbnail} 有缩略图, ${noColorCount} 无颜色数据, ${extractedCount} 从 IndexedDB 提取`);
+      if (invalidColorCount > 0) {
+        console.warn(`[ColorFilter] 检测到 ${invalidColorCount} 个无效颜色值，已忽略（需为 #RRGGBB）`);
+      }
+      
+      // 🆕 输出匹配列表（最多 20 条）便于定位
+      const matchedItems = result.filter(item => item._colorMatched);
+      if (matchedItems.length > 0) {
+        console.log(`[ColorFilter] 匹配卡片(${matchedItems.length})，前 20 个:`,
+          matchedItems.slice(0, 20).map(item => ({
+            title: item.title?.substring(0, 40) || '(no title)',
+            url: item.url?.substring(0, 60) || '',
+            distance: item._colorDistance?.toFixed(2),
+            colors: item.dominant_colors?.slice(0, 3) || []
+          }))
+        );
+      }
+      
+      // 🆕 如果匹配数为 0，打印前 3 个有颜色数据的项目的距离信息（用于调试）
+      if (matchCount === 0 && withColors > 0) {
+        const itemsWithColors = result.filter(item => item._colorDistance !== undefined && item._colorDistance < 999);
+        if (itemsWithColors.length > 0) {
+          console.log(`[ColorFilter] 🔍 调试：前 3 个有颜色数据的项目距离:`, 
+            itemsWithColors.slice(0, 3).map(item => ({
+              title: item.title?.substring(0, 30),
+              colors: item.dominant_colors?.slice(0, 2),
+              distance: item._colorDistance?.toFixed(2),
+              matched: item._colorMatched
+            }))
+          );
+        }
+      }
+      
+      return result;
+    };
+    
+    // 🆕 异步处理颜色筛选（需要从 IndexedDB 提取颜色）
+    (async () => {
+      if (viewMode === 'masonry') {
+        // Masonry 视图：更新所有 session 的数据
+        const safeSessions = Array.isArray(sessions) ? sessions : [];
+        for (const session of safeSessions) {
+          if (session && Array.isArray(session.opengraphData)) {
+            const filteredData = await filterByColor(session.opengraphData);
+            updateSession(session.id, { opengraphData: filteredData });
+          }
+        }
+      } else if (viewMode === 'radial') {
+        // Radial 视图：更新当前显示的数据
+        const currentSession = getCurrentSession();
+        if (currentSession && Array.isArray(currentSession.opengraphData)) {
+          const filteredData = await filterByColor(currentSession.opengraphData);
+          // 重新计算布局（匹配的靠前）
+          const sortedData = [...filteredData].sort((a, b) => 
+            (b.similarity || 0) - (a.similarity || 0)
+          );
+          const layoutData = calculateRadialLayout(sortedData, {
+            centerX: 720,
+            centerY: 512,
+            baseRadius: UI_CONFIG.radial.baseRadius,
+            radiusGap: UI_CONFIG.radial.radiusGap,
+            minRadiusGap: UI_CONFIG.radial.minRadiusGap,
+            maxRadiusGap: UI_CONFIG.radial.maxRadiusGap,
+            autoAdjustRadius: UI_CONFIG.radial.autoAdjustRadius,
+          });
+          setOpengraphData(layoutData);
+        }
+      }
+    })();
+  }, [viewMode, sessions, updateSession, getCurrentSession, calculateRadialLayout, setOpengraphData]);
+
   // 处理宠物设定空间入口点击
   const handlePetSettingsClick = useCallback(() => {
     setCurrentPage('petSetting');
@@ -1184,6 +1938,9 @@ export const PersonalSpace = () => {
             onSessionOpenAll={handleSessionOpenAll}
             sessionContainerRef={sessionContainerRef}
             onSessionFocus={handleSessionFocus}
+            selectedColorFilter={selectedColorFilter} // 🆕 颜色筛选
+            onColorsExtracted={handleColorsExtracted}
+            onThumbnailGenerated={handleThumbnailGenerated}
             canvasRef={canvasRef}
             containerRef={containerRef}
             showOriginalImages={showOriginalImages}
@@ -1251,6 +2008,8 @@ export const PersonalSpace = () => {
         onClear={handleClearSearch}
         isSearching={isSearching}
         onPetSettingsClick={handlePetSettingsClick}
+        onColorFilter={handleColorFilter}
+        selectedColor={selectedColorFilter}
                 />
 
                     <ViewButtons 

@@ -437,7 +437,7 @@ def extract_object_tags_from_caption(caption: str) -> List[str]:
 async def enrich_item_with_caption(
     item: Dict[str, Any],
     qwen_client: Optional[QwenVLClient] = None,
-    use_kmeans_colors: bool = True,
+    use_kmeans_colors: bool = False,
 ) -> Dict[str, Any]:
     """
     为单个 OpenGraph 项生成 Caption 和视觉属性

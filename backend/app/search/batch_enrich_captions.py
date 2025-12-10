@@ -315,7 +315,7 @@ async def process_batch(
     batch_size: int = 10,
     concurrent: int = 5,
     generate_caption_embedding: bool = True,
-    use_kmeans_colors: bool = True,
+    use_kmeans_colors: bool = False,
 ) -> Dict[str, int]:
     """
     批量处理项，生成 Caption 并更新数据库
@@ -325,7 +325,7 @@ async def process_batch(
         batch_size: 批量大小（每次处理的项数）
         concurrent: 并发数量
         generate_caption_embedding: 是否生成 Caption embedding
-        use_kmeans_colors: 是否使用 K-Means 提色（False 可加速）
+        use_kmeans_colors: 是否使用 K-Means 提色（默认关闭，改走前端提色）
     
     Returns:
         统计信息字典
@@ -469,7 +469,7 @@ async def main():
     parser.add_argument(
         "--skip-kmeans",
         action="store_true",
-        help="跳过 K-Means 提色（加速处理，默认：使用 K-Means）"
+        help="跳过 K-Means 提色（已默认关闭，前端提色为主）"
     )
     
     args = parser.parse_args()
@@ -512,13 +512,16 @@ async def main():
         # 计时开始
         start_time = time.perf_counter()
         
+        # 后端颜色提取改为默认关闭，前端/缩略图优先
+        use_kmeans_colors = False  # 强制关闭后端 K-Means 提色，便于观察前端颜色提取
+
         # 批量处理
         stats = await process_batch(
             items,
             batch_size=args.batch_size,
             concurrent=args.concurrent,
             generate_caption_embedding=not args.no_caption_embedding,
-            use_kmeans_colors=not args.skip_kmeans,
+            use_kmeans_colors=use_kmeans_colors,
         )
         
         # 计时结束

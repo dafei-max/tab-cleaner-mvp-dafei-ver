@@ -196,3 +196,6 @@ const cropped = canvas.toDataURL('image/png');
 
 **使用简单**：Alt + 拖拽即可完成截图！
 
+
+
+

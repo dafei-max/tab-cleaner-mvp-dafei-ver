@@ -17,6 +17,9 @@ export const SessionMasonryGrid = ({
   searchBarHeight = 80, // 搜索栏高度（包括间距）
   containerRef, // 从父组件传入
   onSessionFocus,
+  selectedColorFilter, // 🆕 颜色筛选
+  onColorsExtracted, // 🆕 本地提色回调
+  onThumbnailGenerated, // 🆕 本地缩略图回调
 }) => {
   const [selectedCardIds, setSelectedCardIds] = useState(new Set());
   const [sessionSelectedCounts, setSessionSelectedCounts] = useState(new Map());
@@ -211,6 +214,7 @@ export const SessionMasonryGrid = ({
                 onCardDelete={handleCardDelete}
                 onOpenLink={handleOpenLink}
                 onCardClick={onCardClick}
+                selectedColorFilter={selectedColorFilter} // 🆕 颜色筛选
               />
             </div>
           );
@@ -241,6 +245,9 @@ const SessionMasonryGridContent = ({
   onCardDelete,
   onOpenLink,
   onCardClick,
+  selectedColorFilter, // 🆕 颜色筛选
+  onColorsExtracted,
+  onThumbnailGenerated,
 }) => {
   // 调试：检查数据
   useEffect(() => {
@@ -278,15 +285,24 @@ const SessionMasonryGridContent = ({
           // ✅ 调试：记录总数和过滤后的数量
           const totalCount = session.opengraphData.length;
           const validItems = session.opengraphData.filter((og, index) => {
-            // ✅ 改进：过滤无效项，但记录日志
+            // ✅ 宽松过滤：只检查最基本的字段，确保所有有效卡片都能显示
+            // 即使没有颜色、图片等数据，只要有 URL 或 title 就保留
             if (!og || typeof og !== 'object') {
               console.warn('[SessionMasonryGrid] Invalid og item at index', index, ':', og);
               return false;
             }
-            // ✅ 确保有 URL 或 title，至少有一个可用的标识
+            // ✅ 确保有 URL 或 title，至少有一个可用的标识（不要求图片或颜色）
             if (!og.url && !og.title) {
               console.warn('[SessionMasonryGrid] Item missing both url and title at index', index, ':', og);
               return false;
+            }
+            // 🆕 颜色筛选：如果有选中的颜色，只显示匹配的卡片
+            if (selectedColorFilter) {
+              // 检查是否有 _colorMatched 标记（由 handleColorFilter 设置）
+              const isMatched = og._colorMatched === true || (og.similarity !== undefined && og.similarity > 0.1);
+              if (!isMatched) {
+                return false; // 不匹配，隐藏
+              }
             }
             return true;
           });
@@ -335,6 +351,8 @@ const SessionMasonryGridContent = ({
                 onOpenLink={onOpenLink}
                 onCardClick={onCardClick}
                 variant="masonry"
+                onColorsExtracted={onColorsExtracted}
+                onThumbnailGenerated={onThumbnailGenerated}
               />
             );
           });

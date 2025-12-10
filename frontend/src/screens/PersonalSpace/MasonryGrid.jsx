@@ -98,7 +98,7 @@ export const MasonryGrid = ({
                   backgroundColor: '#f5f5f5',  // 占位符背景色
                 }}
                 loading="lazy"  // 懒加载
-                onError={(e) => handleImageError(e, og, 'text')}
+                onError={(e) => handleImageError(e, og, 'text', cardWidth, cardWidth * 0.75)}
                 onClick={(e) => {
                   // 如果启用了拖拽，点击事件可能会被拖拽拦截
                   // 只有在没有拖拽的情况下才触发点击

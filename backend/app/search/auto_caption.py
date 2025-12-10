@@ -209,7 +209,7 @@ async def _process_caption_task(task: Dict):
             enriched_item = await enrich_item_with_caption(
                 item,
                 qwen_client=qwen_client,
-                use_kmeans_colors=True,
+                use_kmeans_colors=False,
             )
             
             if not enriched_item.get("caption"):

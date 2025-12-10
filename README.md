@@ -1016,6 +1016,34 @@ git push -u origin main
 
 ## 更新日志
 
+### v0.0.4 (2024-12-08)
+- 🚀 **一键清理图片获取优化（重大改进）**
+  - **问题**：Pinterest/小红书等瀑布流 SPA 站点，一键清理时图片获取不准确
+  - **原因**：并行处理多个 tab 时，tab 未激活，视口内容未正确渲染
+  - **解决方案**：
+    1. `collectTabWithGuaranteedImage` 新增 tab 激活步骤（`chrome.tabs.update`）
+    2. 一键清理改为**串行处理**，确保每个 tab 依次激活后再收集
+  - **效果**：瀑布流站点图片获取准确率显著提升
+  - **权衡**：处理速度变慢（每个 tab ~1-2s），但准确性大幅提高
+
+- 🖼️ **前端 Thumbnail 生成（绕过 CDN/CORS 限制）**
+  - 在 `opengraph_local.js` 中从已渲染的 `<img>` 元素生成 200px 缩略图
+  - 在 `image_capture_enhanced.js` 中支持从元素引用生成缩略图
+  - 在 `screenshot_capture.js` 中从截图 dataUrl 生成缩略图
+  - **优势**：
+    1. 绕过 CDN 防盗链（利用浏览器已加载的图片缓存）
+    2. 后端打标无需重新下载图片（节省 ~8s/30张图）
+    3. 避免 403 Forbidden 错误
+
+- 🗄️ **数据库新增 thumbnail 列**
+  - `vector_db.py` 表结构新增 `thumbnail TEXT` 字段
+  - `upsert_opengraph_item` 支持存储前端生成的缩略图
+  - `caption.py` 优先使用 thumbnail 进行打标（无需下载）
+
+- ⚡ **Caption 模型升级**
+  - 默认模型改为 `qwen3-vl-flash`（可通过 `QWEN_VL_MODEL` 环境变量配置）
+  - 单项打标时间从 ~4s 降至 ~1.46s（提升 2.7x）
+
 ### v0.0.3
 - ✅ 实现 AI 洞察功能
   - 集成通义千问（dashscope SDK）分析 OpenGraph 数据

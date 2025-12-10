@@ -145,4 +145,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     asyncio.run(export_captions(args.user_id, args.max_items, args.format))
-

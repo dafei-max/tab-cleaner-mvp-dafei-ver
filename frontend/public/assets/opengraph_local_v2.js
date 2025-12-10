@@ -348,6 +348,134 @@
   }
 
   /**
+   * 🦅 下载图片并转为 Data URL（Eagle 式存储）
+   * 在网页加载时立即保存，避免 URL 过期
+   * 
+   * 策略：
+   * 1. 先尝试直接下载（页面上下文，可能受 CORS 限制）
+   * 2. 如果失败，通过 postMessage 通知 content script，由 background.js 下载
+   */
+  async function downloadImageAsDataUrl(imageUrl) {
+    // 策略 1: 直接下载（页面上下文）
+    return new Promise((resolve) => {
+      try {
+        const img = new Image();
+        img.crossOrigin = 'anonymous'; // 尝试 CORS
+        
+        const timeout = setTimeout(() => {
+          console.warn('[OG Local V2] ⏱️ Download timeout, trying background.js...');
+          // 超时后尝试通过 background.js 下载
+          tryDownloadViaBackground(imageUrl).then(resolve).catch(() => resolve(null));
+        }, 3000);
+        
+        img.onload = () => {
+          clearTimeout(timeout);
+          
+          try {
+            // 创建 Canvas
+            const canvas = document.createElement('canvas');
+            // 🆕 优化：降低最大尺寸和压缩质量，减小 Data URL 大小
+            const maxSize = 800; // 降低到 800px（之前是 1200px）
+            const ratio = Math.min(1, maxSize / Math.max(img.width, img.height));
+            canvas.width = Math.round(img.width * ratio);
+            canvas.height = Math.round(img.height * ratio);
+            
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            
+            // 🆕 优化：降低 JPEG 质量，减小文件大小（从 85% 降到 75%）
+            // 尝试不同质量，确保 Data URL 不超过 300KB（Base64 编码后）
+            let dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+            const maxDataUrlSize = 300 * 1024; // 300KB 限制
+            
+            // 如果太大，逐步降低质量
+            if (dataUrl.length > maxDataUrlSize) {
+              console.warn('[OG Local V2] ⚠️ Data URL too large:', (dataUrl.length / 1024).toFixed(1), 'KB, reducing quality...');
+              for (const quality of [0.65, 0.55, 0.45, 0.35]) {
+                dataUrl = canvas.toDataURL('image/jpeg', quality);
+                if (dataUrl.length <= maxDataUrlSize) {
+                  console.log('[OG Local V2] ✅ Quality reduced to', quality, 'final size:', (dataUrl.length / 1024).toFixed(1), 'KB');
+                  break;
+                }
+              }
+              
+              // 如果还是太大，进一步缩小尺寸
+              if (dataUrl.length > maxDataUrlSize) {
+                console.warn('[OG Local V2] ⚠️ Still too large, reducing dimensions...');
+                const smallerMaxSize = 600;
+                const smallerRatio = Math.min(1, smallerMaxSize / Math.max(canvas.width, canvas.height));
+                canvas.width = Math.round(canvas.width * smallerRatio);
+                canvas.height = Math.round(canvas.height * smallerRatio);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+              }
+            }
+            
+            resolve(dataUrl);
+          } catch (error) {
+            console.warn('[OG Local V2] ⚠️ Canvas tainted (CORS), trying background.js...');
+            // CORS 失败，尝试通过 background.js 下载
+            clearTimeout(timeout);
+            tryDownloadViaBackground(imageUrl).then(resolve).catch(() => resolve(null));
+          }
+        };
+        
+        img.onerror = () => {
+          clearTimeout(timeout);
+          console.warn('[OG Local V2] ⚠️ Image load failed, trying background.js...');
+          // 加载失败，尝试通过 background.js 下载
+          tryDownloadViaBackground(imageUrl).then(resolve).catch(() => resolve(null));
+        };
+        
+        img.src = imageUrl;
+      } catch (error) {
+        console.error('[OG Local V2] ❌ Download error:', error);
+        // 出错，尝试通过 background.js 下载
+        tryDownloadViaBackground(imageUrl).then(resolve).catch(() => resolve(null));
+      }
+    });
+  }
+
+  /**
+   * 通过 background.js 下载图片（通过 postMessage 通知 content script）
+   */
+  async function tryDownloadViaBackground(imageUrl) {
+    return new Promise((resolve) => {
+      // 通过 postMessage 通知 content script
+      const messageId = `download_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // 监听响应
+      const handler = (event) => {
+        if (event.data && 
+            event.data.type === 'TAB_CLEANER_DOWNLOAD_IMAGE_RESPONSE' &&
+            event.data.messageId === messageId) {
+          window.removeEventListener('message', handler);
+          if (event.data.success && event.data.dataUrl) {
+            resolve(event.data.dataUrl);
+          } else {
+            resolve(null);
+          }
+        }
+      };
+      
+      window.addEventListener('message', handler);
+      
+      // 发送请求
+      window.postMessage({
+        type: 'TAB_CLEANER_DOWNLOAD_IMAGE_REQUEST',
+        messageId,
+        imageUrl,
+      }, '*');
+      
+      // 超时处理
+      setTimeout(() => {
+        window.removeEventListener('message', handler);
+        resolve(null);
+      }, 5000);
+    });
+  }
+
+  /**
    * 智能选择最佳图片（优化：更智能的选择）
    */
   async function selectBestImage(images, siteRule) {
@@ -511,16 +639,143 @@
         imageUrl = await selectBestImage(candidates, siteRule);
       }
       
-      // 5.3 转换为绝对 URL
+      // 5.3 转换为绝对 URL 并尝试转为 Data URL（🦅 Eagle 式存储）
       if (imageUrl) {
         try {
-          result.image = new URL(imageUrl, window.location.href).href;
+          // 转换为绝对 URL
+          const absoluteUrl = new URL(imageUrl, window.location.href).href;
+          
+          // 🆕 优化：快速模式（清理操作时使用，跳过 Data URL 转换以加快响应）
+          // 检查是否是通过 executeScript 调用的（清理操作）
+          // 清理操作需要快速响应，不应该等待图片下载
+          const isQuickMode = window.__TAB_CLEANER_QUICK_MODE === true;
+          
+          if (isQuickMode) {
+            // 快速模式：直接返回 URL，不等待下载（清理操作）
+            result.image = absoluteUrl;
+            result.is_dataurl = false;
+            console.log('[OG Local V2] ⚡ Quick mode: skipping Data URL conversion for fast response');
+            
+            // 异步下载（不阻塞，后台转换）
+            downloadImageAsDataUrl(absoluteUrl).then(async (dataUrl) => {
+              if (dataUrl) {
+                // 🆕 保存到 IndexedDB
+                try {
+                  if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.saveImage) {
+                    const imageHash = await window.__TAB_CLEANER_EAGLE_STORAGE.saveImage(absoluteUrl, dataUrl);
+                    
+                    const sizeKB = (dataUrl.length / 1024).toFixed(1);
+                    const preview = dataUrl.substring(0, 100) + '...';
+                    const format = dataUrl.match(/^data:([^;]+);base64,/)?.[1] || 'unknown';
+                    
+                    console.log('[OG Local V2] ✅ Background conversion saved to IndexedDB:', {
+                      storage: 'IndexedDB (tab_cleaner_images)',
+                      hash: imageHash.hash,
+                      size: `${sizeKB} KB`,
+                      preview: preview,
+                      fullLength: dataUrl.length,
+                      format: format,
+                      originalUrl: absoluteUrl.substring(0, 80) + '...',
+                      dataUrlStart: dataUrl.substring(0, 200),
+                      howToCheck: 'Open DevTools → Application → IndexedDB → tab_cleaner_images → images → find by hash'
+                    });
+                  } else {
+                    const sizeKB = (dataUrl.length / 1024).toFixed(1);
+                    console.warn('[OG Local V2] ⚠️ Background conversion complete but Eagle Storage not available:', {
+                      size: `${sizeKB} KB`,
+                      warning: 'Data URL not saved to IndexedDB'
+                    });
+                  }
+                } catch (storageError) {
+                  console.error('[OG Local V2] ❌ Failed to save background conversion to IndexedDB:', storageError);
+                }
+              }
+            }).catch(() => {
+              // 静默失败
+            });
+          } else {
+            // 正常模式：尝试下载并转为 Data URL（网页加载时，有足够时间）
+            // 但设置更短的超时，避免阻塞太久
+            console.log('[OG Local V2] 🦅 Attempting to download image as Data URL...');
+            
+            // 使用 Promise.race 限制总等待时间
+            const quickTimeout = new Promise(resolve => {
+              setTimeout(() => resolve(null), 2000); // 最多等待 2 秒
+            });
+            
+            const dataUrl = await Promise.race([
+              downloadImageAsDataUrl(absoluteUrl),
+              quickTimeout
+            ]);
+            
+            if (dataUrl) {
+              // 🆕 关键：保存到 IndexedDB，不在 chrome.storage.local 中存储大 Data URL
+              try {
+                // 检查是否有 Eagle Storage API
+                if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.saveImage) {
+                  const imageHash = await window.__TAB_CLEANER_EAGLE_STORAGE.saveImage(absoluteUrl, dataUrl);
+                  
+                  // ✅ 只保存引用，不保存完整 Data URL
+                  result.image = `eagle://${imageHash.hash}`;  // 使用特殊协议标记
+                  result.original_image_url = absoluteUrl;
+                  result.is_dataurl = true;
+                  result.image_storage = 'indexeddb';  // 标记存储位置
+                  result.image_hash = imageHash.hash;  // 保存 hash 用于查询
+                  
+                  // 🆕 详细日志：显示存储位置和预览
+                  const sizeKB = (dataUrl.length / 1024).toFixed(1);
+                  const preview = dataUrl.substring(0, 100) + '...';
+                  const format = dataUrl.match(/^data:([^;]+);base64,/)?.[1] || 'unknown';
+                  
+                  console.log('[OG Local V2] ✅ Image saved to IndexedDB:', {
+                    storage: 'IndexedDB (tab_cleaner_images)',
+                    hash: imageHash.hash,
+                    size: `${sizeKB} KB`,
+                    format: format,
+                    preview: preview,
+                    fullLength: dataUrl.length,
+                    originalUrl: absoluteUrl.substring(0, 80) + '...',
+                    dataUrlStart: dataUrl.substring(0, 200),
+                    howToCheck: 'Open DevTools → Application → IndexedDB → tab_cleaner_images → images → find by hash'
+                  });
+                } else {
+                  // 降级：如果没有 Eagle Storage，直接保存 Data URL（不推荐）
+                  console.warn('[OG Local V2] ⚠️ Eagle Storage not available, saving Data URL directly (not recommended)');
+                  result.image = dataUrl;
+                  result.original_image_url = absoluteUrl;
+                  result.is_dataurl = true;
+                  result.image_storage = 'chrome.storage.local';  // 标记存储位置
+                  
+                  const sizeKB = (dataUrl.length / 1024).toFixed(1);
+                  console.warn('[OG Local V2] ⚠️ Large Data URL saved to chrome.storage.local:', {
+                    size: `${sizeKB} KB`,
+                    warning: 'This may exceed storage quota!',
+                    recommendation: 'Ensure eagle_storage.js is loaded'
+                  });
+                }
+              } catch (storageError) {
+                console.error('[OG Local V2] ❌ Failed to save to IndexedDB:', storageError);
+                // 降级：保存 Data URL（但会警告）
+                result.image = dataUrl;
+                result.original_image_url = absoluteUrl;
+                result.is_dataurl = true;
+                result.image_storage = 'chrome.storage.local (fallback)';
+                console.warn('[OG Local V2] ⚠️ Fallback: saving Data URL to chrome.storage.local');
+              }
+            } else {
+              result.image = absoluteUrl;  // ❌ 下载失败或超时，保持 URL
+              result.is_dataurl = false;
+              result.image_storage = 'url';
+              console.warn('[OG Local V2] ⚠️ Download timeout or failed, keeping URL:', absoluteUrl.substring(0, 80));
+            }
+          }
         } catch (e) {
           if (imageUrl.startsWith('//')) {
             result.image = 'https:' + imageUrl;
           } else {
             result.image = imageUrl;
           }
+          result.is_dataurl = false;
         }
       }
       
@@ -715,4 +970,7 @@
   }
 
 })();
+
+
+
 

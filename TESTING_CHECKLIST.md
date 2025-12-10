@@ -256,3 +256,6 @@ background.js: handleSaveCapturedImage()
 
 **注意**：Chrome 扩展不需要 build，直接加载 `frontend/public` 目录即可测试！
 
+
+
+

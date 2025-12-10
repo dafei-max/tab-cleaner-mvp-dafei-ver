@@ -236,3 +236,6 @@ ADBPG_NAMESPACE=cleantab
 2. **搜索优化**：使用 Caption 和视觉属性进行搜索匹配
 3. **缓存机制**：缓存已生成的 Caption，避免重复调用
 
+
+
+

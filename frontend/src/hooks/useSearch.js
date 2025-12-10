@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { searchContent } from "../shared/api";
+import Fuse from "fuse.js";
 
 /**
  * 搜索功能 Hook
@@ -22,28 +23,151 @@ export const useSearch = (opengraphData = []) => {
   // const [opengraphWithEmbeddings, setOpengraphWithEmbeddings] = useState([]);
   const [searchResults, setSearchResults] = useState(null);
 
-  // 本地模糊排序（兜底方案）
+  // 🆕 Fuse.js 配置（高级模糊搜索）
+  const fuseOptions = useMemo(() => ({
+    keys: [
+      { name: 'title', weight: 2 },
+      { name: 'tab_title', weight: 1.5 },
+      { name: 'description', weight: 1 },
+      { name: 'image_caption', weight: 1.8 },  // AI 生成的图片描述
+      { name: 'style_tags', weight: 1.2 },     // 风格标签
+      { name: 'object_tags', weight: 1.2 },    // 物体标签
+      { name: 'dominant_colors', weight: 0.8 }, // 颜色
+      { name: 'site_name', weight: 0.5 },
+      { name: 'url', weight: 0.3 },
+    ],
+    threshold: 0.4,        // 模糊匹配阈值（0=精确，1=全匹配）
+    includeScore: true,    // 返回匹配分数
+    ignoreLocation: true,  // 不考虑位置
+    minMatchCharLength: 2, // 最小匹配字符数
+    shouldSort: true,      // 自动排序
+  }), []);
+
+  // 🆕 从查询中提取颜色关键词（中英文）
+  const extractQueryColors = (queryText) => {
+    const queryLower = queryText.toLowerCase();
+    const queryColors = [];
+    
+    // 中文颜色映射
+    const colorMap = {
+      '红色': ['red', 'crimson', 'firebrick', 'tomato', 'lightsalmon', 'scarlet', 'burgundy'],
+      '绿色': ['green', 'emerald', 'olive', 'lime', 'forestgreen', 'limegreen', 'lightgreen', 'palegreen'],
+      '蓝色': ['blue', 'azure', 'navy', 'cobalt', 'dodgerblue', 'steelblue', 'lightskyblue', 'lightblue'],
+      '黄色': ['yellow', 'gold', 'amber', 'lemon'],
+      '橙色': ['orange', 'darkorange', 'tangerine', 'coral', 'peachpuff'],
+      '紫色': ['purple', 'violet', 'lavender', 'plum', 'blueviolet', 'mediumpurple', 'mediumorchid'],
+      '粉色': ['pink', 'deeppink', 'hotpink', 'lightpink', 'rose', 'blush', 'magenta'],
+      '黑色': ['black', 'dark', 'ebony'],
+      '白色': ['white', 'ivory', 'snow', 'whitesmoke'],
+      '灰色': ['gray', 'grey', 'silver', 'charcoal', 'darkgray', 'lightgray'],
+      '棕色': ['brown', 'saddlebrown', 'sienna', 'tan'],
+    };
+    
+    // 检查中文颜色
+    for (const [cnColor, enColors] of Object.entries(colorMap)) {
+      if (queryText.includes(cnColor)) {
+        queryColors.push(...enColors);
+      }
+    }
+    
+    // 检查英文颜色（直接匹配）
+    const allEnColors = Object.values(colorMap).flat();
+    for (const enColor of allEnColors) {
+      if (queryLower.includes(enColor)) {
+        queryColors.push(enColor);
+      }
+    }
+    
+    return [...new Set(queryColors)]; // 去重
+  };
+
+  // 🆕 按颜色和相似度排序结果
+  const sortResultsByColorAndSimilarity = (results, queryColors) => {
+    const hasMatchingColor = (item) => {
+      if (queryColors.length === 0) return true; // 查询没有颜色，不筛选
+      const itemColors = (item.dominant_colors || []).map(c => c.toLowerCase());
+      return queryColors.some(qc => itemColors.includes(qc.toLowerCase()));
+    };
+    
+    return [...results].sort((a, b) => {
+      const simA = a.similarity ?? 0;
+      const simB = b.similarity ?? 0;
+      const simDiff = simB - simA;
+      
+      // 如果查询有颜色，优先显示匹配颜色的结果
+      if (queryColors.length > 0) {
+        const aMatches = hasMatchingColor(a);
+        const bMatches = hasMatchingColor(b);
+        
+        // 匹配颜色的优先
+        if (aMatches && !bMatches) return -1;
+        if (!aMatches && bMatches) return 1;
+        
+        // 都匹配或都不匹配时，按相似度排序
+        if (Math.abs(simDiff) < 0.05) {
+          if (aMatches && !bMatches) return -1;
+          if (!aMatches && bMatches) return 1;
+        }
+      }
+      
+      return simDiff; // 按相似度排序
+    });
+  };
+
+  // 🆕 计算布局并格式化结果
+  const calculateLayoutForResults = (results, calculateRadialLayout) => {
+    const searchResultItems = (results || []).map((item, index) => ({
+      ...item,
+      id: item.tab_id ? `og-search-${item.tab_id}` : `og-search-${index}-${Date.now()}`,
+    }));
+    
+    let positionedResults = searchResultItems;
+    if (calculateRadialLayout && typeof calculateRadialLayout === 'function') {
+      positionedResults = calculateRadialLayout(searchResultItems) || searchResultItems;
+    }
+    
+    return positionedResults.map((item, idx) => ({
+      ...item,
+      id: item.id || `og-search-${idx}-${Date.now()}`,
+      x: item.x ?? 720,
+      y: item.y ?? 512,
+      width: item.width ?? 120,
+      height: item.height ?? 120,
+    }));
+  };
+
+  // 🆕 增强版本地模糊搜索（使用 Fuse.js）
   const fuzzyRankLocally = (query, items) => {
-    // ✅ 修复：添加安全检查，确保 items 是数组
     if (!items || !Array.isArray(items) || items.length === 0) {
       return [];
     }
-    const q = query.toLowerCase().trim();
-    const qTokens = q.split(/\s+/).filter(Boolean);
-    const scored = items.map((it, idx) => {
-      const text = ((it.title || it.tab_title || "") + " " + (it.description || "")).toLowerCase();
-      let score = 0;
-      if (text.includes(q)) score += 3;
-      for (const t of qTokens) {
-        if (t && text.includes(t)) score += 1;
-      }
-      const titleText = (it.title || it.tab_title || "").toLowerCase();
-      if (titleText.includes(q)) score += 1;
-      const normalizedScore = Math.min(score / 10.0, 1.0);
-      return { ...it, similarity: normalizedScore, idx };
-    });
-    scored.sort((a, b) => (b.similarity - a.similarity) || (a.idx - b.idx));
-    return scored;
+    
+    const q = query.trim();
+    if (!q) return items;
+    
+    // 预处理数据：将数组字段转为字符串便于 Fuse.js 搜索
+    const processedItems = items.map((it, idx) => ({
+      ...it,
+      _idx: idx,
+      style_tags: (it.style_tags || []).join(' '),
+      object_tags: (it.object_tags || []).join(' '),
+      dominant_colors: (it.dominant_colors || []).join(' '),
+    }));
+    
+    const fuse = new Fuse(processedItems, fuseOptions);
+    const results = fuse.search(q);
+    
+    // 转换结果格式
+    return results.map(result => ({
+      ...result.item,
+      // 恢复原始数组字段
+      style_tags: items[result.item._idx]?.style_tags || [],
+      object_tags: items[result.item._idx]?.object_tags || [],
+      dominant_colors: items[result.item._idx]?.dominant_colors || [],
+      // Fuse.js score 越低越好，转换为 similarity（越高越好）
+      similarity: 1 - (result.score || 0),
+      idx: result.item._idx,
+    }));
   };
 
   // ✅ 已移除：generateEmbeddingsForData - 不再需要本地生成 embedding
@@ -66,149 +190,85 @@ export const useSearch = (opengraphData = []) => {
       setIsSearching(true);
       console.log('[useSearch] Searching for:', query);
       
-      // ✅ 新增：传递 filterUrls 和 filterTabIds 到后端，确保只搜索 Personal Space 中的内容
-      const result = await searchContent(query, 20, filterUrls, filterTabIds);
-
-      let finalList = [];
-      if (result && result.ok && Array.isArray(result.results) && result.results.length > 0) {
-        // ✅ 使用新的响应格式：result.results
-        finalList = result.results;
-        console.log('[useSearch] Found', finalList.length, 'results from database');
-      } else {
-        console.warn('[useSearch] Backend returned empty, using local fuzzy ranking');
-        finalList = fuzzyRankLocally(query, currentOGData || []);
+      // 🆕 步骤1：先立即执行本地搜索，快速显示结果
+      const localResults = fuzzyRankLocally(query, currentOGData || []);
+      console.log('[useSearch] 🔍 Local search found', localResults.length, 'results');
+      
+      // 立即显示本地搜索结果
+      let localDisplayed = false;
+      if (localResults.length > 0) {
+        const queryColors = extractQueryColors(query);
+        const sortedLocalResults = sortResultsByColorAndSimilarity(localResults, queryColors);
+        const positionedLocal = calculateLayoutForResults(sortedLocalResults, calculateRadialLayout);
+        setSearchResults(positionedLocal);
+        localDisplayed = true;
+        console.log('[useSearch] ✅ Local results displayed immediately');
       }
       
-      // ✅ 按颜色排序：优先显示与查询颜色匹配的结果
-      // 从查询中提取颜色关键词（中英文）
-      const extractQueryColors = (queryText) => {
-        const queryLower = queryText.toLowerCase();
-        const queryColors = [];
-        
-        // 中文颜色映射
-        const colorMap = {
-          '红色': ['red', 'crimson', 'firebrick', 'tomato', 'lightsalmon', 'scarlet', 'burgundy'],
-          '绿色': ['green', 'emerald', 'olive', 'lime', 'forestgreen', 'limegreen', 'lightgreen', 'palegreen'],
-          '蓝色': ['blue', 'azure', 'navy', 'cobalt', 'dodgerblue', 'steelblue', 'lightskyblue', 'lightblue'],
-          '黄色': ['yellow', 'gold', 'amber', 'lemon'],
-          '橙色': ['orange', 'darkorange', 'tangerine', 'coral', 'peachpuff'],
-          '紫色': ['purple', 'violet', 'lavender', 'plum', 'blueviolet', 'mediumpurple', 'mediumorchid'],
-          '粉色': ['pink', 'deeppink', 'hotpink', 'lightpink', 'rose', 'blush', 'magenta'],
-          '黑色': ['black', 'dark', 'ebony'],
-          '白色': ['white', 'ivory', 'snow', 'whitesmoke'],
-          '灰色': ['gray', 'grey', 'silver', 'charcoal', 'darkgray', 'lightgray'],
-          '棕色': ['brown', 'saddlebrown', 'sienna', 'tan'],
-        };
-        
-        // 检查中文颜色
-        for (const [cnColor, enColors] of Object.entries(colorMap)) {
-          if (queryText.includes(cnColor)) {
-            queryColors.push(...enColors);
-          }
+      // 🆕 步骤2：异步执行 AI 搜索，完成后更新结果（不阻塞 UI）
+      // 注意：不 await，让函数立即返回，但保持 isSearching = true
+      searchContent(query, 20, filterUrls, filterTabIds).then(result => {
+        let aiResults = [];
+        if (result && result.ok && Array.isArray(result.results) && result.results.length > 0) {
+          aiResults = result.results;
+          console.log('[useSearch] 🤖 AI search found', aiResults.length, 'results from database');
+        } else {
+          console.log('[useSearch] 🤖 AI search returned empty, keeping local results');
+          setIsSearching(false);
+          return; // AI 搜索无结果，保持本地搜索结果
         }
         
-        // 检查英文颜色（直接匹配）
-        const allEnColors = Object.values(colorMap).flat();
-        for (const enColor of allEnColors) {
-          if (queryLower.includes(enColor)) {
-            queryColors.push(enColor);
-          }
-        }
-        
-        return [...new Set(queryColors)]; // 去重
-      };
-      
-      const queryColors = extractQueryColors(query);
-      
-      // 检查结果的颜色是否匹配查询颜色
-      const hasMatchingColor = (item) => {
-        if (queryColors.length === 0) return true; // 查询没有颜色，不筛选
-        const itemColors = (item.dominant_colors || []).map(c => c.toLowerCase());
-        return queryColors.some(qc => itemColors.includes(qc.toLowerCase()));
-      };
-      
-      // 排序：优先显示匹配查询颜色的结果
-      finalList.sort((a, b) => {
-        const simA = a.similarity ?? 0;
-        const simB = b.similarity ?? 0;
-        const simDiff = simB - simA;
-        
-        // 如果查询有颜色，优先显示匹配颜色的结果
-        if (queryColors.length > 0) {
-          const aMatches = hasMatchingColor(a);
-          const bMatches = hasMatchingColor(b);
-          
-          // 匹配颜色的优先
-          if (aMatches && !bMatches) return -1; // a 匹配，b 不匹配，a 在前
-          if (!aMatches && bMatches) return 1;  // a 不匹配，b 匹配，b 在前
-          
-          // 都匹配或都不匹配时，按相似度排序
-          // 如果相似度差异很小（< 0.05），匹配颜色的稍微优先
-          if (Math.abs(simDiff) < 0.05) {
-            if (aMatches && !bMatches) return -1;
-            if (!aMatches && bMatches) return 1;
-          }
-        }
-        
-        return simDiff; // 按相似度排序
+        // 如果有 AI 结果，使用 AI 结果（通常更准确）
+        const queryColors = extractQueryColors(query);
+        const sortedResults = sortResultsByColorAndSimilarity(aiResults, queryColors);
+        const positioned = calculateLayoutForResults(sortedResults, calculateRadialLayout);
+        setSearchResults(positioned);
+        setIsSearching(false);
+        console.log('[useSearch] ✅ AI results displayed and updated');
+      }).catch(error => {
+        console.error('[useSearch] AI search failed:', error);
+        setIsSearching(false);
+        // AI 搜索失败，保持本地搜索结果
       });
       
-      // 计算布局位置（如果提供了 calculateRadialLayout 回调）
-      const searchResultItems = (finalList || []).map((item, index) => ({
-        ...item,
-        id: item.tab_id ? `og-search-${item.tab_id}` : `og-search-${index}-${Date.now()}`,
-      }));
-      
-      let positionedResults = searchResultItems;
-      if (calculateRadialLayout && typeof calculateRadialLayout === 'function') {
-        positionedResults = calculateRadialLayout(searchResultItems) || searchResultItems;
-        console.log('[useSearch] Applied radial layout to', positionedResults.length, 'results');
+      // 返回本地搜索结果（立即返回，不等待 AI）
+      // 注意：isSearching 保持为 true，直到 AI 搜索完成
+      if (localDisplayed) {
+        const queryColors = extractQueryColors(query);
+        const sortedLocalResults = sortResultsByColorAndSimilarity(localResults, queryColors);
+        const finalResults = calculateLayoutForResults(sortedLocalResults, calculateRadialLayout);
+        return finalResults;
       }
       
-      const finalResults = positionedResults.map((item, idx) => ({
-        ...item,
-        id: item.id || `og-search-${idx}-${Date.now()}`,
-        x: item.x ?? 720,
-        y: item.y ?? 512,
-        width: item.width ?? 120,
-        height: item.height ?? 120,
-      }));
+      // 如果没有本地结果，等待 AI 搜索完成
+      const result = await searchContent(query, 20, filterUrls, filterTabIds);
+      let finalList = [];
+      if (result && result.ok && Array.isArray(result.results) && result.results.length > 0) {
+        finalList = result.results;
+        console.log('[useSearch] 🤖 AI search found', finalList.length, 'results');
+      } else {
+        console.log('[useSearch] No results found');
+        setIsSearching(false);
+        return [];
+      }
       
+      const queryColors = extractQueryColors(query);
+      const sortedResults = sortResultsByColorAndSimilarity(finalList, queryColors);
+      const finalResults = calculateLayoutForResults(sortedResults, calculateRadialLayout);
       setSearchResults(finalResults);
-      console.log('[useSearch] Search completed,', finalResults.length, 'results');
+      setIsSearching(false);
       return finalResults;
     } catch (error) {
       console.error('[useSearch] Error searching:', error);
+      setIsSearching(false);
       // ✅ 出错时使用本地模糊搜索兜底
       console.warn('[useSearch] Falling back to local fuzzy search');
       const fallback = fuzzyRankLocally(query, currentOGData || []);
-      fallback.sort((a, b) => {
-        const simA = a.similarity ?? 0;
-        const simB = b.similarity ?? 0;
-        return simB - simA;
-      });
-      const fallbackItems = fallback.map((item, index) => ({
-        ...item,
-        id: item.tab_id ? `og-search-${item.tab_id}` : `og-search-${index}-${Date.now()}`,
-      }));
-      
-      let positioned = fallbackItems;
-      if (calculateRadialLayout && typeof calculateRadialLayout === 'function') {
-        positioned = calculateRadialLayout(fallbackItems) || fallbackItems;
-      }
-      
-      const finalFallback = positioned.map((item, idx) => ({
-        ...item,
-        id: item.id || `og-search-${idx}-${Date.now()}`,
-        x: item.x ?? 720,
-        y: item.y ?? 512,
-        width: item.width ?? 120,
-        height: item.height ?? 120,
-      }));
+      const queryColors = extractQueryColors(query);
+      const sortedFallback = sortResultsByColorAndSimilarity(fallback, queryColors);
+      const finalFallback = calculateLayoutForResults(sortedFallback, calculateRadialLayout);
       setSearchResults(finalFallback);
       return finalFallback;
-    } finally {
-      setIsSearching(false);
     }
   };
 

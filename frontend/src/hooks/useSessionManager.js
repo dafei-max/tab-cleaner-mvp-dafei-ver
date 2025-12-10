@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { enrichSessionsWithColors } from '../utils/colorUtils';
+import { normalizeHex } from '../utils/colorUtils';
 
 /**
  * Session 数据结构：
@@ -12,6 +14,7 @@ import { useState, useEffect, useCallback } from 'react';
  */
 
 const STORAGE_KEY = 'sessions';
+const COLOR_ENRICH_FLAG = 'colorEnrichCompleted_v1'; // 版本化标记，避免重复处理
 
 /**
  * 生成唯一 ID
@@ -43,6 +46,7 @@ export const useSessionManager = () => {
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const colorEnrichRunningRef = useRef(false); // 防止重复执行
 
   // 从 storage 加载 sessions
   const loadSessions = useCallback(() => {
@@ -102,6 +106,130 @@ export const useSessionManager = () => {
       };
     }
   }, [loadSessions]);
+
+  // 🆕 颜色值规范化（hex -> #RRGGBB），修复历史数据
+  useEffect(() => {
+    if (isLoading || !sessions.length || colorEnrichRunningRef.current) return;
+
+    let updated = 0;
+    const sanitizedSessions = sessions.map(session => {
+      if (!session?.opengraphData) return session;
+      let changed = false;
+      const sanitizedOG = session.opengraphData.map(item => {
+        if (!item || !Array.isArray(item.dominant_colors)) return item;
+        const original = item.dominant_colors;
+        const sanitized = original
+          .map(normalizeHex)
+          .filter(Boolean);
+        if (sanitized.length !== original.length || sanitized.some((c, idx) => c !== original[idx])) {
+          changed = true;
+          return { ...item, dominant_colors: sanitized };
+        }
+        return item;
+      });
+      if (changed) {
+        updated += 1;
+        return { ...session, opengraphData: sanitizedOG };
+      }
+      return session;
+    });
+
+    if (updated > 0) {
+      console.warn(`[SessionManager] 🛠️ 颜色值规范化，修复了 ${updated} 个 session 的 dominant_colors`);
+      setSessions(sanitizedSessions);
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.set({ [STORAGE_KEY]: sanitizedSessions }, () => {
+          if (chrome.runtime.lastError) {
+            console.error('[SessionManager] Failed to save sanitized sessions:', chrome.runtime.lastError);
+          } else {
+            console.log('[SessionManager] ✅ Sanitized sessions saved');
+          }
+        });
+      }
+    }
+  }, [isLoading, sessions]);
+
+  // 🆕 自动补全缺失的颜色数据（从 thumbnail 中提取）
+  useEffect(() => {
+    // 条件检查：有 sessions、不在加载中、没有正在执行
+    if (isLoading || !sessions.length || colorEnrichRunningRef.current) {
+      return;
+    }
+
+    // 检查是否需要补全：统计缺少颜色但有 thumbnail 的项目数量
+    let needsEnrich = 0;
+    let totalItems = 0;
+    let itemsWithThumbnail = 0;
+    let itemsWithColors = 0;
+    let itemsWithThumbnailButNoColors = 0;
+    
+    sessions.forEach(session => {
+      if (session?.opengraphData) {
+        session.opengraphData.forEach(item => {
+          totalItems++;
+          const hasColors = item.dominant_colors && Array.isArray(item.dominant_colors) && item.dominant_colors.length > 0;
+          const hasThumbnail = item.thumbnail && item.thumbnail.startsWith('data:image');
+          
+          if (hasColors) itemsWithColors++;
+          if (hasThumbnail) itemsWithThumbnail++;
+          if (!hasColors && hasThumbnail) {
+            itemsWithThumbnailButNoColors++;
+            needsEnrich++;
+          }
+        });
+      }
+    });
+
+    // 🆕 详细统计信息
+    console.log(`[SessionManager] 📊 数据统计: 总计 ${totalItems} 项, ${itemsWithColors} 有颜色, ${itemsWithThumbnail} 有缩略图, ${itemsWithThumbnailButNoColors} 有缩略图但无颜色`);
+
+    // 如果没有需要补全的，跳过
+    if (needsEnrich === 0) {
+      if (itemsWithThumbnail === 0 && totalItems > 0) {
+        // 🆕 优化：缩略图会在图片加载后自动生成（由 SessionCard 的 ImageWithFallback 组件处理）
+        // 这不是错误，只是说明缩略图会在渲染时按需生成
+        console.log(`[SessionManager] ℹ️ 提示: ${totalItems} 个项目的缩略图将在图片加载后自动生成（按需生成，无需担心）`);
+      }
+      return;
+    }
+
+    console.log(`[SessionManager] 🎨 Found ${needsEnrich} items need color extraction...`);
+    colorEnrichRunningRef.current = true;
+
+    // 异步补全颜色
+    (async () => {
+      try {
+        const { sessions: enrichedSessions, updated } = await enrichSessionsWithColors(
+          sessions,
+          (current, total, updatedCount) => {
+            // 每 20 个项目打印一次进度
+            if (current % 20 === 0 || current === total) {
+              console.log(`[SessionManager] 🎨 Color extraction progress: ${current}/${total}, updated: ${updatedCount}`);
+            }
+          }
+        );
+
+        if (updated > 0) {
+          console.log(`[SessionManager] ✅ Color extraction completed, updated ${updated} items`);
+          // 保存到 storage
+          if (typeof chrome !== 'undefined' && chrome.storage) {
+            chrome.storage.local.set({ [STORAGE_KEY]: enrichedSessions }, () => {
+              if (chrome.runtime.lastError) {
+                console.error('[SessionManager] Failed to save enriched sessions:', chrome.runtime.lastError);
+              } else {
+                console.log('[SessionManager] ✅ Enriched sessions saved');
+              }
+            });
+          }
+          setSessions(enrichedSessions);
+        }
+      } catch (e) {
+        console.error('[SessionManager] Color extraction failed:', e);
+      } finally {
+        colorEnrichRunningRef.current = false;
+      }
+    })();
+  }, [sessions, isLoading]);
 
   // 保存 sessions 到 storage
   const saveSessions = useCallback((newSessions) => {

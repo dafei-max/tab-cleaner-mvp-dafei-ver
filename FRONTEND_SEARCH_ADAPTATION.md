@@ -130,3 +130,6 @@ const filteredResults = searchResults.filter(item => {
 3. **测试加载状态**: 搜索中、成功、失败
 4. **测试交互**: 点击、滚动、筛选
 
+
+
+

@@ -159,3 +159,6 @@ image_embedding = [0.3, 0.4, ...]  (1024维向量)
 - 有值（非 NULL）→ 不是 missing
 - 无值（NULL）→ 是 missing
 
+
+
+

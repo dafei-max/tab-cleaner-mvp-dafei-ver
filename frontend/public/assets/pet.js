@@ -518,6 +518,11 @@
   async function savePetState() {
     try {
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        // 扩展上下文失效时跳过
+        if (!chrome.runtime?.id) {
+          console.warn('[Tab Cleaner Pet] Extension context invalidated, skip save');
+          return;
+        }
         const position = petContainer ? {
           left: petContainer.style.left,
           top: petContainer.style.top
@@ -529,7 +534,10 @@
             petPosition: position
           }, () => {
             if (chrome.runtime.lastError) {
-              console.warn('[Tab Cleaner Pet] Failed to save pet state:', chrome.runtime.lastError);
+              // 过滤已知的无害错误
+              if (!chrome.runtime.lastError.message?.includes('Extension context invalidated')) {
+                console.warn('[Tab Cleaner Pet] Failed to save pet state:', chrome.runtime.lastError);
+              }
             } else {
               console.log('[Tab Cleaner Pet] Pet state saved:', { petVisible: isPetVisible, position });
             }

@@ -417,14 +417,59 @@ export const generateInitialsPlaceholder = (og, width = 200, height = 150) => {
 };
 
 /**
+ * 🆕 从 IndexedDB 解析图片引用（作为兜底）
+ * 当 chrome.storage.local 中的图片加载失败时使用
+ */
+const resolveImageFromIndexedDB = async (imageRef) => {
+  if (!imageRef || typeof imageRef !== 'string') {
+    return null;
+  }
+  
+  // 如果是 eagle:// 协议，从 IndexedDB 加载
+  if (imageRef.startsWith('eagle://')) {
+    try {
+      if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.resolveImageReference) {
+        const dataUrl = await window.__TAB_CLEANER_EAGLE_STORAGE.resolveImageReference(imageRef);
+        if (dataUrl) {
+          console.log('[getBestImageSource] ✅ Loaded from IndexedDB (fallback):', imageRef.substring(0, 30));
+          return dataUrl;
+        }
+      }
+    } catch (error) {
+      console.warn('[getBestImageSource] ⚠️ Failed to load from IndexedDB:', error);
+    }
+  }
+  
+  // 如果不是 eagle:// 协议，尝试通过 original_image_url 从 IndexedDB 查找
+  // 这用于处理旧数据（image 是 URL，但 IndexedDB 中可能有保存）
+  if (imageRef && !imageRef.startsWith('eagle://') && !imageRef.startsWith('data:')) {
+    try {
+      if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.loadImage) {
+        const imageData = await window.__TAB_CLEANER_EAGLE_STORAGE.loadImage(imageRef);
+        if (imageData && imageData.dataUrl) {
+          console.log('[getBestImageSource] ✅ Found in IndexedDB by URL (fallback)');
+          return imageData.dataUrl;
+        }
+      }
+    } catch (error) {
+      // 静默失败
+    }
+  }
+  
+  return null;
+};
+
+/**
  * CleanTab 图像决策树：获取最佳图片源（统一入口）
  * 
  * 优先级从高到低：
- * ① 首图（正文第一张大图）- 最完美的 preview
+ * ① 首图（正文第一张大图）- 最完美的 preview（chrome.storage.local）
  * ② OG/Twitter Card 图像 - 平台提供的预览图
  * ③ 截图 fallback（chrome.tabs.captureVisibleTab）
  * ④ 文档类占位图（PDF/GDoc/Notion 等）
  * ⑤ favicon（仅用于 corner badge，不作为主图）
+ * 
+ * 注意：如果 og.image 是 eagle://hash，会先尝试使用，失败时在 onError 中从 IndexedDB 加载
  * 
  * @param {Object} og - OpenGraph 数据对象
  * @param {string} style - 占位符样式：'text'（标题）或 'initials'（首字母），默认 'text'
@@ -437,11 +482,20 @@ export const getBestImageSource = (og, style = 'text', width = 200, height = 150
     return getPlaceholderImage(null, style, width, height);
   }
   
-  // ① 首图（正文第一张大图）- 最高优先级
-  // 后端已经提取了首图，存储在 og.image 中（如果 source_type 是 'first-img'）
-  // 这里直接使用 og.image（后端已经按优先级处理过了）
+  // ① 首图（正文第一张大图）- 最高优先级（chrome.storage.local）
+  // 优先使用 chrome.storage.local 中的图片（可能是 URL 或 Data URL）
   if (og.image && og.image.trim()) {
     let imageUrl = og.image.trim();
+    
+    // 如果是 eagle:// 协议，先尝试从 IndexedDB 加载（但这是兜底，优先还是用 original_image_url）
+    if (imageUrl.startsWith('eagle://')) {
+      // 如果有 original_image_url，优先使用它（chrome.storage.local 中的 URL）
+      if (og.original_image_url && og.original_image_url.trim()) {
+        return og.original_image_url.trim();
+      }
+      // 如果没有 original_image_url，返回占位符（会在 onError 时从 IndexedDB 加载）
+      return getPlaceholderImage(og, style, width, height);
+    }
     
     // ✅ 确保 URL 格式正确
     // 如果是相对路径，尝试转换为绝对路径
@@ -491,6 +545,42 @@ export const getBestImageSource = (og, style = 'text', width = 200, height = 150
   
   // 最终 fallback：使用占位符
   return getPlaceholderImage(og, style, width, height);
+};
+
+/**
+ * 🆕 从 IndexedDB 获取图片（作为兜底）
+ * 当 chrome.storage.local 中的图片加载失败时调用
+ */
+export const getImageFromIndexedDB = async (og) => {
+  if (!og) {
+    return null;
+  }
+  
+  // 优先尝试通过 eagle://hash 加载
+  if (og.image && og.image.startsWith('eagle://')) {
+    const indexedDbImage = await resolveImageFromIndexedDB(og.image);
+    if (indexedDbImage) {
+      return indexedDbImage;
+    }
+  }
+  
+  // 尝试通过 original_image_url 从 IndexedDB 查找
+  if (og.original_image_url) {
+    const indexedDbImage = await resolveImageFromIndexedDB(og.original_image_url);
+    if (indexedDbImage) {
+      return indexedDbImage;
+    }
+  }
+  
+  // 尝试通过 og.image（如果是 URL）从 IndexedDB 查找
+  if (og.image && !og.image.startsWith('eagle://') && !og.image.startsWith('data:')) {
+    const indexedDbImage = await resolveImageFromIndexedDB(og.image);
+    if (indexedDbImage) {
+      return indexedDbImage;
+    }
+  }
+  
+  return null;
 };
 
 /**
@@ -567,11 +657,12 @@ export const getPlaceholderImage = (og, style = 'text', width = 200, height = 15
 
 /**
  * 处理图片加载错误
+ * 🆕 优先从 chrome.storage.local 读取，失败时从 IndexedDB 兜底
  * @param {Event} e - 图片错误事件
  * @param {Object} og - OpenGraph 数据对象
  * @param {string} style - 占位符样式
  */
-export const handleImageError = (e, og, style = 'text', width = 200, height = 150) => {
+export const handleImageError = async (e, og, style = 'text', width = 200, height = 150) => {
   const img = e.target;
   const currentSrc = img.src;
   
@@ -612,8 +703,20 @@ export const handleImageError = (e, og, style = 'text', width = 200, height = 15
     }
   }
   
-  // 优先级回退策略：
-  // 1. 如果当前是 image，尝试使用 screenshot_image
+  // 🆕 优先级回退策略：
+  // 1. 尝试从 IndexedDB 加载（作为兜底）
+  try {
+    const indexedDbImage = await getImageFromIndexedDB(og);
+    if (indexedDbImage) {
+      img.src = indexedDbImage;
+      console.log('[handleImageError] ✅ Loaded from IndexedDB (fallback)');
+      return;
+    }
+  } catch (error) {
+    console.warn('[handleImageError] ⚠️ Failed to load from IndexedDB:', error);
+  }
+  
+  // 2. 如果当前是 image，尝试使用 screenshot_image
   if (og && og.image && (currentSrc === og.image || currentSrc.includes(og.image))) {
     if (og.screenshot_image && og.screenshot_image.trim()) {
       img.src = og.screenshot_image;
@@ -626,7 +729,7 @@ export const handleImageError = (e, og, style = 'text', width = 200, height = 15
     }
   }
   
-  // 2. 如果当前是 screenshot_image，或没有 screenshot_image，使用 doc card / placeholder
+  // 3. 如果当前是 screenshot_image，或没有 screenshot_image，使用 doc card / placeholder
   const placeholder = getPlaceholderImage(og, style, width, height);
   if (placeholder && placeholder !== currentSrc) {
     img.src = placeholder;
