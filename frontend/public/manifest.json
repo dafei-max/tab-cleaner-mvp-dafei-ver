@@ -62,6 +62,6 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://tab-cleaner-mvp-app-production.up.railway.app http://localhost:8000; img-src 'self' data: https: http: blob:;"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://tab-cleaner-mvp-app-production.up.railway.app wss://tab-cleaner-mvp-app-production.up.railway.app http://localhost:8000 ws://localhost:8000; img-src 'self' data: https: http: blob:;"
   }
 }
