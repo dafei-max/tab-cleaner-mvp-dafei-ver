@@ -943,14 +943,47 @@
         dataUrl,
         imageUrl,
       }, (response) => {
+        // 错误检查
+        if (chrome.runtime.lastError) {
+          console.error('[Tab Cleaner Content] ❌ Runtime error:', chrome.runtime.lastError);
+          window.postMessage({
+            type: 'TAB_CLEANER_CAPTION_RESPONSE',
+            messageId,
+            success: false,
+            quickCaption: null,
+            tags: [],
+            error: chrome.runtime.lastError.message,
+          }, '*');
+          return;
+        }
+
+        if (!response) {
+          console.error('[Tab Cleaner Content] ❌ Empty response from background');
+          window.postMessage({
+            type: 'TAB_CLEANER_CAPTION_RESPONSE',
+            messageId,
+            success: false,
+            quickCaption: null,
+            tags: [],
+            error: 'Empty response from background',
+          }, '*');
+          return;
+        }
+
         window.postMessage({
           type: 'TAB_CLEANER_CAPTION_RESPONSE',
           messageId,
-          success: !!(response && response.quickCaption),
+          success: response.success !== false && !!response.quickCaption,
           quickCaption: response?.quickCaption || null,
           tags: response?.tags || [],
           error: response?.error || null,
         }, '*');
+
+        console.log('[Tab Cleaner Content] ✅ Caption response sent:', {
+          messageId,
+          success: response.success !== false && !!response.quickCaption,
+          hasCaption: !!response.quickCaption,
+        });
       });
       return;
     }

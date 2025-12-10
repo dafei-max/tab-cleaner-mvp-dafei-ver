@@ -144,7 +144,9 @@ async def process_opengraph_for_search(opengraph_items: List[Dict]) -> List[Dict
         
         verbose = idx < 3
         if verbose:
-            print(f"[Pipeline] Processing item {idx+1}/{total}: {it.get('title', it.get('tab_title', 'Unknown'))[:50]}")
+            title = it.get("title") or it.get("tab_title") or it.get("url") or "Unknown"
+            title_str = str(title) if title is not None else "Unknown"
+            print(f"[Pipeline] Processing item {idx+1}/{total}: {title_str[:50]}")
         
         try:
             enriched = await _build_item_embedding(it, verbose=verbose)

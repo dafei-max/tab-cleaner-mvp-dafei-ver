@@ -216,8 +216,8 @@
       const messageId = `caption_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const timeout = setTimeout(() => {
         window.removeEventListener('message', onMessage);
-        reject(new Error('Caption request timeout'));
-      }, 10000);
+        reject(new Error('Caption request timeout (60s)'));
+      }, 60000); // 60 秒，避免后台响应较慢时过早超时
 
       function onMessage(event) {
         if (event.source !== window) return;
