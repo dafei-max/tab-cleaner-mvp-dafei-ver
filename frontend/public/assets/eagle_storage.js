@@ -209,6 +209,40 @@
   let activeCaptionTasks = 0;
   
   /**
+   * 🆕 通过 content.js 转发给 background（page→content→background），避免 page 世界缺少 extensionId
+   */
+  function requestCaptionViaContent(dataUrl, imageUrl = '') {
+    return new Promise((resolve, reject) => {
+      const messageId = `caption_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', onMessage);
+        reject(new Error('Caption request timeout'));
+      }, 10000);
+
+      function onMessage(event) {
+        if (event.source !== window) return;
+        const data = event.data || {};
+        if (data.type !== 'TAB_CLEANER_CAPTION_RESPONSE' || data.messageId !== messageId) return;
+        window.removeEventListener('message', onMessage);
+        clearTimeout(timeout);
+        if (data.success) {
+          resolve({ quickCaption: data.quickCaption || '', tags: data.tags || [] });
+        } else {
+          reject(new Error(data.error || 'Caption failed'));
+        }
+      }
+
+      window.addEventListener('message', onMessage);
+      window.postMessage({
+        type: 'TAB_CLEANER_CAPTION_REQUEST',
+        messageId,
+        dataUrl,
+        imageUrl,
+      }, '*');
+    });
+  }
+
+  /**
    * 🆕 从视觉语言模型 API 生成快速 caption 和 tags
    * @param {string} dataUrl - 图片 Data URL
    * @param {string} imageUrl - 原始图片 URL（用于日志）
@@ -217,86 +251,17 @@
   async function generateCaptionFromAPI(dataUrl, imageUrl = '') {
     const startTime = Date.now();
     const urlPreview = imageUrl ? imageUrl.substring(0, 60) : 'local-image';
-    
-    console.log(`[Eagle Storage] 🚀 [CAPTION] Starting API call for: ${urlPreview}`);
-    
+    console.log(`[Eagle Storage] 🚀 [CAPTION] Request via content bridge for: ${urlPreview}`);
     try {
-      // 获取 API 配置
-      const apiUrl = window.__TAB_CLEANER_API_CONFIG?.getBaseUrlSync?.() || 
-                     'https://tab-cleaner-mvp-app-production.up.railway.app';
-      
-      // 获取用户 ID
-      let userId = 'anonymous';
-      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        try {
-          const result = await chrome.storage.local.get(['user_id']);
-          userId = result.user_id || 'anonymous';
-        } catch (e) {
-          console.warn('[Eagle Storage] Failed to get user_id:', e);
-        }
-      }
-      
-      // 调用 embedding API（会自动生成 caption）
-      const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
-      console.log(`[Eagle Storage] 📡 [CAPTION] Calling API: ${embeddingUrl}`);
-      
-      const response = await fetch(embeddingUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': userId,
-        },
-        body: JSON.stringify({
-          opengraph_items: [{
-            url: imageUrl || 'local-image',
-            image: dataUrl, // 使用 Data URL
-            title: '',
-            description: '',
-          }],
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`API returned ${response.status}`);
-      }
-      
-      const result = await response.json();
-      if (result.data && result.data.length > 0) {
-        const enrichedItem = result.data[0];
-        
-        // 提取 caption 和 tags
-        const quickCaption = enrichedItem.image_caption || '';
-        const tags = [
-          ...(enrichedItem.style_tags || []),
-          ...(enrichedItem.object_tags || []),
-        ];
-        
-        // 添加颜色标签（如果有）
-        if (enrichedItem.dominant_colors && Array.isArray(enrichedItem.dominant_colors)) {
-          enrichedItem.dominant_colors.forEach(color => {
-            const colorName = getColorName(color);
-            if (colorName && !tags.includes(colorName)) {
-              tags.push(colorName);
-            }
-          });
-        }
-        
-        const duration = Date.now() - startTime;
-        console.log(`[Eagle Storage] ✅ [CAPTION] SUCCESS! (${duration}ms)`);
-        console.log(`[Eagle Storage] 📝 [CAPTION] Caption: "${quickCaption}"`);
-        console.log(`[Eagle Storage] 🏷️ [CAPTION] Tags (${tags.length}):`, tags);
-        console.log(`[Eagle Storage] 🔗 [CAPTION] Image URL: ${urlPreview}`);
-        
-        return { quickCaption, tags };
-      }
-      
-      throw new Error('No data returned from API');
-    } catch (error) {
+      const bridged = await requestCaptionViaContent(dataUrl, imageUrl);
       const duration = Date.now() - startTime;
-      console.error(`[Eagle Storage] ❌ [CAPTION] FAILED! (${duration}ms)`);
-      console.error(`[Eagle Storage] ❌ [CAPTION] Error:`, error.message);
-      console.error(`[Eagle Storage] ❌ [CAPTION] Image URL: ${urlPreview}`);
-      // 降级：使用本地生成的 caption
+      console.log(`[Eagle Storage] ✅ [CAPTION] SUCCESS! (${duration}ms)`);
+      console.log(`[Eagle Storage] 📝 [CAPTION] Caption: "${bridged.quickCaption}"`);
+      console.log(`[Eagle Storage] 🏷️ [CAPTION] Tags (${bridged.tags.length}):`, bridged.tags);
+      return bridged;
+    } catch (error) {
+      console.error('[Eagle Storage] ❌ [CAPTION] Bridge failed:', error);
+      // 不再回退 runtime.sendMessage，直接返回 null 触发本地占位
       return null;
     }
   }
@@ -969,6 +934,105 @@
     return { migrated, failed, total: needsMigration.length };
   }
 
+  /**
+   * 🆕 将已保存在 chrome.storage.local 的 data:URL 迁移回 IndexedDB
+   * 解决 opengraph_local_v2.js 在 Eagle Storage 未就绪时的兜底数据
+   */
+  async function migrateDataUrlSessions(options = {}) {
+    const {
+      onProgress = null,
+      batchSize = 2,
+    } = options;
+
+    try {
+      // 确保可以访问 storage
+      if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
+        console.warn('[Eagle Storage] ⚠️ Cannot access chrome.storage.local, skip dataURL migration');
+        return { migrated: 0, failed: 0 };
+      }
+
+      await initDB();
+
+      const storageResult = await chrome.storage.local.get(['sessions']);
+      const sessions = storageResult.sessions || [];
+      if (!Array.isArray(sessions) || sessions.length === 0) {
+        console.log('[Eagle Storage] ℹ️ No sessions to migrate data URLs');
+        return { migrated: 0, failed: 0 };
+      }
+
+      // 收集所有 data:URL 卡片
+      const targets = [];
+      sessions.forEach((session, sIdx) => {
+        if (!session?.opengraphData) return;
+        session.opengraphData.forEach((item, idx) => {
+          if (item?.image && item.image.startsWith('data:')) {
+            targets.push({ sessionIdx: sIdx, itemIdx: idx, item, sessionId: session.id });
+          }
+        });
+      });
+
+      if (targets.length === 0) {
+        console.log('[Eagle Storage] ✅ No data:URL cards need migration');
+        return { migrated: 0, failed: 0 };
+      }
+
+      console.log(`[Eagle Storage] 🔄 Migrating ${targets.length} data:URL cards to IndexedDB...`);
+
+      let migrated = 0;
+      let failed = 0;
+
+      for (let i = 0; i < targets.length; i += batchSize) {
+        const batch = targets.slice(i, i + batchSize);
+        const results = await Promise.allSettled(batch.map(async (target) => {
+          const { sessionIdx, itemIdx, item } = target;
+          try {
+            const imageUrl = item.original_image_url || item.image_url || item.url || `data-url-${i}`;
+            const saveResult = await saveImage(imageUrl, item.image, item.dominant_colors || [], {
+              title: item.title,
+              description: item.description,
+            });
+
+            // 更新 session 中的引用为 eagle://hash
+            const hash = saveResult?.hash;
+            if (hash) {
+              sessions[sessionIdx].opengraphData[itemIdx] = {
+                ...item,
+                image: `eagle://${hash}`,
+                original_image_url: imageUrl,
+                is_dataurl: true,
+                image_storage: 'indexeddb',
+              };
+            }
+
+            migrated++;
+            return true;
+          } catch (err) {
+            console.warn('[Eagle Storage] ⚠️ Failed to migrate data URL card:', err);
+            failed++;
+            return false;
+          }
+        }));
+
+        if (onProgress) {
+          onProgress(i + batch.length, targets.length, migrated, failed);
+        }
+
+        if (i + batchSize < targets.length) {
+          await new Promise(res => setTimeout(res, 300));
+        }
+      }
+
+      // 写回 sessions
+      await chrome.storage.local.set({ sessions });
+      console.log(`[Eagle Storage] ✅ Data:URL migration done. Migrated: ${migrated}, Failed: ${failed}`);
+
+      return { migrated, failed };
+    } catch (error) {
+      console.error('[Eagle Storage] ❌ Data:URL migration failed:', error);
+      return { migrated: 0, failed: 0, error: error.message };
+    }
+  }
+
   // ==================== 清理未被收入个人空间的 IndexedDB 数据 ====================
   
   /**
@@ -1634,6 +1698,7 @@
     
     // 批量操作
     migrateExistingImages,
+    migrateDataUrlSessions,  // 🆕 迁移 chrome.storage.local 中的 data:URL 到 IndexedDB
     
     // IndexedDB 管理
     initDB,
@@ -1697,3 +1762,4 @@
   console.log('[Eagle Storage] ✅ Ready');
 
 })();
+

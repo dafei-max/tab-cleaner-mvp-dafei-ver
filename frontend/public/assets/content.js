@@ -9,11 +9,25 @@
       return;
     }
 
+    // 🆕 先把 extensionId 写入 page world，供后续 sendMessage 使用
+    try {
+      const extIdScript = document.createElement('script');
+      extIdScript.textContent = `window.__TAB_CLEANER_EXTENSION_ID = "${chrome.runtime.id}";`;
+      (document.documentElement || document.head || document.body).appendChild(extIdScript);
+      extIdScript.remove();
+    } catch (e) {
+      console.warn('[Tab Cleaner] ⚠️ Failed to inject extensionId:', e);
+    }
+
     const eagleScript = document.createElement('script');
     eagleScript.src = chrome.runtime.getURL('assets/eagle_storage.js');
     eagleScript.onload = () => {
       console.log('[Tab Cleaner] Eagle Storage script injected into page');
       window.__TAB_CLEANER_EAGLE_STORAGE_LOADED = true;
+    // 🆕 暴露 extensionId 给 page world，用于 sendMessage 需要的 id
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
+      window.__TAB_CLEANER_EXTENSION_ID = chrome.runtime.id;
+    }
       
       // 🆕 等待 Eagle Storage 完全初始化（包括 IndexedDB）
       const checkEagleStorageReady = (attempts = 0) => {
@@ -896,22 +910,18 @@
     document.head.appendChild(fadeOutStyle);
   }
 
-  // 🦅 监听来自页面上下文的图片下载请求（opengraph_local_v2.js）
+  // 🦅 监听来自页面上下文的 postMessage（下载图片 & caption 请求）
   window.addEventListener('message', (event) => {
-    // 只处理来自同源的消息
     if (event.source !== window) return;
     
+    // 图片下载请求
     if (event.data && event.data.type === 'TAB_CLEANER_DOWNLOAD_IMAGE_REQUEST') {
       const { messageId, imageUrl } = event.data;
-      
       console.log('[Tab Cleaner Content] 🦅 Received image download request:', imageUrl.substring(0, 60));
-      
-      // 通过 background.js 下载图片
       chrome.runtime.sendMessage({
         action: 'download-image-as-dataurl',
         url: imageUrl,
       }, (response) => {
-        // 发送响应回页面上下文
         window.postMessage({
           type: 'TAB_CLEANER_DOWNLOAD_IMAGE_RESPONSE',
           messageId,
@@ -920,6 +930,29 @@
           error: response?.error || null,
         }, '*');
       });
+      return;
+    }
+
+    // Caption 请求：页面 -> content -> background
+    if (event.data && event.data.type === 'TAB_CLEANER_CAPTION_REQUEST') {
+      const { messageId, dataUrl, imageUrl } = event.data;
+      console.log('[Tab Cleaner Content] 🎨 Received caption request:', messageId);
+      chrome.runtime.sendMessage({
+        // 改回后端代理调用，前端不再直连 Qwen
+        action: 'generate-caption',
+        dataUrl,
+        imageUrl,
+      }, (response) => {
+        window.postMessage({
+          type: 'TAB_CLEANER_CAPTION_RESPONSE',
+          messageId,
+          success: !!(response && response.quickCaption),
+          quickCaption: response?.quickCaption || null,
+          tags: response?.tags || [],
+          error: response?.error || null,
+        }, '*');
+      });
+      return;
     }
   });
 

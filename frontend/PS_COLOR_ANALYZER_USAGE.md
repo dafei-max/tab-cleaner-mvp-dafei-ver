@@ -228,3 +228,4 @@ console.log('颜色缓存:', cache);
 - `src/utils/colorUtils.js` - 颜色工具函数（Delta E、颜色转换等）
 - `src/screens/PersonalSpace/PersonalSpace.jsx` - PersonalSpace 主组件
 - `public/assets/ps_color_analyzer.js` - 颜色分析器脚本
+

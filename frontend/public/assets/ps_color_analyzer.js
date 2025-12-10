@@ -486,3 +486,4 @@
   console.log('[PS Color Analyzer] ✅ Ready');
 
 })();
+

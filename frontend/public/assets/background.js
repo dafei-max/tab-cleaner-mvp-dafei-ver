@@ -133,6 +133,87 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 /**
+ * 🆕 处理 caption 生成
+ * - generate-caption: 调用后端 /api/v1/search/embedding（后台代理，避免前端存 key/CSP）
+ */
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // 兼容：走后端 embedding
+  if (message?.action === 'generate-caption') {
+    (async () => {
+      try {
+        const { dataUrl, imageUrl } = message;
+        const apiUrl = API_CONFIG.getBaseUrlSync();
+        if (!apiUrl) {
+          sendResponse({ error: 'API base URL not configured' });
+          return;
+        }
+
+        const userId = await getUserId();
+        const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
+
+        console.log('[Background] 📡 caption -> embedding', {
+          url: embeddingUrl,
+          hasDataUrl: !!dataUrl,
+          dataUrlSize: dataUrl ? `${(dataUrl.length/1024).toFixed(1)} KB` : '0',
+          imageUrl: imageUrl ? imageUrl.substring(0, 80) : 'local-image',
+          userId,
+        });
+
+        const resp = await fetch(embeddingUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': userId,
+          },
+          body: JSON.stringify({
+            opengraph_items: [{
+              url: imageUrl || 'local-image',
+              image: dataUrl, // 直接使用 dataURL (Base64)
+              title: '',
+              description: '',
+            }],
+          }),
+        });
+
+        if (!resp.ok) {
+          let detail = '';
+          try { detail = await resp.text(); } catch (e) { detail = ''; }
+          console.error('[Background] ❌ caption API error:', {
+            status: resp.status,
+            statusText: resp.statusText,
+            detail: detail?.substring(0,200),
+          });
+          sendResponse({ error: `API ${resp.status}: ${detail?.substring(0,200)}` });
+          return;
+        }
+
+        const result = await resp.json();
+        if (result?.data?.length > 0) {
+          const item = result.data[0] || {};
+          const quickCaption = item.image_caption || '';
+          const tags = [
+            ...(item.style_tags || []),
+            ...(item.object_tags || []),
+          ];
+          if (Array.isArray(item.dominant_colors)) {
+            item.dominant_colors.forEach(c => {
+              if (c && !tags.includes(c)) tags.push(c);
+            });
+          }
+          sendResponse({ quickCaption, tags });
+        } else {
+          sendResponse({ error: 'No data from API' });
+        }
+      } catch (err) {
+        console.warn('[Background] Caption generation failed:', err);
+        sendResponse({ error: err?.message || String(err) });
+      }
+    })();
+    return true; // 异步响应
+  }
+});
+
+/**
  * 处理从右键菜单保存图片
  */
 async function handleSaveImageFromContextMenu(req, sender, sendResponse) {

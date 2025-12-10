@@ -282,6 +282,25 @@ export const PersonalSpace = () => {
     return () => clearTimeout(timer);
   }, [sessions, isSessionsLoading, updateSession]);
 
+  // 🆕 如果存在 data:URL 兜底数据，自动迁移到 IndexedDB
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+      if (eagleStorage && eagleStorage.migrateDataUrlSessions) {
+        eagleStorage.migrateDataUrlSessions({
+          onProgress: (current, total, migrated, failed) => {
+            if (current % 5 === 0 || current === total) {
+              console.log(`[Eagle Storage] 🔄 DataURL migration progress: ${current}/${total} (migrated: ${migrated}, failed: ${failed})`);
+            }
+          },
+          batchSize: 2,
+        });
+      }
+    }, 2000); // 稍微提前，尽快把 data:URL 迁回 IndexedDB
+
+    return () => clearTimeout(timer);
+  }, [sessions, isSessionsLoading]);
+
   // 🆕 为 session 中的图片补充 caption 和 tags（延迟执行）
   useEffect(() => {
     // 延迟 5 秒，在迁移之后执行
