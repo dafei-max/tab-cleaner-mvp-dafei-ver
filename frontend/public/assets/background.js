@@ -69,8 +69,12 @@ function connectCaptionWs() {
   }
 }
 
-// 初始化 WS 连接
-connectCaptionWs();
+// 初始化 WS 连接（仅在扩展后台环境执行，避免页面 CSP 拦截）
+if (typeof document === 'undefined' && typeof chrome !== 'undefined' && chrome.runtime?.id) {
+  connectCaptionWs();
+} else {
+  console.log('[Background][WS] Skip WS connect (not in extension background)');
+}
 
 // 🆕 统一图片代理：解决 CSP / CORS，返回 dataURL
 async function fetchImageAsDataUrl(url) {
