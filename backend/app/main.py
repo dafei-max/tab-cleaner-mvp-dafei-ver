@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -22,6 +22,51 @@ app = FastAPI(title="Tab Cleaner MVP", version="0.0.1")
 # ✅ 请求去重：记录正在处理的 URL（user_id + url）
 _processing_urls = defaultdict(set)  # {user_id: set of urls}
 _processing_lock = asyncio.Lock()
+# 🆕 WebSocket 连接集合（用于主动推送 caption）
+_ws_clients = set()
+
+
+# 🆕 WebSocket：caption 推送
+@app.websocket("/ws/caption")
+async def caption_ws(ws: WebSocket):
+  await ws.accept()
+  _ws_clients.add(ws)
+  try:
+    # 简单心跳：等待客户端消息，不处理内容
+    while True:
+      await ws.receive_text()
+  except WebSocketDisconnect:
+    pass
+  except Exception as e:
+    print(f"[WS] ⚠️ WebSocket error: {e}")
+  finally:
+    _ws_clients.discard(ws)
+
+
+async def broadcast_caption_updates(items: list[dict], user_id: str):
+  """将 caption 结果推送给所有活跃的 WS 客户端"""
+  if not _ws_clients or not items:
+    return
+  dead = set()
+  for ws in list(_ws_clients):
+    try:
+      for item in items:
+        payload = {
+          "type": "caption_ready",
+          "user_id": user_id,
+          "url": item.get("url"),
+          "image_caption": item.get("image_caption"),
+          "style_tags": item.get("style_tags", []),
+          "object_tags": item.get("object_tags", []),
+          "dominant_colors": item.get("dominant_colors", []),
+          "image": item.get("image"),
+        }
+        await ws.send_json(payload)
+    except Exception as e:
+      print(f"[WS] ⚠️ send failed: {e}")
+      dead.add(ws)
+  for ws in dead:
+    _ws_clients.discard(ws)
 
 
 @app.on_event("startup")
@@ -369,6 +414,12 @@ async def generate_embeddings(
         all_enriched_items = items_already_done + enriched_items
         print(f"[API] Total enriched items: {len(all_enriched_items)}")
         
+        # 🆕 推送 caption 更新（如果有 WS 连接）
+        try:
+            await broadcast_caption_updates(all_enriched_items, normalized_user_id)
+        except Exception as e:
+            print(f"[API] ⚠️ Broadcast caption updates failed: {e}")
+
         # 2. 准备批量存储的数据（只存储新生成的 embedding）
         items_to_store = []
         for item in enriched_items:  # 只处理新生成的，已有的不需要再存储

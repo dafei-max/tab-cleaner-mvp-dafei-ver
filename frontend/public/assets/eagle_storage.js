@@ -201,6 +201,30 @@
     return null;
   }
 
+  // 🆕 监听后台推送的 caption（通过 content -> page 的 postMessage）
+  window.addEventListener('message', async (event) => {
+    const data = event.data || {};
+    if (data.type !== 'TAB_CLEANER_CAPTION_PUSH' || !data.payload) return;
+    try {
+      const { url, image_caption, style_tags = [], object_tags = [], dominant_colors = [] } = data.payload;
+      if (!url || !image_caption) return;
+      const hash = await hashUrl(url);
+      const tags = [...style_tags, ...object_tags];
+      await updateImageCaption(hash, image_caption, tags);
+      if (isPinterestPage(url)) {
+        await updatePinterestCardTitle(url, image_caption);
+      }
+      console.log('[Eagle Storage] ✅ [CAPTION PUSH] Saved caption from backend push:', {
+        url: url.substring(0, 80),
+        hash,
+        caption: image_caption.substring(0, 50),
+        tags: tags.length,
+      });
+    } catch (err) {
+      console.warn('[Eagle Storage] ⚠️ [CAPTION PUSH] Failed to handle caption push:', err);
+    }
+  });
+
   // ==================== 并发 caption 生成队列 ====================
   
   // 🆕 并发控制：最多同时处理 5 个 caption 生成请求

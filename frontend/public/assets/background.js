@@ -3,6 +3,75 @@
 // 导入 API 配置
 importScripts('api_config.js');
 
+// ==================== Caption WebSocket (backend push) ====================
+let captionWs = null;
+let captionWsReconnectTimer = null;
+
+function getWsUrl() {
+  try {
+    const base = API_CONFIG.getBaseUrlSync?.();
+    if (!base) return null;
+    return base.replace(/^http/, 'ws').replace(/\/$/, '') + '/ws/caption';
+  } catch (e) {
+    console.warn('[Background] ⚠️ Failed to get WS URL:', e);
+    return null;
+  }
+}
+
+function scheduleCaptionWsReconnect(delay = 3000) {
+  if (captionWsReconnectTimer) return;
+  captionWsReconnectTimer = setTimeout(() => {
+    captionWsReconnectTimer = null;
+    connectCaptionWs();
+  }, delay);
+}
+
+function connectCaptionWs() {
+  const url = getWsUrl();
+  if (!url) {
+    console.warn('[Background] ⚠️ WS URL not available, skip connect');
+    return;
+  }
+  try {
+    captionWs = new WebSocket(url);
+    console.log('[Background][WS] 🔌 Connecting to', url);
+    captionWs.onopen = () => {
+      console.log('[Background][WS] ✅ Connected');
+    };
+    captionWs.onmessage = (evt) => {
+      try {
+        const data = JSON.parse(evt.data);
+        if (data?.type === 'caption_ready') {
+          // 将推送转发到所有标签页
+          chrome.tabs.query({}, (tabs) => {
+            tabs.forEach(tab => {
+              chrome.tabs.sendMessage(tab.id, { action: 'caption-ready', payload: data }, () => {});
+            });
+          });
+        }
+      } catch (e) {
+        console.warn('[Background][WS] ⚠️ Parse message failed:', e);
+      }
+    };
+    captionWs.onclose = () => {
+      console.warn('[Background][WS] ⚠️ Closed, reconnecting...');
+      captionWs = null;
+      scheduleCaptionWsReconnect();
+    };
+    captionWs.onerror = (err) => {
+      console.warn('[Background][WS] ⚠️ Error:', err);
+      try { captionWs?.close(); } catch (e) {}
+      captionWs = null;
+    };
+  } catch (e) {
+    console.warn('[Background][WS] ⚠️ Connect failed:', e);
+    scheduleCaptionWsReconnect();
+  }
+}
+
+// 初始化 WS 连接
+connectCaptionWs();
+
 // 🆕 统一图片代理：解决 CSP / CORS，返回 dataURL
 async function fetchImageAsDataUrl(url) {
   try {

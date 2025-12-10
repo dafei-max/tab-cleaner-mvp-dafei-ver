@@ -9,16 +9,6 @@
       return;
     }
 
-    // 🆕 先把 extensionId 写入 page world，供后续 sendMessage 使用
-    try {
-      const extIdScript = document.createElement('script');
-      extIdScript.textContent = `window.__TAB_CLEANER_EXTENSION_ID = "${chrome.runtime.id}";`;
-      (document.documentElement || document.head || document.body).appendChild(extIdScript);
-      extIdScript.remove();
-    } catch (e) {
-      console.warn('[Tab Cleaner] ⚠️ Failed to inject extensionId:', e);
-    }
-
     const eagleScript = document.createElement('script');
     eagleScript.src = chrome.runtime.getURL('assets/eagle_storage.js');
     eagleScript.onload = () => {
@@ -1145,6 +1135,16 @@
       }, (response) => {
         sendResponse?.(response);
       });
+      return true;
+    }
+
+    // 🆕 来自后台 WS 的 caption 推送
+    if (req.action === 'caption-ready' && req.payload) {
+      window.postMessage({
+        type: 'TAB_CLEANER_CAPTION_PUSH',
+        payload: req.payload,
+      }, '*');
+      sendResponse?.({ ok: true });
       return true;
     }
     
