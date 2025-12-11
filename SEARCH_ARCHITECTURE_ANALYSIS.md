@@ -312,3 +312,4 @@ useSearch.js → performSearch()
 - 在 `eagle_storage.js` 中集成 vectordb 搜索
 - 使用与 caption 请求相同的通信桥接模式
 - 实现混合搜索：本地 + vectordb，合并结果
+

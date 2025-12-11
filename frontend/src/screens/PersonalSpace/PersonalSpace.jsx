@@ -1942,7 +1942,7 @@ export const PersonalSpace = () => {
           {/* 右下角宠物显示 */}
           <PetDisplay />
           {/* ✅ 修复问题2：模糊效果只在有搜索结果时显示，而不是在搜索中时显示 */}
-          <div className={`personal-space ${hasActiveSearch ? 'searching-active' : ''}`} ref={containerRef} style={{ position: "relative", zIndex: 1 }}>
+          <div className={`personal-space ${hasActiveSearch ? 'searching-active' : ''}`} ref={containerRef} style={{ position: "relative" }}>
             <div 
               className={`search-blur-overlay ${hasActiveSearch ? 'active' : ''}`}
               style={{

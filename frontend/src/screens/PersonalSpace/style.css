@@ -760,7 +760,7 @@
   position: absolute;
   top: 13px;
   width: auto; /* 改为auto以适应更大的文字 */
-  z-index: 10;
+  /* 🆕 移除 z-index，避免创建新的 stacking context，让 mix-blend-mode 能正常工作 */
 }
 
 /* 🆕 响应式调整：小屏幕时使用固定边距 */
@@ -785,7 +785,7 @@
 }
 
 .personal-space .text-wrapper-18 {
-  color: #d4d4d4;
+  color: #ffffff;
   font-family: "SF Pro Display-Regular", Helvetica;
   font-size: 24px; /* 改为24px */
   font-weight: 400;
@@ -794,8 +794,13 @@
   margin-right: -7.00px;
   position: relative;
   width: auto; /* 改为auto以适应更大的文字 */
-  /* 🆕 mix-blend-mode 由 JSX 内联样式控制，不在这里设置 */
-  will-change: mix-blend-mode; /* 🆕 优化性能 */
+}
+
+/* 🆕 标题文字混合模式层 - 自动反转颜色以适应动态背景 */
+.personal-space .space-title-blend {
+  mix-blend-mode: difference;
+  color: #ffffff;
+  will-change: mix-blend-mode; /* 优化性能 */
 }
 
 .personal-space .search-bar-container {

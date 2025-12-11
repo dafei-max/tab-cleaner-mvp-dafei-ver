@@ -84,7 +84,7 @@ export const PersonalSpaceHeader = ({
       <div className="space-title" style={{
         top: `${UI_CONFIG.spaceTitle.top}px`,
         width: 'auto',
-        zIndex: 1000, // 确保在宠物设定页也在最上层
+        /* 🆕 移除 zIndex，避免创建新的 stacking context，让 mix-blend-mode 能正常工作 */
         /* 🆕 移除内联样式中的 left，改用 CSS 中的响应式定位 */
       }}>
         <motion.img
@@ -109,14 +109,13 @@ export const PersonalSpaceHeader = ({
           whileTap={{ scale: 0.95 }}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
         />
-        <div 
-          className="text-wrapper-18" 
-          style={{ 
-            fontSize: `${UI_CONFIG.spaceTitle.fontSize}px`,
-            mixBlendMode: 'difference', // 🆕 由 JSX 控制 mix-blend-mode
-          }}
-        >
-          洗衣房
+        <div className="text-wrapper-18">
+          <div
+            className="space-title-blend"
+            style={{ fontSize: `${UI_CONFIG.spaceTitle.fontSize}px` }}
+          >
+            洗衣房
+          </div>
         </div>
       </div>
     </>
