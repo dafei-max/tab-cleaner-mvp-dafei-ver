@@ -240,7 +240,7 @@
       const messageId = `caption_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const timeout = setTimeout(() => {
         window.removeEventListener('message', onMessage);
-        reject(new Error('Caption request timeout (60s)'));
+        resolve(null); // 静默处理，避免刷屏
       }, 60000); // 60 秒，避免后台响应较慢时过早超时
 
       function onMessage(event) {
@@ -249,10 +249,10 @@
         if (data.type !== 'TAB_CLEANER_CAPTION_RESPONSE' || data.messageId !== messageId) return;
         window.removeEventListener('message', onMessage);
         clearTimeout(timeout);
-        if (data.success) {
+        if (data.success && data.quickCaption) {
           resolve({ quickCaption: data.quickCaption || '', tags: data.tags || [] });
         } else {
-          reject(new Error(data.error || 'Caption failed'));
+          resolve(null); // 后端失败或无 caption，静默返回 null
         }
       }
 
@@ -262,6 +262,81 @@
         messageId,
         dataUrl,
         imageUrl,
+      }, '*');
+    });
+  }
+
+  /**
+   * 🆕 通过 content script 桥接请求 vectordb 搜索
+   * @param {string} query - 搜索关键词
+   * @param {number} topK - 返回结果数量
+   * @returns {Promise<Array>} 搜索结果
+   */
+  function requestVectordbSearchViaContent(query, topK = 20) {
+    return new Promise((resolve, reject) => {
+      const messageId = `vectordb_search_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', onMessage);
+        resolve([]); // 超时返回空结果
+      }, 15000); // 15 秒超时
+
+      function onMessage(event) {
+        if (event.source !== window) return;
+        const data = event.data || {};
+        if (data.type !== 'TAB_CLEANER_VECTORDB_SEARCH_RESPONSE' || data.messageId !== messageId) return;
+        window.removeEventListener('message', onMessage);
+        clearTimeout(timeout);
+        if (data.success && Array.isArray(data.results)) {
+          resolve(data.results);
+        } else {
+          resolve([]); // 失败返回空结果
+        }
+      }
+
+      window.addEventListener('message', onMessage);
+      window.postMessage({
+        type: 'TAB_CLEANER_VECTORDB_SEARCH_REQUEST',
+        messageId,
+        query,
+        topK,
+      }, '*');
+    });
+  }
+
+  /**
+   * 🆕 通过 content script 桥接从 vectordb 获取 URL 对应的 caption/tags
+   * @param {string} url - 图片 URL
+   * @returns {Promise<{quickCaption: string, tags: string[]}|null>}
+   */
+  function requestVectordbCaptionViaContent(url) {
+    return new Promise((resolve, reject) => {
+      const messageId = `vectordb_caption_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', onMessage);
+        resolve(null); // 超时返回 null
+      }, 10000); // 10 秒超时
+
+      function onMessage(event) {
+        if (event.source !== window) return;
+        const data = event.data || {};
+        if (data.type !== 'TAB_CLEANER_VECTORDB_CAPTION_RESPONSE' || data.messageId !== messageId) return;
+        window.removeEventListener('message', onMessage);
+        clearTimeout(timeout);
+        if (data.success && data.quickCaption) {
+          resolve({ 
+            quickCaption: data.quickCaption || '', 
+            tags: data.tags || [] 
+          });
+        } else {
+          resolve(null); // 失败或无数据返回 null
+        }
+      }
+
+      window.addEventListener('message', onMessage);
+      window.postMessage({
+        type: 'TAB_CLEANER_VECTORDB_CAPTION_REQUEST',
+        messageId,
+        url,
       }, '*');
     });
   }
@@ -278,6 +353,9 @@
     console.log(`[Eagle Storage] 🚀 [CAPTION] Request via content bridge for: ${urlPreview}`);
     try {
       const bridged = await requestCaptionViaContent(dataUrl, imageUrl);
+      if (!bridged || !bridged.quickCaption) {
+        return null; // 无有效 caption，静默返回
+      }
       const duration = Date.now() - startTime;
       console.log(`[Eagle Storage] ✅ [CAPTION] SUCCESS! (${duration}ms)`);
       console.log(`[Eagle Storage] 📝 [CAPTION] Caption: "${bridged.quickCaption}"`);
@@ -455,48 +533,25 @@
     const queueLength = captionQueue.length;
     const activeCount = activeCaptionTasks;
     
-    console.log(`[Eagle Storage] 🔄 [CAPTION QUEUE] Processing task (${activeCount}/${CAPTION_CONCURRENCY} active, ${queueLength} remaining)`);
-    
     try {
       const { hash, dataUrl, imageUrl } = task;
-      
-      console.log(`[Eagle Storage] 🎯 [CAPTION QUEUE] Task details:`, {
-        hash: hash.substring(0, 12) + '...',
-        imageUrl: imageUrl ? imageUrl.substring(0, 60) : 'N/A',
-        dataUrlSize: dataUrl ? `${(dataUrl.length / 1024).toFixed(1)} KB` : 'N/A',
-      });
-      
-      // 调用 API 生成 caption
       const result = await generateCaptionFromAPI(dataUrl, imageUrl);
-      
-      if (result) {
+
+      if (result && result.quickCaption) {
         // 更新 IndexedDB 中的 caption 和 tags
         await updateImageCaption(hash, result.quickCaption, result.tags);
-        
-        console.log(`[Eagle Storage] ✅✅✅ [CAPTION] SAVED TO INDEXEDDB! ✅✅✅`);
-        console.log(`[Eagle Storage] 📦 [CAPTION] Hash: ${hash.substring(0, 12)}...`);
-        console.log(`[Eagle Storage] 📝 [CAPTION] Caption: "${result.quickCaption}"`);
-        console.log(`[Eagle Storage] 🏷️ [CAPTION] Tags: ${result.tags.length} tags`, result.tags);
-        console.log(`[Eagle Storage] 🔗 [CAPTION] Image: ${imageUrl ? imageUrl.substring(0, 60) : 'N/A'}`);
-        
+
         // 🆕 如果是 Pinterest 页面，更新卡片的 title
-        if (isPinterestPage(imageUrl) && result.quickCaption && result.quickCaption.trim()) {
-          console.log(`[Eagle Storage] 🎨 [CAPTION] Updating Pinterest card title...`);
+        if (isPinterestPage(imageUrl)) {
           await updatePinterestCardTitle(imageUrl, result.quickCaption);
         }
       } else {
-        // API 失败，使用本地生成的 caption
-        const colors = task.colors || [];
-        const quickCaption = generateQuickCaption(colors, imageUrl);
-        const tags = generateTags(colors, imageUrl);
-        await updateImageCaption(hash, quickCaption, tags);
-        console.warn(`[Eagle Storage] ⚠️ [CAPTION] API failed, using local caption for: ${hash.substring(0, 12)}...`);
-        console.warn(`[Eagle Storage] ⚠️ [CAPTION] Local caption: "${quickCaption}"`);
+        // 静默失败，不再刷屏
       }
       
       if (task.resolve) task.resolve(result);
     } catch (error) {
-      console.error('[Eagle Storage] ❌ Caption task failed:', error);
+      console.warn('[Eagle Storage] ⚠️ Caption task failed (silent):', error?.message || error);
       if (task.reject) task.reject(error);
     } finally {
       activeCaptionTasks--;
@@ -520,37 +575,22 @@
         getRequest.onsuccess = () => {
           const imageData = getRequest.result;
           if (!imageData) {
-            console.error(`[Eagle Storage] ❌ [CAPTION] Image not found in IndexedDB: ${hash.substring(0, 12)}...`);
             reject(new Error('Image not found'));
             return;
           }
           
           // 更新 caption 和 tags
-          const oldCaption = imageData.quickCaption || '(none)';
           imageData.quickCaption = quickCaption;
           imageData.tags = tags;
           
           const putRequest = store.put(imageData);
-          putRequest.onsuccess = () => {
-            console.log(`[Eagle Storage] 💾 [CAPTION] IndexedDB updated successfully!`);
-            console.log(`[Eagle Storage] 📦 [CAPTION] Hash: ${hash.substring(0, 12)}...`);
-            console.log(`[Eagle Storage] 📝 [CAPTION] Old: "${oldCaption.substring(0, 50)}"`);
-            console.log(`[Eagle Storage] 📝 [CAPTION] New: "${quickCaption.substring(0, 50)}"`);
-            resolve(imageData);
-          };
-          putRequest.onerror = () => {
-            console.error(`[Eagle Storage] ❌ [CAPTION] Failed to save to IndexedDB: ${hash.substring(0, 12)}...`);
-            reject(new Error('Failed to update caption'));
-          };
+          putRequest.onsuccess = () => resolve(imageData);
+          putRequest.onerror = () => reject(new Error('Failed to update caption'));
         };
         
-        getRequest.onerror = () => {
-          console.error(`[Eagle Storage] ❌ [CAPTION] Failed to read from IndexedDB: ${hash.substring(0, 12)}...`);
-          reject(new Error('Failed to get image'));
-        };
+        getRequest.onerror = () => reject(new Error('Failed to get image'));
       });
     } catch (error) {
-      console.error('[Eagle Storage] ❌ [CAPTION] Update caption failed:', error);
       throw error;
     }
   }
@@ -1183,9 +1223,11 @@
         dateTo = null,
         tags = [],
         limit = 100,
+        useVectordb = true, // 🆕 默认启用 vectordb 搜索
       } = options;
       
-      return new Promise((resolve, reject) => {
+      // 🆕 步骤1: 并行执行本地搜索和 vectordb 搜索
+      let localResultsPromise = new Promise((resolve, reject) => {
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
         const request = store.getAll();
@@ -1300,7 +1342,7 @@
             img.tags && Array.isArray(img.tags) && img.tags.length > 0
           ).length;
           
-          console.log(`[Eagle Storage] 🔍 Search complete:`, {
+          console.log(`[Eagle Storage] 🔍 Local search complete:`, {
             query: query || '(no query)',
             totalResults: limitedResults.length,
             resultsWithCaption: finalWithCaption,
@@ -1315,10 +1357,97 @@
           reject(new Error('Failed to search images'));
         };
       });
+
+      // 🆕 步骤2: 如果启用 vectordb 且有查询关键词，并行执行 vectordb 搜索
+      let vectordbResultsPromise = Promise.resolve([]);
+      if (useVectordb && query && query.trim()) {
+        console.log(`[Eagle Storage] 🔍 [VECTORDB] Starting vectordb search for: "${query}"`);
+        vectordbResultsPromise = requestVectordbSearchViaContent(query, limit).catch(err => {
+          console.warn('[Eagle Storage] ⚠️ [VECTORDB] Search failed:', err);
+          return [];
+        });
+      }
+
+      // 🆕 步骤3: 等待两个搜索完成并合并结果
+      const [localResults, vectordbResults] = await Promise.all([
+        localResultsPromise,
+        vectordbResultsPromise,
+      ]);
+
+      console.log(`[Eagle Storage] 🔍 Search results:`, {
+        local: localResults.length,
+        vectordb: vectordbResults.length,
+      });
+
+      // 🆕 步骤4: 合并结果（去重，优先 vectordb 结果）
+      const mergedResults = mergeSearchResults(localResults, vectordbResults, limit);
+
+      console.log(`[Eagle Storage] 🔍 Final merged results:`, {
+        total: mergedResults.length,
+        fromLocal: localResults.length,
+        fromVectordb: vectordbResults.length,
+      });
+
+      return mergedResults;
     } catch (error) {
       console.error('[Eagle Storage] ❌ Search failed:', error);
       return [];
     }
+  }
+
+  /**
+   * 🆕 合并本地搜索结果和 vectordb 搜索结果
+   * @param {Array} localResults - 本地 IndexedDB 搜索结果
+   * @param {Array} vectordbResults - Vectordb 搜索结果
+   * @param {number} limit - 结果数量限制
+   * @returns {Array} 合并后的结果
+   */
+  function mergeSearchResults(localResults, vectordbResults, limit) {
+    // 创建 URL 到结果的映射（用于去重）
+    const urlMap = new Map();
+    
+    // 1. 先添加 vectordb 结果（优先级更高，因为语义搜索更准确）
+    vectordbResults.forEach(item => {
+      const url = item.url || item.image || '';
+      if (url && !urlMap.has(url)) {
+        urlMap.set(url, {
+          ...item,
+          source: 'vectordb',
+          similarity: item.similarity || 0,
+        });
+      }
+    });
+    
+    // 2. 添加本地结果（如果 URL 不存在）
+    localResults.forEach(item => {
+      const url = item.originalUrl || item.url || '';
+      if (url && !urlMap.has(url)) {
+        urlMap.set(url, {
+          ...item,
+          source: 'local',
+        });
+      }
+    });
+    
+    // 3. 按相似度或时间排序
+    const merged = Array.from(urlMap.values());
+    merged.sort((a, b) => {
+      // 优先 vectordb 结果（有 similarity 分数）
+      if (a.source === 'vectordb' && b.source === 'local') return -1;
+      if (a.source === 'local' && b.source === 'vectordb') return 1;
+      
+      // 如果有 similarity，按相似度排序
+      if (a.similarity !== undefined && b.similarity !== undefined) {
+        return b.similarity - a.similarity;
+      }
+      
+      // 否则按时间排序
+      const timeA = a.dateTime || a.timestamp || 0;
+      const timeB = b.dateTime || b.timestamp || 0;
+      return timeB - timeA;
+    });
+    
+    return merged.slice(0, limit);
   }
   
   /**
@@ -1710,6 +1839,152 @@
     }
   }
 
+  /**
+   * 🆕 从 vectordb 补充个人空间卡片的 caption 和 tags
+   * 检查 chrome.storage.local 中的 sessions，对于缺少 caption/tags 的卡片，
+   * 通过 URL 从 vectordb 查询是否有对应的数据
+   * @param {Object} options - 选项
+   * @param {number} options.maxItems - 最大处理数量（默认 50）
+   * @param {Function} options.onProgress - 进度回调 (processed, total, updated, skipped)
+   * @returns {Promise<Object>} 处理结果统计
+   */
+  async function enrichSessionImagesFromVectordb(options = {}) {
+    try {
+      const { maxItems = 50, onProgress } = options;
+      
+      // 检查是否有 chrome.storage.local 访问权限
+      if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
+        console.log('[Eagle Storage] ℹ️ chrome.storage.local not available, skipping vectordb enrichment');
+        return { error: 'chrome.storage.local not available' };
+      }
+
+      await initDB();
+
+      // 1. 获取所有 sessions
+      const storageResult = await chrome.storage.local.get(['sessions']);
+      const sessions = storageResult.sessions || [];
+      
+      if (!Array.isArray(sessions) || sessions.length === 0) {
+        console.log('[Eagle Storage] ℹ️ No sessions found');
+        return { updated: 0, skipped: 0, total: 0 };
+      }
+
+      // 2. 收集所有需要检查的 URL
+      const urlsToCheck = [];
+      sessions.forEach(session => {
+        if (!session || !session.opengraphData || !Array.isArray(session.opengraphData)) return;
+        
+        session.opengraphData.forEach(item => {
+          const url = item.url || item.original_image_url || item.image || '';
+          if (!url || url.startsWith('eagle://') || url.startsWith('data:')) return;
+          
+          // 检查是否缺少 caption 或 tags
+          const hasCaption = item.image_caption && item.image_caption.trim() && 
+                           !item.image_caption.includes('主要颜色:') &&
+                           item.image_caption.length > 20;
+          const hasTags = item.style_tags && Array.isArray(item.style_tags) && item.style_tags.length > 0;
+          
+          if (!hasCaption || !hasTags) {
+            urlsToCheck.push({
+              url,
+              sessionId: session.id,
+              item,
+            });
+          }
+        });
+      });
+
+      if (urlsToCheck.length === 0) {
+        console.log('[Eagle Storage] ✅ All session items already have caption and tags');
+        return { updated: 0, skipped: 0, total: 0 };
+      }
+
+      // 3. 限制处理数量
+      const toProcess = urlsToCheck.slice(0, maxItems);
+      console.log(`[Eagle Storage] 🚀 [VECTORDB ENRICH] Processing ${toProcess.length} URLs from vectordb`);
+
+      let updated = 0;
+      let skipped = 0;
+
+      // 4. 批量处理
+      for (let i = 0; i < toProcess.length; i++) {
+        const { url, sessionId, item } = toProcess[i];
+        
+        try {
+          // 从 vectordb 查询
+          const vectordbData = await requestVectordbCaptionViaContent(url);
+          
+          if (vectordbData && vectordbData.quickCaption) {
+            // 更新 session 中的 item
+            const session = sessions.find(s => s.id === sessionId);
+            if (session && session.opengraphData) {
+              const itemIndex = session.opengraphData.findIndex(
+                it => (it.url || it.original_image_url || it.image) === url
+              );
+              
+              if (itemIndex >= 0) {
+                const updatedItem = {
+                  ...session.opengraphData[itemIndex],
+                  image_caption: vectordbData.quickCaption,
+                  style_tags: [...(vectordbData.tags || [])],
+                };
+                
+                session.opengraphData[itemIndex] = updatedItem;
+                
+                // 保存更新后的 session
+                await chrome.storage.local.set({ sessions });
+                
+                // 如果是 Pinterest 页面，更新标题
+                if (isPinterestPage(url)) {
+                  await updatePinterestCardTitle(url, vectordbData.quickCaption);
+                }
+                
+                // 同时更新 IndexedDB（如果图片已保存）
+                try {
+                  const imageData = await loadImage(url);
+                  if (imageData && imageData.hash) {
+                    await updateImageCaption(imageData.hash, vectordbData.quickCaption, vectordbData.tags || []);
+                  }
+                } catch (e) {
+                  // IndexedDB 更新失败不影响主流程
+                }
+                
+                updated++;
+                console.log(`[Eagle Storage] ✅ [VECTORDB ENRICH] Updated ${updated}/${toProcess.length}: ${url.substring(0, 60)}`);
+              }
+            }
+          } else {
+            skipped++;
+          }
+        } catch (error) {
+          console.warn(`[Eagle Storage] ⚠️ [VECTORDB ENRICH] Failed for ${url}:`, error);
+          skipped++;
+        }
+
+        // 进度回调
+        if (onProgress) {
+          onProgress(i + 1, toProcess.length, updated, skipped);
+        }
+
+        // 批次间延迟，避免过载
+        if (i < toProcess.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+
+      console.log(`[Eagle Storage] ✅ [VECTORDB ENRICH] Complete: ${updated} updated, ${skipped} skipped`);
+      
+      return {
+        updated,
+        skipped,
+        total: toProcess.length,
+      };
+    } catch (error) {
+      console.error('[Eagle Storage] ❌ [VECTORDB ENRICH] Failed:', error);
+      return { error: error.message };
+    }
+  }
+
   // ==================== 导出 API ====================
   
   window.__TAB_CLEANER_EAGLE_STORAGE = {
@@ -1735,6 +2010,7 @@
     
     // 🆕 批量补充功能
     enrichSessionImages,  // 为 session 中的图片补充 caption 和 tags
+    enrichSessionImagesFromVectordb,  // 🆕 从 vectordb 补充 session 中卡片的 caption 和 tags
   };
   
   // 自动初始化

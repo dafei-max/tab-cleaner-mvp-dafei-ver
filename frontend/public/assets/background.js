@@ -256,7 +256,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             statusText: resp.statusText,
             detail: detail?.substring(0,200),
           });
-          sendResponse({ error: `API ${resp.status}: ${detail?.substring(0,200)}` });
+          sendResponse({ success: false, error: `API ${resp.status}: ${detail?.substring(0,200)}` });
           return;
         }
 
@@ -273,13 +273,161 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               if (c && !tags.includes(c)) tags.push(c);
             });
           }
-          sendResponse({ quickCaption, tags });
+          sendResponse({ success: true, quickCaption, tags });
         } else {
-          sendResponse({ error: 'No data from API' });
+          sendResponse({ success: false, error: 'No data from API' });
         }
       } catch (err) {
         console.warn('[Background] Caption generation failed:', err);
-        sendResponse({ error: err?.message || String(err) });
+        sendResponse({ success: false, error: err?.message || String(err) });
+      }
+    })();
+    return true; // 异步响应
+  }
+
+  // 🆕 Vectordb 搜索
+  if (message?.action === 'search-vectordb') {
+    (async () => {
+      try {
+        const { query, topK = 20 } = message;
+        const apiUrl = API_CONFIG.getBaseUrlSync();
+        if (!apiUrl) {
+          sendResponse({ success: false, results: [], error: 'API base URL not configured' });
+          return;
+        }
+
+        const userId = await getUserId();
+        const searchUrl = `${apiUrl}/api/v1/search/query`;
+
+        console.log('[Background] 🔍 [VECTORDB] Search request:', {
+          url: searchUrl,
+          query: query?.substring(0, 60),
+          topK,
+          userId,
+        });
+
+        const resp = await fetch(searchUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': userId,
+          },
+          body: JSON.stringify({
+            query: query,
+            top_k: topK,
+          }),
+        });
+
+        if (!resp.ok) {
+          let detail = '';
+          try { detail = await resp.text(); } catch (e) { detail = ''; }
+          console.error('[Background] ❌ [VECTORDB] Search API error:', {
+            status: resp.status,
+            statusText: resp.statusText,
+            detail: detail?.substring(0, 200),
+          });
+          sendResponse({ success: false, results: [], error: `API ${resp.status}` });
+          return;
+        }
+
+        const result = await resp.json();
+        const results = result?.results || [];
+        
+        console.log('[Background] ✅ [VECTORDB] Search success:', {
+          resultCount: results.length,
+        });
+
+        sendResponse({ success: true, results });
+      } catch (err) {
+        console.warn('[Background] ❌ [VECTORDB] Search failed:', err);
+        sendResponse({ success: false, results: [], error: err?.message || String(err) });
+      }
+    })();
+    return true; // 异步响应
+  }
+
+  // 🆕 从 vectordb 获取 URL 对应的 caption
+  if (message?.action === 'get-vectordb-caption') {
+    (async () => {
+      try {
+        const { url } = message;
+        const apiUrl = API_CONFIG.getBaseUrlSync();
+        if (!apiUrl) {
+          sendResponse({ success: false, quickCaption: null, tags: [], error: 'API base URL not configured' });
+          return;
+        }
+
+        const userId = await getUserId();
+        // 使用搜索 API，通过 URL 过滤来查找特定 URL 的数据
+        const searchUrl = `${apiUrl}/api/v1/search/query`;
+
+        console.log('[Background] 📝 [VECTORDB] Get caption for URL:', url?.substring(0, 60));
+
+        // 尝试通过搜索找到该 URL（使用 URL 的一部分作为查询）
+        // 注意：这是一个临时方案，理想情况下应该有专门的端点
+        const urlParts = url ? url.split('/').filter(p => p.length > 5) : [];
+        const searchQuery = urlParts.length > 0 ? urlParts[urlParts.length - 1] : url?.substring(0, 50) || '';
+        
+        const resp = await fetch(searchUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': userId,
+          },
+          body: JSON.stringify({
+            query: searchQuery,
+            top_k: 50, // 获取更多结果以便找到匹配的 URL
+            filter_urls: [url], // 只搜索这个 URL
+          }),
+        });
+
+        if (!resp.ok) {
+          let detail = '';
+          try { detail = await resp.text(); } catch (e) { detail = ''; }
+          console.error('[Background] ❌ [VECTORDB] Get caption API error:', {
+            status: resp.status,
+            statusText: resp.statusText,
+            detail: detail?.substring(0, 200),
+          });
+          sendResponse({ success: false, quickCaption: null, tags: [], error: `API ${resp.status}` });
+          return;
+        }
+
+        const result = await resp.json();
+        const results = result?.results || [];
+        
+        // 查找完全匹配的 URL
+        const matchedItem = results.find(item => {
+          const itemUrl = item.url || item.original_image_url || item.image || '';
+          return itemUrl === url || itemUrl.includes(url) || url.includes(itemUrl);
+        });
+
+        if (matchedItem) {
+          const quickCaption = matchedItem.image_caption || '';
+          const tags = [
+            ...(matchedItem.style_tags || []),
+            ...(matchedItem.object_tags || []),
+          ];
+          if (Array.isArray(matchedItem.dominant_colors)) {
+            matchedItem.dominant_colors.forEach(c => {
+              if (c && !tags.includes(c)) tags.push(c);
+            });
+          }
+
+          console.log('[Background] ✅ [VECTORDB] Found caption for URL:', {
+            url: url?.substring(0, 60),
+            hasCaption: !!quickCaption,
+            tagsCount: tags.length,
+          });
+
+          sendResponse({ success: true, quickCaption, tags });
+        } else {
+          console.log('[Background] ℹ️ [VECTORDB] No caption found for URL:', url?.substring(0, 60));
+          sendResponse({ success: false, quickCaption: null, tags: [], error: 'Not found in vectordb' });
+        }
+      } catch (err) {
+        console.warn('[Background] ❌ [VECTORDB] Get caption failed:', err);
+        sendResponse({ success: false, quickCaption: null, tags: [], error: err?.message || String(err) });
       }
     })();
     return true; // 异步响应

@@ -654,11 +654,29 @@
   gap: 12.1px;
   height: 34px;
   position: absolute;
-  right: max(-40px, calc(50% - 720px + -40px)); /* 从-80px改为-40px，往右移 */
+  /* 🆕 自适应定位：大屏幕时居中偏移，小屏幕时使用固定边距 */
+  right: clamp(20px, calc(50% - 720px + -40px), calc(50vw - 720px - 40px));
   top: 24px;
-  width: 290px;
+  width: auto; /* 🆕 改为 auto，让内容决定宽度 */
+  min-width: fit-content; /* 让内容决定最小宽度 */
   z-index: 10;
   justify-content: flex-end; /* 让按钮靠右对齐 */
+}
+
+/* 🆕 响应式调整：小屏幕时使用固定边距 */
+@media (max-width: 1440px) {
+  .personal-space .space-function {
+    right: 20px; /* 小屏幕时使用固定右边距 */
+    width: auto;
+    min-width: fit-content;
+  }
+}
+
+/* 🆕 超大屏幕时保持居中偏移 */
+@media (min-width: 1920px) {
+  .personal-space .space-function {
+    right: calc(50% - 720px + -40px);
+  }
 }
 
 .personal-space .add-new-session {
@@ -735,13 +753,28 @@
   display: flex;
   gap: 8px;
   height: 56px;
-  left: max(-120px, calc(50% - 720px + -120px)); /* 往左移更多 */
-  overflow: hidden;
+  /* 🆕 自适应定位：大屏幕时居中偏移，小屏幕时使用固定边距 */
+  left: clamp(20px, calc(50% - 720px + -120px), calc(50vw - 720px - 120px));
+  overflow: visible; /* 🆕 改为 visible，确保 blend mode 能混合背景 */
   padding: 6px 7px;
   position: absolute;
   top: 13px;
   width: auto; /* 改为auto以适应更大的文字 */
   z-index: 10;
+}
+
+/* 🆕 响应式调整：小屏幕时使用固定边距 */
+@media (max-width: 1440px) {
+  .personal-space .space-title {
+    left: 20px; /* 小屏幕时使用固定左边距 */
+  }
+}
+
+/* 🆕 超大屏幕时保持居中偏移 */
+@media (min-width: 1920px) {
+  .personal-space .space-title {
+    left: calc(50% - 720px + -120px);
+  }
 }
 
 .personal-space .basket-icon {
@@ -752,7 +785,7 @@
 }
 
 .personal-space .text-wrapper-18 {
-  color: #ffffff;
+  color: #d4d4d4;
   font-family: "SF Pro Display-Regular", Helvetica;
   font-size: 24px; /* 改为24px */
   font-weight: 400;
@@ -761,6 +794,8 @@
   margin-right: -7.00px;
   position: relative;
   width: auto; /* 改为auto以适应更大的文字 */
+  /* 🆕 mix-blend-mode 由 JSX 内联样式控制，不在这里设置 */
+  will-change: mix-blend-mode; /* 🆕 优化性能 */
 }
 
 .personal-space .search-bar-container {
@@ -820,6 +855,14 @@
 .personal-space .session-header {
   padding-left: 0px !important;
   margin-left: -40px;
+  overflow: visible; /* 🆕 改为 visible，确保 blend mode 能混合背景 */
+}
+
+/* 🆕 Session header 文字样式（mix-blend-mode 由 JSX 内联样式控制） */
+.personal-space .session-header-title,
+.personal-space .session-header-tabcount {
+  position: relative; /* 确保 blend mode 生效 */
+  will-change: mix-blend-mode; /* 🆕 优化性能 */
 }
 
 .personal-space .image-12 {

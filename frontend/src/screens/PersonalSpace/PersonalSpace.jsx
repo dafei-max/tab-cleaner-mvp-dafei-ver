@@ -344,6 +344,39 @@ export const PersonalSpace = () => {
     }
   }, [sessions, isSessionsLoading]);
 
+  // 🆕 从 vectordb 补充 session 中卡片的 caption 和 tags（延迟执行）
+  useEffect(() => {
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+    
+    // 延迟 8 秒执行，避免与 enrichSessionImages 冲突
+    const timer = setTimeout(() => {
+      const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+      if (!eagleStorage || !eagleStorage.enrichSessionImagesFromVectordb) {
+        console.warn('[PersonalSpace] ⚠️ enrichSessionImagesFromVectordb not available');
+        return;
+      }
+
+      (async () => {
+        try {
+          console.log('[PersonalSpace] 🚀 Starting vectordb enrichment...');
+          const result = await eagleStorage.enrichSessionImagesFromVectordb({
+            maxItems: 50,
+            onProgress: (processed, total, updated, skipped) => {
+              if (processed % 10 === 0 || processed === total) {
+                console.log(`[PersonalSpace] 📊 [VECTORDB ENRICH] Progress: ${processed}/${total} (${updated} updated, ${skipped} skipped)`);
+              }
+            },
+          });
+          console.log('[PersonalSpace] ✅ Vectordb enrichment complete:', result);
+        } catch (error) {
+          console.error('[PersonalSpace] ❌ Vectordb enrichment failed:', error);
+        }
+      })();
+    }, 8000);
+    
+    return () => clearTimeout(timer);
+  }, [sessions, isSessionsLoading]);
+
   // 🆕 监听 Pinterest 卡片标题更新事件（实时更新 UI）
   useEffect(() => {
     const handlePinterestTitleUpdate = async (event) => {

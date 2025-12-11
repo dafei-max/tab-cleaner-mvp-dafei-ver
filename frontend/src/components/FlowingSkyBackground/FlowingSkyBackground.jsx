@@ -60,12 +60,12 @@ const GradientMesh = ({
       // 计算基于噪点的顶点位移
       // 使用世界空间坐标 + 时间，创建流动的位移效果
       vec2 worldUV = position.xy * 0.5 + 0.5; // 将位置映射到 0-1
-      vec2 noiseCoord = worldUV * uNoiseDensity + vec2(uTime * 0.2, uTime * 0.15);
+      vec2 noiseCoord = worldUV * uNoiseDensity + vec2(uTime * 0.1, uTime * 0.08); // 🆕 减慢速度：从 0.2/0.15 减到 0.1/0.08
       
       // 多层噪点叠加，创建更复杂的流动模式
       float n1 = noise(noiseCoord);
-      float n2 = noise(noiseCoord * 2.0 + vec2(uTime * 0.1));
-      float n3 = noise(noiseCoord * 4.0 - vec2(uTime * 0.15));
+      float n2 = noise(noiseCoord * 2.0 + vec2(uTime * 0.05)); // 🆕 减慢速度：从 0.1 减到 0.05
+      float n3 = noise(noiseCoord * 4.0 - vec2(uTime * 0.08)); // 🆕 减慢速度：从 0.15 减到 0.08
       
       // 混合多层噪点
       float displacement = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2) - 0.5;
@@ -127,7 +127,7 @@ const GradientMesh = ({
       tuv -= .5;
       
       // rotate with Noise
-      float degree = noise(vec2(uTime*.1, tuv.x*tuv.y));
+      float degree = noise(vec2(uTime*.05, tuv.x*tuv.y)); // 🆕 减慢速度：从 0.1 减到 0.05
       
       tuv.y *= 1./ratio;
       tuv *= Rot(radians((degree-.5)*720.+180.));
@@ -135,13 +135,13 @@ const GradientMesh = ({
       
       // Wave warp with sin - 增强流动感
       float frequency = 6.;
-      float amplitude = 20.; // 稍微减小，因为现在有顶点位移了
-      float speed = uTime * 5.; // 稍微加快速度
+      float amplitude = 35.; // 🆕 增强wave纹路：从 20 增加到 35，让wave更明显
+      float speed = uTime * 2.5; // 🆕 减慢速度：从 5.0 减到 2.5
       tuv.x += sin(tuv.y*frequency+speed)/amplitude;
       tuv.y += sin(tuv.x*frequency*1.5+speed)/(amplitude*.5);
       
       // 添加额外的流动扭曲，基于顶点位置
-      vec2 flowCoord = vPosition.xy * (uNoiseDensity * 0.1) + uTime * 0.1;
+      vec2 flowCoord = vPosition.xy * (uNoiseDensity * 0.1) + uTime * 0.05; // 🆕 减慢速度：从 0.1 减到 0.05
       float flowNoise = noise(flowCoord);
       tuv.xy += (flowNoise - 0.5) * (uNoiseStrength * 1.0); // 基于噪点的额外扭曲，使用 uNoiseStrength
       
@@ -154,7 +154,7 @@ const GradientMesh = ({
       
       // 使用噪声来创建随机的混合权重，让深色分布更随机
       // 使用 uColorNoiseScale 控制深浅变化的 noise 大小（值越大，noise 越密集，深浅变化越细碎；值越小，深浅变化越大块）
-      float noiseMix = noise(vec2(tuv.x * uColorNoiseScale + uTime * 0.1, tuv.y * uColorNoiseScale + uTime * 0.15));
+      float noiseMix = noise(vec2(tuv.x * uColorNoiseScale + uTime * 0.05, tuv.y * uColorNoiseScale + uTime * 0.08)); // 🆕 减慢速度：从 0.1/0.15 减到 0.05/0.08
       // 反转分布：让深色（layer2）在下方和随机位置出现
       float mixFactor = mix(S(-.3, .5, tuv.y), noiseMix * 0.5 + 0.5, 0.4);
       vec3 finalComp = mix(layer1, layer2, mixFactor);
@@ -164,8 +164,8 @@ const GradientMesh = ({
       float grainScale = uNoiseDensity * 0.3; // 根据密度调整颗粒大小
       vec2 grainUV1 = uv * uResolution.xy * grainScale; // 较大颗粒
       vec2 grainUV2 = uv * uResolution.xy * (grainScale * 1.875); // 较小颗粒
-      float grain1 = noise(grainUV1 + uTime * 0.3);
-      float grain2 = noise(grainUV2 + uTime * 0.7);
+      float grain1 = noise(grainUV1 + uTime * 0.15); // 🆕 减慢速度：从 0.3 减到 0.15
+      float grain2 = noise(grainUV2 + uTime * 0.35); // 🆕 减慢速度：从 0.7 减到 0.35
       // 混合两层噪声，增强可见度
       float grain = mix(grain1, grain2, 0.5);
       // 增强 noise 的可见度，使用 uNoiseStrength 控制强度
@@ -183,7 +183,7 @@ const GradientMesh = ({
   });
 
   return (
-    <mesh ref={mesh} scale={[3, 2.5, 1]} position={[0, 0, 0]}>
+    <mesh ref={mesh} scale={[4, 3.5, 1]} position={[0, 0, 0]}>
       {/* 使用 pixelDensity 控制细分：值越大，顶点越多，效果越平滑但性能越低 */}
       <planeGeometry args={[1, 1, pixelDensity, pixelDensity]} />
       <shaderMaterial

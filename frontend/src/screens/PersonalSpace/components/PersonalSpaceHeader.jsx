@@ -24,8 +24,8 @@ export const PersonalSpaceHeader = ({
         <div 
           className="space-function"
           style={{
-            right: `max(${UI_CONFIG.addSessionButton.rightOffset}px, calc(50% - 720px + ${UI_CONFIG.addSessionButton.rightOffset}px))`,
             top: `${UI_CONFIG.addSessionButton.top}px`,
+            /* 🆕 移除内联样式中的 right，改用 CSS 中的响应式定位 */
           }}
         >
         <motion.div 
@@ -82,10 +82,10 @@ export const PersonalSpaceHeader = ({
 
       {/* 标题 - 在宠物设定页时，图标可点击返回 */}
       <div className="space-title" style={{
-        left: `max(${UI_CONFIG.spaceTitle.leftOffset}px, calc(50% - 720px + ${UI_CONFIG.spaceTitle.leftOffset}px))`,
         top: `${UI_CONFIG.spaceTitle.top}px`,
         width: 'auto',
         zIndex: 1000, // 确保在宠物设定页也在最上层
+        /* 🆕 移除内联样式中的 left，改用 CSS 中的响应式定位 */
       }}>
         <motion.img
           className="basket-icon"
@@ -109,7 +109,13 @@ export const PersonalSpaceHeader = ({
           whileTap={{ scale: 0.95 }}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
         />
-        <div className="text-wrapper-18" style={{ fontSize: `${UI_CONFIG.spaceTitle.fontSize}px` }}>
+        <div 
+          className="text-wrapper-18" 
+          style={{ 
+            fontSize: `${UI_CONFIG.spaceTitle.fontSize}px`,
+            mixBlendMode: 'difference', // 🆕 由 JSX 控制 mix-blend-mode
+          }}
+        >
           洗衣房
         </div>
       </div>

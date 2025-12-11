@@ -977,6 +977,100 @@
       });
       return;
     }
+
+    // 🆕 Vectordb 搜索请求：页面 -> content -> background
+    if (event.data && event.data.type === 'TAB_CLEANER_VECTORDB_SEARCH_REQUEST') {
+      const { messageId, query, topK } = event.data;
+      console.log('[Tab Cleaner Content] 🔍 [VECTORDB] Received search request:', messageId);
+      chrome.runtime.sendMessage({
+        action: 'search-vectordb',
+        query,
+        topK,
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('[Tab Cleaner Content] ❌ [VECTORDB] Runtime error:', chrome.runtime.lastError);
+          window.postMessage({
+            type: 'TAB_CLEANER_VECTORDB_SEARCH_RESPONSE',
+            messageId,
+            success: false,
+            results: [],
+            error: chrome.runtime.lastError.message,
+          }, '*');
+          return;
+        }
+        if (!response) {
+          console.error('[Tab Cleaner Content] ❌ [VECTORDB] Empty response from background');
+          window.postMessage({
+            type: 'TAB_CLEANER_VECTORDB_SEARCH_RESPONSE',
+            messageId,
+            success: false,
+            results: [],
+            error: 'Empty response from background',
+          }, '*');
+          return;
+        }
+        window.postMessage({
+          type: 'TAB_CLEANER_VECTORDB_SEARCH_RESPONSE',
+          messageId,
+          success: response.success !== false,
+          results: response.results || [],
+          error: response.error || null,
+        }, '*');
+        console.log('[Tab Cleaner Content] ✅ [VECTORDB] Search response sent:', {
+          messageId,
+          resultCount: (response.results || []).length,
+        });
+      });
+      return;
+    }
+
+    // 🆕 Vectordb Caption 请求：页面 -> content -> background（通过 URL 查询）
+    if (event.data && event.data.type === 'TAB_CLEANER_VECTORDB_CAPTION_REQUEST') {
+      const { messageId, url } = event.data;
+      console.log('[Tab Cleaner Content] 📝 [VECTORDB] Received caption request for URL:', url?.substring(0, 60));
+      chrome.runtime.sendMessage({
+        action: 'get-vectordb-caption',
+        url,
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('[Tab Cleaner Content] ❌ [VECTORDB] Runtime error:', chrome.runtime.lastError);
+          window.postMessage({
+            type: 'TAB_CLEANER_VECTORDB_CAPTION_RESPONSE',
+            messageId,
+            success: false,
+            quickCaption: null,
+            tags: [],
+            error: chrome.runtime.lastError.message,
+          }, '*');
+          return;
+        }
+        if (!response) {
+          console.error('[Tab Cleaner Content] ❌ [VECTORDB] Empty response from background');
+          window.postMessage({
+            type: 'TAB_CLEANER_VECTORDB_CAPTION_RESPONSE',
+            messageId,
+            success: false,
+            quickCaption: null,
+            tags: [],
+            error: 'Empty response from background',
+          }, '*');
+          return;
+        }
+        window.postMessage({
+          type: 'TAB_CLEANER_VECTORDB_CAPTION_RESPONSE',
+          messageId,
+          success: response.success !== false && !!response.quickCaption,
+          quickCaption: response.quickCaption || null,
+          tags: response.tags || [],
+          error: response.error || null,
+        }, '*');
+        console.log('[Tab Cleaner Content] ✅ [VECTORDB] Caption response sent:', {
+          messageId,
+          hasCaption: !!response.quickCaption,
+        });
+      });
+      return;
+    }
   });
 
   chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {

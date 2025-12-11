@@ -70,18 +70,22 @@ export const SessionHeader = ({
       {/* 左侧：Session 名称和标签页数量 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: `${UI_CONFIG.sessionHeader.title.marginLeft}px` }}>
         <div
+          className="session-header-title"
           style={{
             fontSize: `${UI_CONFIG.sessionHeader.title.fontSize}px`,
             fontWeight: 400,
             color: '#ffffff',
+            mixBlendMode: 'difference', // 🆕 由 JSX 控制 mix-blend-mode
           }}
         >
           {session.name}
         </div>
         <div
+          className="session-header-tabcount"
           style={{
             fontSize: `${UI_CONFIG.sessionHeader.tabCount.fontSize}px`,
             color: '#ffffff',
+            mixBlendMode: 'difference', // 🆕 由 JSX 控制 mix-blend-mode
           }}
         >
           {session.tabCount} 个标签页
