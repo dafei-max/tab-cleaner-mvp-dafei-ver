@@ -404,6 +404,32 @@ export const PersonalSpace = () => {
           });
 
           console.log('[PersonalSpace] 🚀 Starting batch update for old cards...');
+          console.log('[PersonalSpace] 📋 Current cards count:', allCurrentUrls.length);
+          
+          // 🆕 输出所有卡片的当前 caption 状态
+          console.log('[PersonalSpace] 📝 Current cards caption status:');
+          sessions.forEach((session, sIdx) => {
+            if (session && Array.isArray(session.opengraphData)) {
+              session.opengraphData.forEach((item, iIdx) => {
+                const url = item.url || item.original_image_url || item.image || '';
+                const isPinterest = url.includes('pinterest.com') || url.includes('pinimg.com');
+                const hasCaption = item.image_caption && item.image_caption.trim() && 
+                                 !item.image_caption.includes('主要颜色:') &&
+                                 item.image_caption.length > 20;
+                const hasTags = item.style_tags && Array.isArray(item.style_tags) && item.style_tags.length > 0;
+                
+                console.log(`[PersonalSpace]   Card [${sIdx}-${iIdx}]:`, {
+                  url: url.substring(0, 60),
+                  isPinterest,
+                  hasCaption,
+                  caption: hasCaption ? item.image_caption.substring(0, 50) : 'NO CAPTION',
+                  hasTags,
+                  tags: hasTags ? item.style_tags.slice(0, 3) : [],
+                });
+              });
+            }
+          });
+          
           const result = await eagleStorage.batchUpdateOldCardsFromVectordb({
             excludeUrls: allCurrentUrls, // 排除所有当前卡片（只更新真正缺少 caption/tags 的老卡片）
             batchSize: 20,
@@ -414,6 +440,32 @@ export const PersonalSpace = () => {
             },
           });
           console.log('[PersonalSpace] ✅ Batch update complete:', result);
+          
+          // 🆕 更新后再次输出所有卡片的 caption 状态
+          console.log('[PersonalSpace] 📝 After batch update, cards caption status:');
+          const updatedSessions = await chrome.storage.local.get(['sessions']);
+          const updatedSessionsData = updatedSessions.sessions || [];
+          updatedSessionsData.forEach((session, sIdx) => {
+            if (session && Array.isArray(session.opengraphData)) {
+              session.opengraphData.forEach((item, iIdx) => {
+                const url = item.url || item.original_image_url || item.image || '';
+                const isPinterest = url.includes('pinterest.com') || url.includes('pinimg.com');
+                const hasCaption = item.image_caption && item.image_caption.trim() && 
+                                 !item.image_caption.includes('主要颜色:') &&
+                                 item.image_caption.length > 20;
+                const hasTags = item.style_tags && Array.isArray(item.style_tags) && item.style_tags.length > 0;
+                
+                console.log(`[PersonalSpace]   Card [${sIdx}-${iIdx}]:`, {
+                  url: url.substring(0, 60),
+                  isPinterest,
+                  hasCaption,
+                  caption: hasCaption ? item.image_caption.substring(0, 50) : 'NO CAPTION',
+                  hasTags,
+                  tags: hasTags ? item.style_tags.slice(0, 3) : [],
+                });
+              });
+            }
+          });
         } catch (error) {
           console.error('[PersonalSpace] ❌ Batch update failed:', error);
         }
@@ -465,6 +517,139 @@ export const PersonalSpace = () => {
     
     return () => {
       window.removeEventListener('pinterest-card-title-updated', handlePinterestTitleUpdate);
+    };
+  }, [sessions, updateSession]);
+
+  // 🆕 监听 Caption 更新（方案 C：混合方案 - WebSocket 通知 + 按需批量拉取）
+  useEffect(() => {
+    const pendingUrls = new Set();
+    let fetchTimer = null;
+
+    const handleCaptionReady = async (message) => {
+      if (message.action === 'caption-ready') {
+        const { url, image_caption, dominant_colors, style_tags, object_tags } = message.payload || {};
+        
+        if (!url) {
+          console.warn('[PersonalSpace] ⚠️ Caption ready message missing URL');
+          return;
+        }
+        
+        console.log('[PersonalSpace] 📨 Received caption-ready notification:', {
+          url: url.substring(0, 50),
+          hasCaption: !!image_caption,
+          hasTags: !!(style_tags?.length || object_tags?.length)
+        });
+        
+        // 如果 WebSocket 消息包含完整数据，直接更新
+        if (image_caption || style_tags?.length > 0 || object_tags?.length > 0) {
+          const safeSessions = Array.isArray(sessions) ? sessions : [];
+          let updated = false;
+          
+          for (const session of safeSessions) {
+            if (!session?.opengraphData) continue;
+            
+            const idx = session.opengraphData.findIndex(item => item?.url === url);
+            if (idx >= 0) {
+              const updatedData = [...session.opengraphData];
+              updatedData[idx] = {
+                ...updatedData[idx],
+                image_caption: image_caption || updatedData[idx].image_caption,
+                dominant_colors: dominant_colors || updatedData[idx].dominant_colors || [],
+                style_tags: style_tags || updatedData[idx].style_tags || [],
+                object_tags: object_tags || updatedData[idx].object_tags || [],
+              };
+              updateSession(session.id, { opengraphData: updatedData });
+              updated = true;
+              console.log('[PersonalSpace] ✅ Caption updated via WebSocket:', url.substring(0, 50));
+              break;
+            }
+          }
+          
+          if (updated) return; // 已更新，不需要批量拉取
+        }
+        
+        // 如果 WebSocket 消息只包含 URL（轻量级通知），累积到待拉取列表
+        pendingUrls.add(url);
+        
+        // 防抖：500ms 内的多个通知合并成一次批量请求
+        clearTimeout(fetchTimer);
+        fetchTimer = setTimeout(async () => {
+          if (pendingUrls.size > 0) {
+            const urls = Array.from(pendingUrls);
+            pendingUrls.clear();
+            
+            console.log('[PersonalSpace] 📦 Batch fetching captions for', urls.length, 'URLs');
+            
+            // 批量获取 caption
+            try {
+              const apiUrl = window.__TAB_CLEANER_API_CONFIG?.getBaseUrlSync?.() || 'https://tab-cleaner-mvp-app-production.up.railway.app';
+              const userId = await chrome.storage.local.get(['user_id']).then(r => r.user_id || 'anonymous');
+              
+              const response = await fetch(`${apiUrl}/api/v1/search/batch-captions`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-User-ID': userId,
+                },
+                body: JSON.stringify({ urls }),
+              });
+              
+              if (response.ok) {
+                const result = await response.json();
+                if (result?.success !== false && result?.results) {
+                  // 更新 sessions 数据
+                  const safeSessions = Array.isArray(sessions) ? sessions : [];
+                  const sessionUpdates = new Map(); // sessionId -> updated og list
+                  
+                  for (const captionResult of result.results) {
+                    const { url: resultUrl, image_caption, style_tags, object_tags, dominant_colors } = captionResult;
+                    
+                    for (const session of safeSessions) {
+                      if (!session?.opengraphData) continue;
+                      
+                      const idx = session.opengraphData.findIndex(item => item?.url === resultUrl);
+                      if (idx >= 0) {
+                        if (!sessionUpdates.has(session.id)) {
+                          sessionUpdates.set(session.id, [...session.opengraphData]);
+                        }
+                        const ogList = sessionUpdates.get(session.id);
+                        ogList[idx] = {
+                          ...ogList[idx],
+                          image_caption: image_caption || ogList[idx].image_caption,
+                          dominant_colors: dominant_colors || ogList[idx].dominant_colors || [],
+                          style_tags: style_tags || ogList[idx].style_tags || [],
+                          object_tags: object_tags || ogList[idx].object_tags || [],
+                        };
+                      }
+                    }
+                  }
+                  
+                  // 批量更新 sessions
+                  sessionUpdates.forEach((ogList, sessionId) => {
+                    updateSession(sessionId, { opengraphData: ogList });
+                  });
+                  
+                  if (sessionUpdates.size > 0) {
+                    console.log('[PersonalSpace] ✅ Batch caption update complete:', sessionUpdates.size, 'sessions updated');
+                  }
+                }
+              } else {
+                console.warn('[PersonalSpace] ⚠️ Batch caption fetch failed:', response.status);
+              }
+            } catch (error) {
+              console.error('[PersonalSpace] ❌ Batch caption fetch error:', error);
+            }
+          }
+        }, 500);
+      }
+    };
+
+    // 监听来自 background 的消息
+    chrome.runtime.onMessage.addListener(handleCaptionReady);
+    
+    return () => {
+      chrome.runtime.onMessage.removeListener(handleCaptionReady);
+      clearTimeout(fetchTimer);
     };
   }, [sessions, updateSession]);
 
@@ -614,9 +799,22 @@ export const PersonalSpace = () => {
   // 对于masonry视图，使用所有sessions的数据
   // 对于radial视图，也使用所有sessions的数据（但显示时只显示当前session）
   // 这样确保搜索范围一致
+  // 🆕 增强：为每个 item 添加可搜索文本字段（包含 caption 和 tags）
   const searchDataSource = useMemo(() => {
-    // 两个视图都使用所有sessions的数据进行搜索，确保搜索范围一致
-    return Array.isArray(allOpengraphData) ? allOpengraphData : [];
+    const allData = Array.isArray(allOpengraphData) ? allOpengraphData : [];
+    
+    // ✅ 确保每个 item 都有搜索所需的字段
+    return allData.map(item => ({
+      ...item,
+      // 搜索字段：合并 title, description, caption, tags 为可搜索文本
+      searchableText: [
+        item.title || '',
+        item.description || '',
+        item.image_caption || '',
+        ...(Array.isArray(item.style_tags) ? item.style_tags : []),
+        ...(Array.isArray(item.object_tags) ? item.object_tags : []),
+      ].filter(Boolean).join(' ').toLowerCase(),
+    }));
   }, [allOpengraphData]);
   
   const {

@@ -427,6 +427,11 @@
    */
   async function updatePinterestCardTitle(imageUrl, caption) {
     try {
+      console.log(`[Eagle Storage] 📌 [PINTEREST TITLE] Starting update:`, {
+        imageUrl: imageUrl?.substring(0, 60),
+        caption: caption?.substring(0, 50),
+      });
+      
       // 检查是否有 chrome.storage.local 访问权限
       if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
         console.log('[Eagle Storage] ℹ️ chrome.storage.local not available, skipping Pinterest title update');
@@ -434,6 +439,7 @@
       }
       
       if (!caption || !caption.trim()) {
+        console.log('[Eagle Storage] ⚠️ [PINTEREST TITLE] No caption provided');
         return;
       }
       
@@ -442,15 +448,20 @@
       const sessions = storageResult.sessions || [];
       
       if (!Array.isArray(sessions) || sessions.length === 0) {
+        console.log('[Eagle Storage] ⚠️ [PINTEREST TITLE] No sessions found');
         return;
       }
+      
+      console.log(`[Eagle Storage] 📋 [PINTEREST TITLE] Found ${sessions.length} sessions`);
       
       // 🆕 从 IndexedDB 获取图片数据，获取 hash
       const imageData = await loadImage(imageUrl);
       if (!imageData || !imageData.hash) {
-        console.log('[Eagle Storage] ℹ️ Image not found in IndexedDB, skipping title update');
+        console.log('[Eagle Storage] ⚠️ [PINTEREST TITLE] Image not found in IndexedDB, skipping title update:', imageUrl?.substring(0, 60));
         return;
       }
+      
+      console.log(`[Eagle Storage] 🔑 [PINTEREST TITLE] Image hash:`, imageData.hash.substring(0, 16));
       
       let hasUpdate = false;
       const updatedSessions = sessions.map(session => {
@@ -460,22 +471,38 @@
         
         let sessionUpdated = false;
         // 查找匹配的卡片
-        const updatedData = session.opengraphData.map(item => {
+        const updatedData = session.opengraphData.map((item, itemIdx) => {
           // 检查是否是 Pinterest 页面
           const itemUrl = item.url || '';
-          if (!isPinterestPage(itemUrl)) {
+          const isPinterest = isPinterestPage(itemUrl);
+          
+          if (!isPinterest) {
             return item;
           }
+          
+          console.log(`[Eagle Storage] 🔍 [PINTEREST TITLE] Checking card [${itemIdx}]:`, {
+            url: itemUrl.substring(0, 60),
+            itemImage: item.image?.substring(0, 60),
+            originalImageUrl: item.original_image_url?.substring(0, 60),
+            currentTitle: item.title?.substring(0, 30),
+            targetHash: imageData.hash.substring(0, 16),
+          });
           
           // 🆕 多种匹配方式：
           // 1. 通过 eagle://hash 匹配
           const itemImageRef = item.image || '';
           if (itemImageRef.startsWith('eagle://')) {
             const itemHash = itemImageRef.replace('eagle://', '');
+            console.log(`[Eagle Storage] 🔑 [PINTEREST TITLE] Comparing hash:`, {
+              itemHash: itemHash.substring(0, 16),
+              targetHash: imageData.hash.substring(0, 16),
+              match: itemHash === imageData.hash,
+            });
+            
             if (itemHash === imageData.hash) {
               // 匹配成功，更新 title
               if (caption.trim() !== (item.title || '').trim()) {
-                console.log('[Eagle Storage] 🎨 Updating Pinterest card title (by hash):', {
+                console.log('[Eagle Storage] ✅ [PINTEREST TITLE] Updating Pinterest card title (by hash):', {
                   url: itemUrl.substring(0, 50),
                   oldTitle: item.title?.substring(0, 30) || '(empty)',
                   newTitle: caption.substring(0, 50),
@@ -486,6 +513,8 @@
                   ...item,
                   title: caption.trim(),
                 };
+              } else {
+                console.log('[Eagle Storage] ℹ️ [PINTEREST TITLE] Title already matches, skipping');
               }
             }
           }
@@ -509,10 +538,16 @@
             const itemImageId = getImageId(itemImageUrl);
             const targetImageId = getImageId(imageUrl);
             
+            console.log(`[Eagle Storage] 🔗 [PINTEREST TITLE] Comparing URL:`, {
+              itemImageId,
+              targetImageId,
+              match: itemImageId && targetImageId && itemImageId === targetImageId,
+            });
+            
             if (itemImageId && targetImageId && itemImageId === targetImageId) {
               // 匹配成功，更新 title
               if (caption.trim() !== (item.title || '').trim()) {
-                console.log('[Eagle Storage] 🎨 Updating Pinterest card title (by URL):', {
+                console.log('[Eagle Storage] ✅ [PINTEREST TITLE] Updating Pinterest card title (by URL):', {
                   url: itemUrl.substring(0, 50),
                   oldTitle: item.title?.substring(0, 30) || '(empty)',
                   newTitle: caption.substring(0, 50),
@@ -523,8 +558,15 @@
                   ...item,
                   title: caption.trim(),
                 };
+              } else {
+                console.log('[Eagle Storage] ℹ️ [PINTEREST TITLE] Title already matches (by URL), skipping');
               }
             }
+          } else {
+            console.log(`[Eagle Storage] ⚠️ [PINTEREST TITLE] No URL match possible:`, {
+              hasItemImageUrl: !!itemImageUrl,
+              hasImageUrl: !!imageUrl,
+            });
           }
           
           return item;
@@ -542,18 +584,26 @@
       
       // 如果有更新，保存回 storage
       if (hasUpdate) {
+        console.log(`[Eagle Storage] 💾 [PINTEREST TITLE] Saving updated sessions...`);
         await chrome.storage.local.set({ sessions: updatedSessions });
-        console.log('[Eagle Storage] ✅ Pinterest card title updated in sessions');
+        console.log('[Eagle Storage] ✅ [PINTEREST TITLE] Pinterest card title updated in sessions');
         
         // 🆕 触发自定义事件，通知前端更新 UI
         if (typeof window !== 'undefined') {
+          console.log(`[Eagle Storage] 📢 [PINTEREST TITLE] Dispatching update event...`);
           window.dispatchEvent(new CustomEvent('pinterest-card-title-updated', {
             detail: { imageUrl, caption }
           }));
+          console.log(`[Eagle Storage] ✅ [PINTEREST TITLE] Update event dispatched`);
+        } else {
+          console.log(`[Eagle Storage] ⚠️ [PINTEREST TITLE] Window not available, cannot dispatch event`);
         }
+      } else {
+        console.log(`[Eagle Storage] ℹ️ [PINTEREST TITLE] No updates needed`);
       }
     } catch (error) {
-      console.warn('[Eagle Storage] ⚠️ Failed to update Pinterest card title:', error);
+      console.error('[Eagle Storage] ❌ [PINTEREST TITLE] Failed to update Pinterest card title:', error);
+      console.error('[Eagle Storage] ❌ [PINTEREST TITLE] Error stack:', error.stack);
     }
   }
   
@@ -2098,11 +2148,24 @@
 
         try {
           // 批量查询
+          console.log(`[Eagle Storage] 📤 [BATCH UPDATE] Requesting batch captions for ${urls.length} URLs...`);
           const batchResults = await requestBatchVectordbCaptionsViaContent(urls);
+          console.log(`[Eagle Storage] 📥 [BATCH UPDATE] Received ${batchResults.length} results from vectordb`);
           
           // 处理每个结果
           for (const result of batchResults) {
+            console.log(`[Eagle Storage] 🔍 [BATCH UPDATE] Processing result:`, {
+              url: result.url?.substring(0, 60),
+              hasQuickCaption: !!result.quickCaption,
+              quickCaption: result.quickCaption?.substring(0, 50),
+              hasImageCaption: !!result.image_caption,
+              imageCaption: result.image_caption?.substring(0, 50),
+              styleTags: result.style_tags || [],
+              objectTags: result.object_tags || [],
+            });
+            
             if (!result.quickCaption) {
+              console.log(`[Eagle Storage] ⚠️ [BATCH UPDATE] Skipping (no quickCaption):`, result.url?.substring(0, 60));
               skipped++;
               continue;
             }
@@ -2114,10 +2177,18 @@
               return cardUrl === resultUrl;
             });
 
-            if (!cardInfo) continue;
+            if (!cardInfo) {
+              console.log(`[Eagle Storage] ⚠️ [BATCH UPDATE] Card not found in batch:`, result.url?.substring(0, 60));
+              continue;
+            }
 
             const { url, sessionId } = cardInfo;
             const session = sessions.find(s => s.id === sessionId);
+            
+            if (!session) {
+              console.log(`[Eagle Storage] ⚠️ [BATCH UPDATE] Session not found:`, sessionId);
+              continue;
+            }
             
             if (session && session.opengraphData) {
               const itemIndex = session.opengraphData.findIndex(
@@ -2127,38 +2198,65 @@
                 }
               );
               
-              if (itemIndex >= 0) {
-                const updatedItem = {
-                  ...session.opengraphData[itemIndex],
-                  image_caption: result.image_caption || result.quickCaption,
-                  style_tags: [...(result.style_tags || [])],
-                  object_tags: [...(result.object_tags || [])],
-                  dominant_colors: result.dominant_colors || [],
-                };
-                
-                session.opengraphData[itemIndex] = updatedItem;
-                
-                // 如果是 Pinterest 页面，更新标题
-                if (isPinterestPage(url)) {
-                  const displayTitle = result.quickCaption || result.image_caption || '';
-                  if (displayTitle) {
-                    await updatePinterestCardTitle(url, displayTitle);
-                  }
-                }
-                
-                // 同时更新 IndexedDB（如果图片已保存）
-                try {
-                  const imageData = await loadImage(url);
-                  if (imageData && imageData.hash) {
-                    const allTags = [...(result.style_tags || []), ...(result.object_tags || [])];
-                    await updateImageCaption(imageData.hash, result.quickCaption || result.image_caption, allTags);
-                  }
-                } catch (e) {
-                  // IndexedDB 更新失败不影响主流程
-                }
-                
-                updated++;
+              if (itemIndex < 0) {
+                console.log(`[Eagle Storage] ⚠️ [BATCH UPDATE] Item not found in session:`, url.substring(0, 60));
+                continue;
               }
+              
+              const oldItem = session.opengraphData[itemIndex];
+              const oldCaption = oldItem.image_caption || '';
+              const newCaption = result.image_caption || result.quickCaption || '';
+              
+              console.log(`[Eagle Storage] 🔄 [BATCH UPDATE] Updating card:`, {
+                url: url.substring(0, 60),
+                sessionId,
+                itemIndex,
+                oldCaption: oldCaption.substring(0, 50),
+                newCaption: newCaption.substring(0, 50),
+                isPinterest: isPinterestPage(url),
+              });
+              
+              const updatedItem = {
+                ...session.opengraphData[itemIndex],
+                image_caption: newCaption,
+                style_tags: [...(result.style_tags || [])],
+                object_tags: [...(result.object_tags || [])],
+                dominant_colors: result.dominant_colors || [],
+              };
+              
+              session.opengraphData[itemIndex] = updatedItem;
+              
+              // 如果是 Pinterest 页面，更新标题
+              if (isPinterestPage(url)) {
+                const displayTitle = result.quickCaption || result.image_caption || '';
+                if (displayTitle) {
+                  console.log(`[Eagle Storage] 📌 [BATCH UPDATE] Updating Pinterest title:`, {
+                    url: url.substring(0, 60),
+                    title: displayTitle.substring(0, 50),
+                  });
+                  await updatePinterestCardTitle(url, displayTitle);
+                  console.log(`[Eagle Storage] ✅ [BATCH UPDATE] Pinterest title updated`);
+                } else {
+                  console.log(`[Eagle Storage] ⚠️ [BATCH UPDATE] Pinterest card but no displayTitle:`, url.substring(0, 60));
+                }
+              }
+              
+              // 同时更新 IndexedDB（如果图片已保存）
+              try {
+                const imageData = await loadImage(url);
+                if (imageData && imageData.hash) {
+                  const allTags = [...(result.style_tags || []), ...(result.object_tags || [])];
+                  await updateImageCaption(imageData.hash, result.quickCaption || result.image_caption, allTags);
+                  console.log(`[Eagle Storage] ✅ [BATCH UPDATE] IndexedDB updated for:`, url.substring(0, 60));
+                } else {
+                  console.log(`[Eagle Storage] ℹ️ [BATCH UPDATE] Image not in IndexedDB:`, url.substring(0, 60));
+                }
+              } catch (e) {
+                console.warn(`[Eagle Storage] ⚠️ [BATCH UPDATE] IndexedDB update failed:`, e);
+              }
+              
+              updated++;
+              console.log(`[Eagle Storage] ✅ [BATCH UPDATE] Card updated successfully:`, url.substring(0, 60));
             }
           }
 
@@ -2267,4 +2365,5 @@
   console.log('[Eagle Storage] ✅ Ready');
 
 })();
+
 

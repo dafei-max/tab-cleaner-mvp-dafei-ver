@@ -775,11 +775,34 @@ export const SessionCard = ({
       og.image_caption ||
       (og.metadata && typeof og.metadata === 'object' && og.metadata.caption);
 
+    // 🆕 详细日志：输出卡片 caption 信息
+    const cardUrl = og.url || og.original_image_url || og.image || 'unknown';
+    const isPinterest = cardUrl.includes('pinterest.com') || cardUrl.includes('pinimg.com');
+    
     if (caption && String(caption).trim()) {
+      console.log(`[SessionCard] 📝 Card caption found:`, {
+        url: cardUrl.substring(0, 60),
+        isPinterest,
+        caption: String(caption).trim().substring(0, 50),
+        hasImageCaption: !!og.image_caption,
+        hasMetadataCaption: !!(og.metadata && typeof og.metadata === 'object' && og.metadata.caption),
+        styleTags: og.style_tags || [],
+        objectTags: og.object_tags || [],
+      });
       return String(caption).trim();
     }
 
-    return getPageName();
+    const pageName = getPageName();
+    console.log(`[SessionCard] ⚠️ Card has NO caption, using pageName:`, {
+      url: cardUrl.substring(0, 60),
+      isPinterest,
+      pageName,
+      hasImageCaption: !!og.image_caption,
+      hasMetadataCaption: !!(og.metadata && typeof og.metadata === 'object' && og.metadata.caption),
+      title: og.title,
+      siteName: og.site_name,
+    });
+    return pageName;
   };
 
   const [faviconSrc, setFaviconSrc] = useState(() => getFaviconUrl() || getFallbackFavicon());

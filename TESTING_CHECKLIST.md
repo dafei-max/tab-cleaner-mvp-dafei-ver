@@ -260,3 +260,4 @@ background.js: handleSaveCapturedImage()
 
 
 
+

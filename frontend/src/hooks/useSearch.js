@@ -29,9 +29,10 @@ export const useSearch = (opengraphData = []) => {
       { name: 'title', weight: 2 },
       { name: 'tab_title', weight: 1.5 },
       { name: 'description', weight: 1 },
-      { name: 'image_caption', weight: 1.8 },  // AI 生成的图片描述
-      { name: 'style_tags', weight: 1.2 },     // 风格标签
-      { name: 'object_tags', weight: 1.2 },    // 物体标签
+      { name: 'image_caption', weight: 2.5 },  // ✅ AI 生成的图片描述（权重最高）
+      { name: 'style_tags', weight: 2.0 },     // ✅ 风格标签（高权重）
+      { name: 'object_tags', weight: 2.0 },    // ✅ 物体标签（高权重）
+      { name: 'searchableText', weight: 1.5 }, // 🆕 可搜索文本字段（包含所有搜索内容）
       { name: 'dominant_colors', weight: 0.8 }, // 颜色
       { name: 'site_name', weight: 0.5 },
       { name: 'url', weight: 0.3 },
@@ -145,13 +146,23 @@ export const useSearch = (opengraphData = []) => {
     const q = query.trim();
     if (!q) return items;
     
-    // 预处理数据：将数组字段转为字符串便于 Fuse.js 搜索
+    // 预处理数据：保留原始数组字段，Fuse.js 会自动处理数组
+    // 同时确保 searchableText 字段存在（如果数据源已提供）
     const processedItems = items.map((it, idx) => ({
       ...it,
       _idx: idx,
-      style_tags: (it.style_tags || []).join(' '),
-      object_tags: (it.object_tags || []).join(' '),
-      dominant_colors: (it.dominant_colors || []).join(' '),
+      // 保留原始数组字段，Fuse.js 支持数组搜索
+      style_tags: Array.isArray(it.style_tags) ? it.style_tags : [],
+      object_tags: Array.isArray(it.object_tags) ? it.object_tags : [],
+      dominant_colors: Array.isArray(it.dominant_colors) ? it.dominant_colors : [],
+      // 如果数据源没有 searchableText，自动生成（向后兼容）
+      searchableText: it.searchableText || [
+        it.title || '',
+        it.description || '',
+        it.image_caption || '',
+        ...(Array.isArray(it.style_tags) ? it.style_tags : []),
+        ...(Array.isArray(it.object_tags) ? it.object_tags : []),
+      ].filter(Boolean).join(' ').toLowerCase(),
     }));
     
     const fuse = new Fuse(processedItems, fuseOptions);

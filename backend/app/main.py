@@ -682,22 +682,38 @@ async def batch_get_captions(
         # 格式化返回结果
         results = []
         for item in items:
-            # 提取 caption 和 tags
-            metadata = item.get("metadata", {})
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except:
-                    metadata = {}
+            # ✅ 优先从新字段读取，降级到 metadata（向后兼容）
+            image_caption = item.get("image_caption") or ""
+            style_tags = item.get("style_tags") or []
+            object_tags = item.get("object_tags") or []
+            dominant_colors = item.get("dominant_colors") or []
+            
+            # 如果新字段为空，尝试从 metadata 读取（向后兼容）
+            if not image_caption or not style_tags or not object_tags:
+                metadata = item.get("metadata", {})
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except:
+                        metadata = {}
+                
+                if not image_caption:
+                    image_caption = metadata.get("image_caption") or metadata.get("quickCaption") or metadata.get("caption") or ""
+                if not style_tags:
+                    style_tags = metadata.get("style_tags", [])
+                if not object_tags:
+                    object_tags = metadata.get("object_tags", [])
+                if not dominant_colors:
+                    dominant_colors = metadata.get("dominant_colors", [])
             
             results.append({
                 "url": item.get("url", ""),
-                "quickCaption": metadata.get("image_caption") or metadata.get("quickCaption") or "",
-                "tags": metadata.get("style_tags", []) + metadata.get("object_tags", []),
-                "image_caption": metadata.get("image_caption") or metadata.get("quickCaption") or "",
-                "style_tags": metadata.get("style_tags", []),
-                "object_tags": metadata.get("object_tags", []),
-                "dominant_colors": metadata.get("dominant_colors", []),
+                "quickCaption": image_caption,
+                "tags": (style_tags or []) + (object_tags or []),
+                "image_caption": image_caption,
+                "style_tags": style_tags or [],
+                "object_tags": object_tags or [],
+                "dominant_colors": dominant_colors or [],
             })
         
         print(f"[API] Batch captions: found {len(results)} items with caption/tags")
