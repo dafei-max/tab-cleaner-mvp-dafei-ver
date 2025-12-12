@@ -368,15 +368,17 @@ export const PersonalSpace = () => {
         
         // ✅ 如果缺少 caption 或 tags，都需要补齐（使用 || 逻辑）
         if (!hasCaption || !hasTags) {
+          const originalImageUrl = item.original_image_url || item.image || null;
           cardsNeedingCaption.push({
             url,
             sessionId: session.id,
             itemIndex, // ✅ 使用 forEach 的 index 参数，更可靠
             hasCaption: !!hasCaption,
             hasTags: !!hasTags,
-            // ✅ 添加调试信息
+            originalImageUrl, // 保留原始图片 URL（不要截断，避免匹配失败）
+            // ✅ 添加调试信息（截断仅用于日志，不影响传参）
             displayUrl: item.url?.substring(0, 60),
-            originalImageUrl: item.original_image_url?.substring(0, 60),
+            displayOriginalImageUrl: originalImageUrl?.substring(0, 60),
           });
         }
       });
@@ -501,11 +503,23 @@ export const PersonalSpace = () => {
                 if (!session?.opengraphData) continue;
                 
                 const itemIndex = session.opengraphData.findIndex(item => {
-                  // ✅ 规范化所有 URL 后再比较（与后端保持一致）
-                  const itemUrl = normalizeUrl(item.url || '').toLowerCase();
-                  const itemImageUrl = normalizeUrl(item.original_image_url || '').toLowerCase();
+                  // ✅ 规范化所有可用 URL 后再比较（与后端保持一致）
                   const resultUrlLower = normalizeUrl(resultUrl || '').toLowerCase();
-                  return itemUrl === resultUrlLower || itemImageUrl === resultUrlLower;
+                  const candidates = [
+                    item.url,
+                    item.image,
+                    item.original_image_url,
+                    item.originalImageUrl,
+                    item?.metadata?.url,
+                    item?.metadata?.page_url,
+                    item?.metadata?.pageUrl,
+                    item?.metadata?.image,
+                    item?.metadata?.original_image_url,
+                    item?.metadata?.originalImageUrl,
+                  ]
+                    .map(u => normalizeUrl(u || '').toLowerCase())
+                    .filter(Boolean);
+                  return candidates.includes(resultUrlLower);
                 });
                 
                 if (itemIndex >= 0) {

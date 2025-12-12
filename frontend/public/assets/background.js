@@ -1690,21 +1690,9 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
 
               // ✅ 规范化函数：确保 image 是字符串，不是数组
               const normalizeItem = (item) => {
-                const normalized = {
-                  url: String(item.url || '').trim(),
-                  title: item.title ? String(item.title).trim() : null,
-                  description: item.description ? String(item.description).trim() : null,
-                  image: null,
-                  site_name: item.site_name ? String(item.site_name).trim() : null,
-                  tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
-                  tab_title: item.tab_title ? String(item.tab_title).trim() : null,
-                  is_doc_card: Boolean(item.is_doc_card || false),
-                  is_screenshot: Boolean(item.is_screenshot || false),
-                  success: Boolean(item.success !== undefined ? item.success : true),
-                };
-                
+                const pageUrl = String(item.url || item.page_url || '').trim();
+                let image = item.original_image_url || item.image;
                 // ✅ 关键：确保 image 是字符串，不是数组
-                let image = item.image;
                 if (image) {
                   if (Array.isArray(image)) {
                     image = image.length > 0 ? String(image[0]).trim() : null;
@@ -1714,7 +1702,28 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                     image = String(image).trim() || null;
                   }
                 }
-                normalized.image = image;
+
+                const normalized = {
+                  url: pageUrl,
+                  title: item.title ? String(item.title).trim() : null,
+                  description: item.description ? String(item.description).trim() : null,
+                  image: image || null,
+                  original_image_url: image || null,
+                  site_name: item.site_name ? String(item.site_name).trim() : null,
+                  tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
+                  tab_title: item.tab_title ? String(item.tab_title).trim() : null,
+                  is_doc_card: Boolean(item.is_doc_card || false),
+                  is_screenshot: Boolean(item.is_screenshot || false),
+                  success: Boolean(item.success !== undefined ? item.success : true),
+                  metadata: {
+                    page_url: pageUrl || null,
+                    pageUrl: pageUrl || null,
+                    url: pageUrl || null,
+                    image: image || null,
+                    original_image_url: image || null,
+                    originalImageUrl: image || null,
+                  },
+                };
                 
                 return normalized;
               };
@@ -2622,21 +2631,9 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           try {
             // ✅ 规范化数据：确保 image 是字符串，不是数组
             const normalizeItem = (item) => {
-              const normalized = {
-                url: String(item.url || '').trim(),
-                title: item.title ? String(item.title).trim() : null,
-                description: item.description ? String(item.description).trim() : null,
-                image: null,
-                site_name: item.site_name ? String(item.site_name).trim() : null,
-                tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
-                tab_title: item.tab_title ? String(item.tab_title).trim() : null,
-                is_doc_card: Boolean(item.is_doc_card || false),
-                is_screenshot: Boolean(item.is_screenshot || false),
-                success: Boolean(item.success !== undefined ? item.success : true),
-              };
-              
+              const pageUrl = String(item.url || item.page_url || '').trim();
+              let image = item.original_image_url || item.image;
               // ✅ 关键：确保 image 是字符串，不是数组
-              let image = item.image;
               if (image) {
                 if (Array.isArray(image)) {
                   image = image.length > 0 ? String(image[0]).trim() : null;
@@ -2646,7 +2643,28 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                   image = String(image).trim() || null;
                 }
               }
-              normalized.image = image;
+
+              const normalized = {
+                url: pageUrl,
+                title: item.title ? String(item.title).trim() : null,
+                description: item.description ? String(item.description).trim() : null,
+                image: image || null,
+                original_image_url: image || null,
+                site_name: item.site_name ? String(item.site_name).trim() : null,
+                tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
+                tab_title: item.tab_title ? String(item.tab_title).trim() : null,
+                is_doc_card: Boolean(item.is_doc_card || false),
+                is_screenshot: Boolean(item.is_screenshot || false),
+                success: Boolean(item.success !== undefined ? item.success : true),
+                metadata: {
+                  page_url: pageUrl || null,
+                  pageUrl: pageUrl || null,
+                  url: pageUrl || null,
+                  image: image || null,
+                  original_image_url: image || null,
+                  originalImageUrl: image || null,
+                },
+              };
               
               return normalized;
             };
@@ -2722,21 +2740,9 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         
         // ✅ 规范化函数：确保 image 是字符串，不是数组
         const normalizeItem = (item) => {
-          const normalized = {
-            url: String(item.url || '').trim(),
-            title: item.title ? String(item.title).trim() : null,
-            description: item.description ? String(item.description).trim() : null,
-            image: null,
-            site_name: item.site_name ? String(item.site_name).trim() : null,
-            tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
-            tab_title: item.tab_title ? String(item.tab_title).trim() : null,
-            is_doc_card: Boolean(item.is_doc_card || false),
-            is_screenshot: Boolean(item.is_screenshot || false),
-            success: Boolean(item.success !== undefined ? item.success : true),
-          };
-          
+          const pageUrl = String(item.url || item.page_url || '').trim();
+          let image = item.original_image_url || item.image;
           // ✅ 关键：确保 image 是字符串，不是数组
-          let image = item.image;
           if (image) {
             if (Array.isArray(image)) {
               image = image.length > 0 ? String(image[0]).trim() : null;
@@ -2746,7 +2752,28 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
               image = String(image).trim() || null;
             }
           }
-          normalized.image = image;
+
+          const normalized = {
+            url: pageUrl,
+            title: item.title ? String(item.title).trim() : null,
+            description: item.description ? String(item.description).trim() : null,
+            image: image || null,
+            original_image_url: image || null,
+            site_name: item.site_name ? String(item.site_name).trim() : null,
+            tab_id: item.tab_id !== undefined && item.tab_id !== null ? Number(item.tab_id) : null,
+            tab_title: item.tab_title ? String(item.tab_title).trim() : null,
+            is_doc_card: Boolean(item.is_doc_card || false),
+            is_screenshot: Boolean(item.is_screenshot || false),
+            success: Boolean(item.success !== undefined ? item.success : true),
+            metadata: {
+              page_url: pageUrl || null,
+              pageUrl: pageUrl || null,
+              url: pageUrl || null,
+              image: image || null,
+              original_image_url: image || null,
+              originalImageUrl: image || null,
+            },
+          };
           
           return normalized;
         };
@@ -2787,27 +2814,6 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         if (response.ok) {
           const embedData = await response.json();
           console.log('[Tab Cleaner Background] ✅ Backend processed OG data:', {
-            saved: embedData.saved,
-            hasData: !!(embedData.data && embedData.data.length > 0)
-          });
-        } else {
-          console.warn('[Tab Cleaner Background] ⚠️ Backend returned error:', response.status, response.statusText);
-        }
-      } catch (error) {
-        console.error('[Tab Cleaner Background] ❌ Failed to send OG to backend:', error);
-      }
-    })();
-    
-    // 立即返回，不等待异步处理完成
-    sendResponse?.({ ok: true, message: "OG data queued for backend processing" });
-    return true;
-  }
-  
-  // 处理其他消息类型
-  return false;
-});
-
-        console.log('[Tab Cleaner Background] ✅ Backend processed OG data:', {
             saved: embedData.saved,
             hasData: !!(embedData.data && embedData.data.length > 0)
           });
