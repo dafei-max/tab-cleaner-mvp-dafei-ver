@@ -42,11 +42,18 @@ function connectCaptionWs() {
       try {
         const data = JSON.parse(evt.data);
         if (data?.type === 'caption_ready') {
-          // 将推送转发到所有标签页
+          // 1) 转发到所有普通标签页的 content scripts
           chrome.tabs.query({}, (tabs) => {
             tabs.forEach(tab => {
-              chrome.tabs.sendMessage(tab.id, { action: 'caption-ready', payload: data }, () => {});
+              chrome.tabs.sendMessage(tab.id, { action: 'caption-ready', payload: data }, () => {
+                // 忽略没有 content script 的错误
+                chrome.runtime.lastError;
+              });
             });
+          });
+          // 2) 同时通知扩展内部页面（如 PersonalSpace）
+          chrome.runtime.sendMessage({ action: 'caption-ready', payload: data }, () => {
+            chrome.runtime.lastError;
           });
         }
       } catch (e) {
@@ -2780,6 +2787,27 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         if (response.ok) {
           const embedData = await response.json();
           console.log('[Tab Cleaner Background] ✅ Backend processed OG data:', {
+            saved: embedData.saved,
+            hasData: !!(embedData.data && embedData.data.length > 0)
+          });
+        } else {
+          console.warn('[Tab Cleaner Background] ⚠️ Backend returned error:', response.status, response.statusText);
+        }
+      } catch (error) {
+        console.error('[Tab Cleaner Background] ❌ Failed to send OG to backend:', error);
+      }
+    })();
+    
+    // 立即返回，不等待异步处理完成
+    sendResponse?.({ ok: true, message: "OG data queued for backend processing" });
+    return true;
+  }
+  
+  // 处理其他消息类型
+  return false;
+});
+
+        console.log('[Tab Cleaner Background] ✅ Backend processed OG data:', {
             saved: embedData.saved,
             hasData: !!(embedData.data && embedData.data.length > 0)
           });
