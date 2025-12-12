@@ -580,7 +580,44 @@ export const PersonalSpace = () => {
     }
   }, [sessions, isSessionsLoading, updateSession]);
 
-  // ✅ 在页面加载时主动补齐现有卡片的 caption
+  // 🆕 便于控制台手动触发：将补齐函数挂到 window（刷新时自动清理）
+  useEffect(() => {
+    window.__TC_SYNC_CAPTIONS = syncExistingCardsCaptions;
+    return () => {
+      delete window.__TC_SYNC_CAPTIONS;
+    };
+  }, [syncExistingCardsCaptions]);
+
+  // ✅ 页面刷新 / 重新进入时立即触发一次补齐（不等延迟），并在页面重新可见时再补一次
+  useEffect(() => {
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+    let didImmediateSync = false;
+
+    const runImmediateSync = () => {
+      if (didImmediateSync) return;
+      didImmediateSync = true;
+      console.log('[PersonalSpace] 🔁 Immediate caption sync on refresh/visibility');
+      syncExistingCardsCaptions();
+    };
+
+    // 首次进入立即跑
+    runImmediateSync();
+
+    // 页面再次可见时再跑一次，防止后台长时间错过 WS 推送
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        console.log('[PersonalSpace] 👀 Page visible, re-sync captions');
+        syncExistingCardsCaptions();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [sessions, isSessionsLoading, syncExistingCardsCaptions]);
+
+  // ✅ 在页面加载时主动补齐现有卡片的 caption（带短延迟，避免刚加载时的抖动）
   useEffect(() => {
     if (isSessionsLoading || !sessions || sessions.length === 0) return;
     
@@ -591,6 +628,36 @@ export const PersonalSpace = () => {
     }, 3000);
     
     return () => clearTimeout(timer);
+  }, [sessions, isSessionsLoading, syncExistingCardsCaptions]);
+
+  // ✅ 添加轮询机制：定期检查并拉取缺失的 Caption（每 60 秒检查一次）
+  // 这样即使 WebSocket 未连接或推送失败，也能自动拉取数据库中的更新
+  useEffect(() => {
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+    
+    let pollInterval = null;
+    
+    // 首次延迟 30 秒（避免与 syncExistingCardsCaptions 的初始 3 秒延迟重复）
+    const initialDelay = setTimeout(() => {
+      console.log('[PersonalSpace] 🔄 Polling: Starting periodic caption check (every 60s)');
+      
+      // 立即执行一次
+      syncExistingCardsCaptions();
+      
+      // 然后每 60 秒轮询一次
+      pollInterval = setInterval(() => {
+        console.log('[PersonalSpace] 🔄 Polling: Checking for missing captions...');
+        syncExistingCardsCaptions();
+      }, 60000); // 每 60 秒检查一次
+    }, 30000);
+    
+    // 清理函数
+    return () => {
+      clearTimeout(initialDelay);
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
   }, [sessions, isSessionsLoading, syncExistingCardsCaptions]);
 
   // 🆕 补充 session 图片的 caption 和 tags

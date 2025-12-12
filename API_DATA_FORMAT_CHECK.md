@@ -30,80 +30,38 @@
 
 ## ⚠️ 发现的问题
 
-### 问题 1: `enrich_item_with_caption` 返回字段名不一致
+### 问题 1: `enrich_item_with_caption` 返回字段名（已解决）
 
-**位置**：`backend/app/search/caption.py`
+**位置**：`backend/app/search/caption.py` (line 589-590)
 
-**问题**：
-- `enrich_item_with_caption` 返回的是 `caption` 字段
-- 但数据库和 API 使用的是 `image_caption` 字段
+**状态**：✅ **已解决**
 
-**影响**：
-- 在 `broadcast_caption_updates` 中，使用 `item.get("image_caption")` 可能获取不到值
-- 在 `batch_upsert_items` 中，字段映射逻辑需要处理这个差异
+**说明**：
+- `enrich_item_with_caption` 同时返回 `caption` 和 `image_caption` 两个字段
+- 代码：`"caption": caption_text, "image_caption": caption_text,`
 
-**当前处理**：
-在 `batch_upsert_items` 中已有映射逻辑（line 1080-1084）：
-```python
-# 将生成的字段映射到正确的字段名（enrich_item_with_caption 返回的是 "caption"，需要映射到 "image_caption"）
-for enriched_item in enriched_items:
-    # enrich_item_with_caption 返回 "caption"，需要映射到 "image_caption"
-    if "caption" in enriched_item:
-        if "image_caption" not in enriched_item or not enriched_item.get("image_caption"):
-            enriched_item["image_caption"] = enriched_item.get("caption", "")
-```
-
-**但问题**：
-- `broadcast_caption_updates` 中直接使用 `item.get("image_caption")`，可能获取不到值
-- 需要确保在调用 `broadcast_caption_updates` 前，字段已经映射
+**但仍有风险**：
+- 如果某些路径只返回 `caption`，需要确保映射
 
 ---
 
-### 问题 2: `broadcast_caption_updates` 可能获取不到 Caption
+### 问题 2: `broadcast_caption_updates` 字段映射（已修复）
 
 **位置**：`backend/app/main.py` (line 46-83)
 
-**问题**：
+**状态**：✅ **已修复**
+
+**修复内容**：
+1. 在 `generate_embeddings` 中，确保字段映射完成（line 437-448）
+2. 在 `broadcast_caption_updates` 中，添加字段映射和空值检查（line 59-66）
+
+**修复后代码**：
 ```python
-payload = {
-    "type": "caption_ready",
-    "user_id": user_id,
-    "url": item.get("url"),
-    "image_caption": item.get("image_caption"),  # ⚠️ 可能为 None
-    "style_tags": item.get("style_tags", []),
-    "object_tags": item.get("object_tags", []),
-    "dominant_colors": item.get("dominant_colors", []),
-    "image": item.get("image"),
-}
-```
-
-**原因**：
-- `all_enriched_items` 可能包含 `caption` 字段而不是 `image_caption`
-- 字段映射在 `batch_upsert_items` 中，但 `broadcast_caption_updates` 在保存前调用
-
-**影响**：
-- WebSocket 消息可能不包含 Caption 数据
-- 前端无法实时更新 Caption
-
----
-
-## 🔧 修复建议
-
-### 修复 1: 确保字段映射在 `broadcast_caption_updates` 前完成
-
-**位置**：`backend/app/main.py` (line 427-434)
-
-**修改**：
-```python
-# 合并结果：已有的 + 新生成的
-all_enriched_items = items_already_done + enriched_items
-print(f"[API] Total enriched items: {len(all_enriched_items)}")
-
-# ✅ 修复：确保字段映射完成（enrich_item_with_caption 返回 "caption"，需要映射到 "image_caption"）
+# ✅ 确保字段映射完成
 for item in all_enriched_items:
     if "caption" in item and ("image_caption" not in item or not item.get("image_caption")):
         item["image_caption"] = item.get("caption", "")
-    # 确保其他字段也存在
+    # 确保其他字段存在
     if "style_tags" not in item:
         item["style_tags"] = []
     if "object_tags" not in item:
@@ -111,65 +69,34 @@ for item in all_enriched_items:
     if "dominant_colors" not in item:
         item["dominant_colors"] = []
 
-# 🆕 推送 caption 更新（如果有 WS 连接）
-try:
-    await broadcast_caption_updates(all_enriched_items, normalized_user_id)
-except Exception as e:
-    print(f"[API] ⚠️ Broadcast caption updates failed: {e}")
+# 在 broadcast_caption_updates 中
+image_caption = item.get("image_caption") or item.get("caption") or ""
+# 只发送有 Caption 的更新
+if not image_caption:
+    continue
 ```
 
 ---
 
-### 修复 2: 在 `broadcast_caption_updates` 中添加字段映射
+## ✅ 已修复的问题
 
-**位置**：`backend/app/main.py` (line 46-83)
+### 修复 1: 字段映射在 `broadcast_caption_updates` 前完成
 
-**修改**：
-```python
-async def broadcast_caption_updates(items: list[dict], user_id: str):
-  """将 caption 结果推送给所有活跃的 WS 客户端"""
-  if not _ws_clients or not items:
-    if not _ws_clients:
-      print(f"[WS] ⚠️ No WebSocket clients connected, skipping broadcast for {len(items)} items")
-    return
-  
-  print(f"[WS] 📡 Broadcasting {len(items)} caption updates to {len(_ws_clients)} clients (user_id: {user_id})")
-  
-  dead = set()
-  success_count = 0
-  for ws in list(_ws_clients):
-    try:
-      for item in items:
-        # ✅ 修复：确保字段映射（enrich_item_with_caption 返回 "caption"，需要映射到 "image_caption"）
-        image_caption = item.get("image_caption") or item.get("caption") or ""
-        style_tags = item.get("style_tags", [])
-        object_tags = item.get("object_tags", [])
-        dominant_colors = item.get("dominant_colors", [])
-        
-        payload = {
-          "type": "caption_ready",
-          "user_id": user_id,
-          "url": item.get("url"),
-          "image_caption": image_caption,
-          "style_tags": style_tags,
-          "object_tags": object_tags,
-          "dominant_colors": dominant_colors,
-          "image": item.get("image"),
-        }
-        await ws.send_json(payload)
-        success_count += 1
-        print(f"[WS] ✅ Sent caption update for {item.get('url', '')[:50]}... to client")
-    except Exception as e:
-      print(f"[WS] ⚠️ send failed for client: {e}")
-      dead.add(ws)
-  
-  for ws in dead:
-    _ws_clients.discard(ws)
-    print(f"[WS] 🗑️ Removed dead client (remaining: {len(_ws_clients)})")
-  
-  if success_count > 0:
-    print(f"[WS] ✅ Successfully broadcasted {success_count} messages to {len(_ws_clients)} clients")
-```
+**位置**：`backend/app/main.py` (line 437-448)
+
+**修复内容**：
+- 在合并 `all_enriched_items` 后，立即进行字段映射
+- 确保所有项都有 `image_caption` 字段
+- 确保其他字段（`style_tags`, `object_tags`, `dominant_colors`）存在
+
+### 修复 2: `broadcast_caption_updates` 中添加字段映射和空值检查
+
+**位置**：`backend/app/main.py` (line 59-66)
+
+**修复内容**：
+- 添加字段映射：`image_caption = item.get("image_caption") or item.get("caption") or ""`
+- 添加空值检查：只发送有 Caption 的更新
+- 确保所有字段都有默认值
 
 ---
 
@@ -251,13 +178,35 @@ async def broadcast_caption_updates(items: list[dict], user_id: str):
 - [x] Batch API 返回字段名：`image_caption`, `style_tags`, `object_tags`, `dominant_colors`
 - [x] 前端使用字段名：`image_caption`, `style_tags`, `object_tags`, `dominant_colors`
 - [x] URL 规范化：所有接口都使用 `_normalize_url_for_storage`
-- [ ] ⚠️ `enrich_item_with_caption` 返回 `caption` 需要映射到 `image_caption`
-- [ ] ⚠️ `broadcast_caption_updates` 需要处理字段映射
+- [x] ✅ `enrich_item_with_caption` 同时返回 `caption` 和 `image_caption`
+- [x] ✅ `broadcast_caption_updates` 已添加字段映射和空值检查
+- [x] ✅ `generate_embeddings` 中已确保字段映射完成
 
 ---
 
-## 🎯 建议
+## 🎯 总结
 
-1. **立即修复**：在 `broadcast_caption_updates` 中添加字段映射
-2. **长期优化**：修改 `enrich_item_with_caption` 直接返回 `image_caption` 字段
-3. **统一规范**：所有 Caption 相关字段统一使用 `image_caption` 作为主字段名
+### ✅ 已完成
+
+1. **字段映射**：在 `generate_embeddings` 和 `broadcast_caption_updates` 中都已添加字段映射
+2. **空值检查**：`broadcast_caption_updates` 只发送有 Caption 的更新
+3. **字段对齐**：所有接口都使用 `image_caption` 作为主字段名
+
+### 📝 数据格式规范
+
+**标准字段名**（所有接口统一）：
+- `image_caption` - 图片描述（主字段）
+- `style_tags` - 风格标签（数组）
+- `object_tags` - 物体标签（数组）
+- `dominant_colors` - 主要颜色（数组）
+
+**兼容字段名**（向后兼容，但优先使用标准字段）：
+- `quickCaption` → 映射到 `image_caption`
+- `tags` → 映射到 `style_tags` + `object_tags`
+
+### 🔍 验证方法
+
+1. **检查 WebSocket 消息**：确保包含 `image_caption` 字段
+2. **检查 Batch API 返回**：确保返回 `image_caption` 字段
+3. **检查数据库存储**：确保使用 `image_caption` 字段名
+4. **检查前端使用**：确保使用 `image_caption` 字段名
