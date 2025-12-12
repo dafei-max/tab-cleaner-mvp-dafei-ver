@@ -656,6 +656,13 @@ async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dic
     
     try:
         user_id = _normalize_user_id(user_id)
+        # ✅ 关键修复：规范化所有 URL（与存储时保持一致）
+        # 因为数据库中存储的 URL 是经过 _normalize_url_for_storage() 规范化的
+        normalized_urls = [_normalize_url_for_storage(url) for url in urls if url]
+        
+        if not normalized_urls:
+            return []
+        
         pool = await get_pool()
         
         async with pool.acquire() as conn:
@@ -670,7 +677,7 @@ async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dic
             """)
             
             # 使用 IN 查询批量获取（只返回 active 记录）
-            placeholders = ','.join([f'${i+1}' for i in range(len(urls))])
+            placeholders = ','.join([f'${i+1}' for i in range(len(normalized_urls))])
             
             if has_caption_fields:
                 # ✅ 包含 caption 相关字段
@@ -679,16 +686,16 @@ async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dic
                            tab_id, tab_title, text_embedding, image_embedding, metadata,
                            image_caption, caption_embedding, dominant_colors, style_tags, object_tags
                     FROM {ACTIVE_TABLE}
-                    WHERE user_id = ${len(urls)+1} AND url IN ({placeholders}) AND status = 'active';
-                """, *urls, user_id)
+                    WHERE user_id = ${len(normalized_urls)+1} AND url IN ({placeholders}) AND status = 'active';
+                """, *normalized_urls, user_id)
             else:
                 # 降级：不包含 caption 字段（向后兼容）
                 rows = await conn.fetch(f"""
                     SELECT user_id, url, title, description, image, screenshot_image, site_name,
                            tab_id, tab_title, text_embedding, image_embedding, metadata
                     FROM {ACTIVE_TABLE}
-                    WHERE user_id = ${len(urls)+1} AND url IN ({placeholders}) AND status = 'active';
-                """, *urls, user_id)
+                    WHERE user_id = ${len(normalized_urls)+1} AND url IN ({placeholders}) AND status = 'active';
+                """, *normalized_urls, user_id)
             
             results = []
             for row in rows:

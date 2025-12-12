@@ -325,7 +325,9 @@ export const PersonalSpace = () => {
       if (!session?.opengraphData) continue;
       
       session.opengraphData.forEach((item, itemIndex) => {
-        const url = item.url || item.original_image_url || item.image || '';
+        // ✅ 修复：优先使用 original_image_url（图片 URL），而不是 url（可能是页面 URL）
+        // 因为数据库中存储的 url 字段是图片 URL，需要匹配
+        const url = item.original_image_url || item.url || item.image || '';
         if (!url || url.startsWith('eagle://') || url.startsWith('data:')) return;
         
         // 检查是否缺少 caption 或 tags
@@ -558,7 +560,8 @@ export const PersonalSpace = () => {
           sessions.forEach(session => {
             if (session && Array.isArray(session.opengraphData)) {
               session.opengraphData.forEach(item => {
-                const url = item.url || item.original_image_url || item.image || '';
+                // ✅ 修复：优先使用 original_image_url（图片 URL），而不是 url（可能是页面 URL）
+                const url = item.original_image_url || item.url || item.image || '';
                 if (url && !url.startsWith('eagle://') && !url.startsWith('data:')) {
                   allCurrentUrls.push(url);
                 }
