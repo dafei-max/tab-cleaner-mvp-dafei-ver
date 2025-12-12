@@ -2151,6 +2151,31 @@
     try {
       const { excludeUrls = [], onProgress, batchSize = 20 } = options;
       
+      // ✅ URL 规范化函数（与后端保持一致）
+      const normalizeUrl = (url) => {
+        if (!url) return url;
+        try {
+          const urlObj = new URL(url);
+          // 移除查询参数、锚点、尾随斜杠
+          urlObj.search = '';
+          urlObj.hash = '';
+          let path = urlObj.pathname;
+          // 移除尾随斜杠（但保留根路径的斜杠）
+          if (path.length > 1 && path.endsWith('/')) {
+            path = path.slice(0, -1);
+          }
+          urlObj.pathname = path;
+          return urlObj.toString();
+        } catch (e) {
+          // 如果 URL 解析失败，尝试简单处理
+          let normalized = url.split('?')[0].split('#')[0];
+          if (normalized.length > 1 && normalized.endsWith('/')) {
+            normalized = normalized.slice(0, -1);
+          }
+          return normalized;
+        }
+      };
+      
       // 检查是否有 chrome.storage.local 访问权限
       if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
         console.log('[Eagle Storage] ℹ️ chrome.storage.local not available, skipping batch update');
@@ -2169,16 +2194,20 @@
       }
 
       // 2. 收集所有老卡片的 URL（排除新卡片）
-      const excludeUrlSet = new Set(excludeUrls.map(url => url.toLowerCase()));
+      // ✅ 规范化排除列表的 URL
+      const excludeUrlSet = new Set(excludeUrls.map(url => normalizeUrl(url).toLowerCase()));
       const oldCardUrls = [];
       
       sessions.forEach(session => {
         if (!session || !session.opengraphData || !Array.isArray(session.opengraphData)) return;
         
         session.opengraphData.forEach(item => {
-          const url = item.url || item.original_image_url || item.image || '';
+          // ✅ 修复：优先使用 original_image_url（图片 URL），与 syncExistingCardsCaptions 保持一致
+          const url = item.original_image_url || item.url || item.image || '';
           if (!url || url.startsWith('eagle://') || url.startsWith('data:')) return;
-          if (excludeUrlSet.has(url.toLowerCase())) return; // 排除新卡片
+          // ✅ 规范化后比较
+          const normalizedUrl = normalizeUrl(url);
+          if (excludeUrlSet.has(normalizedUrl.toLowerCase())) return; // 排除新卡片
           
           // 检查是否缺少 caption 或 tags
           const hasCaption = item.image_caption && item.image_caption.trim() && 
@@ -2188,7 +2217,8 @@
           
           if (!hasCaption || !hasTags) {
             oldCardUrls.push({
-              url,
+              url: normalizedUrl,  // ✅ 使用规范化后的 URL
+              originalUrl: url,  // 保留原始 URL 用于显示
               sessionId: session.id,
               item,
             });
@@ -2209,6 +2239,7 @@
       // 3. 分批批量查询
       for (let i = 0; i < oldCardUrls.length; i += batchSize) {
         const batch = oldCardUrls.slice(i, i + batchSize);
+        // ✅ 使用规范化后的 URL
         const urls = batch.map(b => b.url);
 
         try {
@@ -2229,16 +2260,18 @@
               objectTags: result.object_tags || [],
             });
             
-            if (!result.quickCaption) {
-              console.log(`[Eagle Storage] ⚠️ [BATCH UPDATE] Skipping (no quickCaption):`, result.url?.substring(0, 60));
+            // ✅ 修复：检查 image_caption 或 quickCaption
+            const image_caption = result.image_caption || result.quickCaption || '';
+            if (!image_caption) {
+              console.log(`[Eagle Storage] ⚠️ [BATCH UPDATE] Skipping (no caption):`, result.url?.substring(0, 60));
               skipped++;
               continue;
             }
 
-            // 找到对应的卡片
+            // ✅ 找到对应的卡片（规范化后比较）
             const cardInfo = batch.find(b => {
-              const cardUrl = (b.url || '').toLowerCase();
-              const resultUrl = (result.url || '').toLowerCase();
+              const cardUrl = normalizeUrl(b.url || '').toLowerCase();
+              const resultUrl = normalizeUrl(result.url || '').toLowerCase();
               return cardUrl === resultUrl;
             });
 
@@ -2247,7 +2280,7 @@
               continue;
             }
 
-            const { url, sessionId } = cardInfo;
+            const { url: normalizedUrl, originalUrl, sessionId } = cardInfo;
             const session = sessions.find(s => s.id === sessionId);
             
             if (!session) {
@@ -2256,29 +2289,33 @@
             }
             
             if (session && session.opengraphData) {
+              // ✅ 修复：规范化匹配，同时匹配 url 和 original_image_url
               const itemIndex = session.opengraphData.findIndex(
                 it => {
-                  const itUrl = (it.url || it.original_image_url || it.image || '').toLowerCase();
-                  return itUrl === url.toLowerCase();
+                  const itUrl = normalizeUrl(it.url || '').toLowerCase();
+                  const itImageUrl = normalizeUrl(it.original_image_url || '').toLowerCase();
+                  const normalizedResultUrl = normalizeUrl(normalizedUrl || '').toLowerCase();
+                  return itUrl === normalizedResultUrl || itImageUrl === normalizedResultUrl;
                 }
               );
               
               if (itemIndex < 0) {
-                console.log(`[Eagle Storage] ⚠️ [BATCH UPDATE] Item not found in session:`, url.substring(0, 60));
+                console.log(`[Eagle Storage] ⚠️ [BATCH UPDATE] Item not found in session:`, normalizedUrl.substring(0, 60));
                 continue;
               }
               
               const oldItem = session.opengraphData[itemIndex];
               const oldCaption = oldItem.image_caption || '';
-              const newCaption = result.image_caption || result.quickCaption || '';
+              const newCaption = image_caption;
               
               console.log(`[Eagle Storage] 🔄 [BATCH UPDATE] Updating card:`, {
-                url: url.substring(0, 60),
+                url: normalizedUrl.substring(0, 60),
+                originalUrl: originalUrl?.substring(0, 60),
                 sessionId,
                 itemIndex,
                 oldCaption: oldCaption.substring(0, 50),
                 newCaption: newCaption.substring(0, 50),
-                isPinterest: isPinterestPage(url),
+                isPinterest: isPinterestPage(originalUrl || normalizedUrl),
               });
               
               const updatedItem = {
@@ -2292,26 +2329,28 @@
               session.opengraphData[itemIndex] = updatedItem;
               
               // 如果是 Pinterest 页面，更新标题
-              if (isPinterestPage(url)) {
-                const displayTitle = result.quickCaption || result.image_caption || '';
+              const displayUrl = originalUrl || normalizedUrl;
+              if (isPinterestPage(displayUrl)) {
+                const displayTitle = image_caption;
                 if (displayTitle) {
                   console.log(`[Eagle Storage] 📌 [BATCH UPDATE] Updating Pinterest title:`, {
-                    url: url.substring(0, 60),
+                    url: displayUrl.substring(0, 60),
                     title: displayTitle.substring(0, 50),
                   });
-                  await updatePinterestCardTitle(url, displayTitle);
+                  await updatePinterestCardTitle(displayUrl, displayTitle);
                   console.log(`[Eagle Storage] ✅ [BATCH UPDATE] Pinterest title updated`);
                 } else {
-                  console.log(`[Eagle Storage] ⚠️ [BATCH UPDATE] Pinterest card but no displayTitle:`, url.substring(0, 60));
+                  console.log(`[Eagle Storage] ⚠️ [BATCH UPDATE] Pinterest card but no displayTitle:`, displayUrl.substring(0, 60));
                 }
               }
               
               // 同时更新 IndexedDB（如果图片已保存）
               try {
-                const imageData = await loadImage(url);
+                // ✅ 使用 originalUrl（原始图片 URL）查找 IndexedDB
+                const imageUrl = originalUrl || normalizedUrl;
+                const imageData = await loadImage(imageUrl);
                 if (imageData && imageData.hash) {
                   // ✅ 使用新字段名更新 IndexedDB（对齐数据库字段名）
-                  const image_caption = result.image_caption || result.quickCaption || '';
                   const style_tags = result.style_tags || [];
                   const object_tags = result.object_tags || [];
                   const dominant_colors = result.dominant_colors || [];
@@ -2322,16 +2361,16 @@
                     object_tags, 
                     dominant_colors
                   );
-                  console.log(`[Eagle Storage] ✅ [BATCH UPDATE] IndexedDB updated for:`, url.substring(0, 60));
+                  console.log(`[Eagle Storage] ✅ [BATCH UPDATE] IndexedDB updated for:`, imageUrl.substring(0, 60));
                 } else {
-                  console.log(`[Eagle Storage] ℹ️ [BATCH UPDATE] Image not in IndexedDB:`, url.substring(0, 60));
+                  console.log(`[Eagle Storage] ℹ️ [BATCH UPDATE] Image not in IndexedDB:`, imageUrl.substring(0, 60));
                 }
               } catch (e) {
                 console.warn(`[Eagle Storage] ⚠️ [BATCH UPDATE] IndexedDB update failed:`, e);
               }
               
               updated++;
-              console.log(`[Eagle Storage] ✅ [BATCH UPDATE] Card updated successfully:`, url.substring(0, 60));
+              console.log(`[Eagle Storage] ✅ [BATCH UPDATE] Card updated successfully:`, normalizedUrl.substring(0, 60));
             }
           }
 

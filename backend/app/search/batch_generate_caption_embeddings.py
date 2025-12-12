@@ -15,7 +15,7 @@ load_dotenv()
 parent_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(parent_dir))
 
-from vector_db import get_pool, close_pool, ACTIVE_TABLE, ACTIVE_TABLE_NAME, NAMESPACE, _normalize_user_id
+from vector_db import get_pool, close_pool, ACTIVE_TABLE, ACTIVE_TABLE_NAME, NAMESPACE, _normalize_user_id, _normalize_url_for_storage
 from search.embed import embed_text
 from search.config import EMBED_SLEEP_S
 
@@ -210,12 +210,15 @@ async def _generate_and_update_embedding(
         from vector_db import to_vector_str
         caption_vec_str = to_vector_str(caption_vec)
         
+        # ✅ 规范化 URL（与存储时保持一致）
+        normalized_url = _normalize_url_for_storage(url)
+        
         await conn.execute(f"""
             UPDATE {ACTIVE_TABLE}
             SET caption_embedding = $1::vector(1024),
                 updated_at = NOW()
             WHERE user_id = $2 AND url = $3;
-        """, caption_vec_str, user_id, url)
+        """, caption_vec_str, user_id, normalized_url)  # ✅ 使用规范化后的 URL
         
         print(f"  ✅ 已更新: {url[:50]}...")
         return True

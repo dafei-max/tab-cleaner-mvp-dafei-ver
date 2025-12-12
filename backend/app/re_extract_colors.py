@@ -16,7 +16,7 @@ load_dotenv()
 parent_dir = Path(__file__).parent
 sys.path.insert(0, str(parent_dir))
 
-from vector_db import get_pool, close_pool, ACTIVE_TABLE, ACTIVE_TABLE_NAME, NAMESPACE, _normalize_user_id
+from vector_db import get_pool, close_pool, ACTIVE_TABLE, ACTIVE_TABLE_NAME, NAMESPACE, _normalize_user_id, _normalize_url_for_storage
 from search.caption import enrich_item_with_caption, extract_colors_kmeans
 from search.qwen_vl_client import QwenVLClient
 from search.preprocess import download_image
@@ -226,9 +226,8 @@ async def update_item_colors(
     try:
         pool = await get_pool()
         normalized_user = _normalize_user_id(user_id)
-        
-        pool = await get_pool()
-        normalized_user = _normalize_user_id(user_id)
+        # ✅ 规范化 URL（与存储时保持一致）
+        normalized_url = _normalize_url_for_storage(url)
         
         async with pool.acquire() as conn:
             # 检查字段是否存在，如果不存在则创建
@@ -247,7 +246,7 @@ async def update_item_colors(
                         updated_at = NOW()
                     WHERE user_id = $3 AND url = $4 AND status = 'active'
                 """
-                await conn.execute(query, dominant_colors, dominant_colors_hex, normalized_user, url)
+                await conn.execute(query, dominant_colors, dominant_colors_hex, normalized_user, normalized_url)  # ✅ 使用规范化后的 URL
             else:
                 # 如果没有 hex 字段，只更新颜色名称
                 query = f"""
@@ -257,7 +256,7 @@ async def update_item_colors(
                         updated_at = NOW()
                     WHERE user_id = $2 AND url = $3 AND status = 'active'
                 """
-                await conn.execute(query, dominant_colors, normalized_user, url)
+                await conn.execute(query, dominant_colors, normalized_user, normalized_url)  # ✅ 使用规范化后的 URL
             
             return True
             

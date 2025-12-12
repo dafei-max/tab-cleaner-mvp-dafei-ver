@@ -363,6 +363,7 @@ export const PersonalSpace = () => {
         const hasTags = (item.style_tags && Array.isArray(item.style_tags) && item.style_tags.length > 0) ||
                        (item.object_tags && Array.isArray(item.object_tags) && item.object_tags.length > 0);
         
+        // ✅ 如果缺少 caption 或 tags，都需要补齐（使用 || 逻辑）
         if (!hasCaption || !hasTags) {
           cardsNeedingCaption.push({
             url,
@@ -370,6 +371,9 @@ export const PersonalSpace = () => {
             itemIndex, // ✅ 使用 forEach 的 index 参数，更可靠
             hasCaption: !!hasCaption,
             hasTags: !!hasTags,
+            // ✅ 添加调试信息
+            displayUrl: item.url?.substring(0, 60),
+            originalImageUrl: item.original_image_url?.substring(0, 60),
           });
         }
       });
@@ -398,6 +402,14 @@ export const PersonalSpace = () => {
       try {
         console.log(`[PersonalSpace] 📦 Fetching captions for batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(cardsNeedingCaption.length / batchSize)} (${urls.length} URLs)`);
         console.log(`[PersonalSpace] 🔍 Sample URLs being sent:`, urls.slice(0, 3).map(u => u.substring(0, 80)));
+        console.log(`[PersonalSpace] 🔍 Full batch URLs:`, urls.map(u => u.substring(0, 100)));
+        console.log(`[PersonalSpace] 🔍 Batch card info:`, batch.map(c => ({
+          url: c.url?.substring(0, 60),
+          displayUrl: c.displayUrl,
+          originalImageUrl: c.originalImageUrl,
+          hasCaption: c.hasCaption,
+          hasTags: c.hasTags
+        })));
         
         const response = await fetch(`${apiUrl}/api/v1/search/batch-captions`, {
           method: 'POST',
@@ -413,12 +425,35 @@ export const PersonalSpace = () => {
           console.log(`[PersonalSpace] 📥 Batch response:`, {
             success: result?.success,
             resultsCount: result?.results?.length || 0,
+            requestedCount: urls.length,
             sampleResults: result?.results?.slice(0, 2).map(r => ({
               url: r.url?.substring(0, 60),
               hasCaption: !!r.image_caption,
               hasTags: !!(r.style_tags?.length || r.object_tags?.length)
             }))
           });
+          
+          // ✅ 如果返回的结果数量少于请求的数量，说明有些 URL 在数据库中不存在或没有 caption
+          if (result?.results?.length < urls.length) {
+            const missingUrls = urls.filter(u => {
+              const normalizedU = normalizeUrl(u).toLowerCase();
+              return !result.results.some(r => {
+                const resultUrl = normalizeUrl(r.url || '').toLowerCase();
+                return resultUrl === normalizedU;
+              });
+            });
+            console.warn(`[PersonalSpace] ⚠️ ${missingUrls.length} URLs not found in database or have no caption:`, missingUrls.slice(0, 3).map(u => u.substring(0, 60)));
+            console.warn(`[PersonalSpace] 💡 These cards may:`);
+            console.warn(`   1. Not have been saved to database yet (will be saved when page is opened)`);
+            console.warn(`   2. Be in database but caption generation hasn't completed yet`);
+            console.warn(`   3. Need to trigger caption generation manually`);
+            
+            // ✅ 对于在数据库中但没有 caption 的图片，可以尝试触发 caption 生成
+            // 注意：这需要后端支持，目前只是记录日志
+            if (missingUrls.length > 0) {
+              console.log(`[PersonalSpace] 💡 Tip: Open these pages to trigger caption generation:`, missingUrls.slice(0, 3));
+            }
+          }
           
           if (result?.success !== false && result?.results) {
             const sessionUpdates = new Map(); // sessionId -> updated og list
@@ -534,16 +569,26 @@ export const PersonalSpace = () => {
     }
     
     console.log(`[PersonalSpace] ✅ Caption sync complete: ${totalUpdated} sessions updated`);
+    
+    // ✅ 如果有些卡片没有补齐，记录详细信息
+    if (totalUpdated === 0 && cardsNeedingCaption.length > 0) {
+      console.warn(`[PersonalSpace] ⚠️ No cards were updated. Possible reasons:`);
+      console.warn(`  1. Cards not saved to database yet (will be saved when page is opened)`);
+      console.warn(`  2. URL mismatch (check console logs above for details)`);
+      console.warn(`  3. Backend hasn't generated captions yet`);
+      console.warn(`  4. User ID mismatch`);
+    }
   }, [sessions, isSessionsLoading, updateSession]);
 
   // ✅ 在页面加载时主动补齐现有卡片的 caption
   useEffect(() => {
     if (isSessionsLoading || !sessions || sessions.length === 0) return;
     
-    // 延迟 12 秒执行，确保其他初始化完成
+    // ✅ 延迟 3 秒执行（缩短延迟，更快补齐）
     const timer = setTimeout(() => {
+      console.log('[PersonalSpace] ⏰ Triggering caption sync for existing cards...');
       syncExistingCardsCaptions();
-    }, 12000);
+    }, 3000);
     
     return () => clearTimeout(timer);
   }, [sessions, isSessionsLoading, syncExistingCardsCaptions]);

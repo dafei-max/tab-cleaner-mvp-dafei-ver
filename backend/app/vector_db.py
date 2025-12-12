@@ -515,6 +515,7 @@ async def upsert_opengraph_item(
             
             if has_caption_fields:
                 # 使用新字段（包含 thumbnail）
+                # ✅ 修复：使用 COALESCE 避免覆盖已有的 Caption 字段
                 await conn.execute(f"""
                     INSERT INTO {ACTIVE_TABLE} (
                         user_id, url, title, description, image, thumbnail, site_name,
@@ -535,11 +536,12 @@ async def upsert_opengraph_item(
                         text_embedding = EXCLUDED.text_embedding,
                         image_embedding = EXCLUDED.image_embedding,
                         metadata = EXCLUDED.metadata,
-                        image_caption = EXCLUDED.image_caption,
-                        caption_embedding = EXCLUDED.caption_embedding,
-                        dominant_colors = EXCLUDED.dominant_colors,
-                        style_tags = EXCLUDED.style_tags,
-                        object_tags = EXCLUDED.object_tags,
+                        -- ✅ 修复：只在传入值非空时才更新，否则保留数据库中的值
+                        image_caption = COALESCE(NULLIF(EXCLUDED.image_caption, ''), {ACTIVE_TABLE}.image_caption),
+                        caption_embedding = COALESCE(EXCLUDED.caption_embedding, {ACTIVE_TABLE}.caption_embedding),
+                        dominant_colors = COALESCE(EXCLUDED.dominant_colors, {ACTIVE_TABLE}.dominant_colors),
+                        style_tags = COALESCE(EXCLUDED.style_tags, {ACTIVE_TABLE}.style_tags),
+                        object_tags = COALESCE(EXCLUDED.object_tags, {ACTIVE_TABLE}.object_tags),
                         status = 'active',
                         deleted_at = NULL,
                         updated_at = NOW();
@@ -591,6 +593,8 @@ async def update_opengraph_item_screenshot(user_id: Optional[str], url: str, scr
     """
     try:
         user_id = _normalize_user_id(user_id)
+        # ✅ 规范化 URL（与存储时保持一致）
+        normalized_url = _normalize_url_for_storage(url)
         pool = await get_pool()
         
         async with pool.acquire() as conn:
@@ -599,7 +603,7 @@ async def update_opengraph_item_screenshot(user_id: Optional[str], url: str, scr
                 SET screenshot_image = $1,
                     updated_at = NOW()
                 WHERE user_id = $2 AND url = $3;
-            """, screenshot_image, user_id, url)
+            """, screenshot_image, user_id, normalized_url)
             
             return True
     except Exception as e:
@@ -621,6 +625,8 @@ async def get_opengraph_item(user_id: Optional[str], url: str) -> Optional[Dict]
     """
     try:
         user_id = _normalize_user_id(user_id)
+        # ✅ 规范化 URL（与存储时保持一致）
+        normalized_url = _normalize_url_for_storage(url)
         pool = await get_pool()
         
         async with pool.acquire() as conn:
@@ -629,7 +635,7 @@ async def get_opengraph_item(user_id: Optional[str], url: str) -> Optional[Dict]
                        tab_id, tab_title, text_embedding, image_embedding, metadata
                 FROM {ACTIVE_TABLE}
                 WHERE user_id = $1 AND url = $2 AND status = 'active';
-            """, user_id, url)
+            """, user_id, normalized_url)
             
             if not row:
                 return None
@@ -1088,6 +1094,59 @@ async def batch_upsert_items(items: List[Dict], user_id: Optional[str], batch_si
     
     if len(items_to_enrich) > 0:
         print(f"[VectorDB] 📊 字段补齐统计: 已有完整字段={len(items_already_have_caption)}, 新补齐={len(enriched_items)}, 总计={len(all_items_to_save)}")
+    
+    # ✅ 自动补齐机制：检查已保存但无 Caption 的项，自动触发生成
+    items_needing_caption = []
+    try:
+        from search.normalize import _normalize_url_for_storage
+        
+        # 批量检查所有要保存的项，找出数据库中已有但无 Caption 的
+        urls_to_check = []
+        items_map = {}
+        for item in all_items_to_save:
+            url = item.get("url")
+            image = item.get("image")
+            # 只检查有图片但传入的 item 中没有 caption 的项
+            if image and not item.get("image_caption"):
+                normalized_url = _normalize_url_for_storage(url)
+                urls_to_check.append(normalized_url)
+                items_map[normalized_url] = item
+        
+        # 批量查询数据库
+        if urls_to_check:
+            existing_items = await get_items_by_urls(user_id, urls_to_check)
+            existing_dict = {_normalize_url_for_storage(item.get("url", "")): item for item in existing_items}
+            
+            # 检查哪些项在数据库中已有但无 Caption
+            for normalized_url, item in items_map.items():
+                existing_item = existing_dict.get(normalized_url)
+                if existing_item:
+                    # 如果数据库中有记录但没有 caption，需要补齐
+                    existing_caption = existing_item.get("image_caption") or (
+                        existing_item.get("metadata", {}).get("caption") if isinstance(existing_item.get("metadata"), dict) else None
+                    )
+                    if not existing_caption:
+                        items_needing_caption.append(item)
+        
+        # 如果有需要补齐的项，异步触发 Caption 生成
+        if items_needing_caption:
+            try:
+                from search.auto_caption import batch_enqueue_caption_tasks
+                await batch_enqueue_caption_tasks(
+                    user_id,
+                    items_needing_caption,
+                    max_items=50  # 每次最多处理 50 个，避免队列过载
+                )
+                print(f"[VectorDB] ✅ 自动触发 {len(items_needing_caption)} 个已保存但无 Caption 的项进行补齐")
+            except Exception as caption_error:
+                print(f"[VectorDB] ⚠️ 自动触发 Caption 生成失败: {caption_error}")
+                import traceback
+                traceback.print_exc()
+    except Exception as e:
+        print(f"[VectorDB] ⚠️ 自动补齐检查失败（非关键错误）: {e}")
+        import traceback
+        traceback.print_exc()
+        # 不阻止保存流程
     
     # 使用信号量控制并发数
     semaphore = asyncio.Semaphore(batch_size)

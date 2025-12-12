@@ -21,7 +21,7 @@ from pathlib import Path
 parent_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(parent_dir))
 
-from vector_db import get_pool, close_pool, ACTIVE_TABLE, ACTIVE_TABLE_NAME, NAMESPACE, _normalize_user_id, _row_to_dict
+from vector_db import get_pool, close_pool, ACTIVE_TABLE, ACTIVE_TABLE_NAME, NAMESPACE, _normalize_user_id, _row_to_dict, _normalize_url_for_storage
 from search.caption import enrich_item_with_caption, batch_enrich_items
 from search.qwen_vl_client import QwenVLClient
 from search.embed import embed_text
@@ -229,6 +229,8 @@ async def update_item_caption(
     """
     pool = await get_pool()
     user_id = _normalize_user_id(user_id)
+    # ✅ 规范化 URL（与存储时保持一致）
+    normalized_url = _normalize_url_for_storage(url)
     
     try:
         async with pool.acquire() as conn:
@@ -263,13 +265,13 @@ async def update_item_caption(
                     style_tags if style_tags else None,
                     object_tags if object_tags else None,
                     user_id,
-                    url
+                    normalized_url  # ✅ 使用规范化后的 URL
                 )
             else:
                 # 降级到 metadata（向后兼容）
                 existing_metadata = await conn.fetchval(
                     f"SELECT metadata FROM {ACTIVE_TABLE} WHERE user_id = $1 AND url = $2",
-                    user_id, url
+                    user_id, normalized_url  # ✅ 使用规范化后的 URL
                 )
                 
                 if existing_metadata:
@@ -298,7 +300,7 @@ async def update_item_caption(
                         updated_at = NOW()
                     WHERE user_id = $2 AND url = $3
                     """,
-                    metadata_json, user_id, url
+                    metadata_json, user_id, normalized_url  # ✅ 使用规范化后的 URL
                 )
             
             return True
