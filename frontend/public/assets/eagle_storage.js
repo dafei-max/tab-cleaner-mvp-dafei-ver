@@ -23,7 +23,7 @@
   // ==================== IndexedDB 管理 ====================
   
   const DB_NAME = 'tab_cleaner_images';
-  const DB_VERSION = 2; // 🆕 升级版本以添加新字段
+  const DB_VERSION = 3; // ✅ 升级版本以对齐字段名（image_caption, style_tags, object_tags, dominant_colors）
   const STORE_NAME = 'images';
   
   let db = null;
@@ -84,6 +84,23 @@
           }
           
           console.log('[Eagle Storage] 🔧 Database upgraded to version 2');
+        } else if (oldVersion < 3) {
+          // ✅ 升级到版本 3：添加新字段索引（对齐数据库字段名）
+          const transaction = event.target.transaction;
+          const objectStore = transaction.objectStore(STORE_NAME);
+          
+          // 添加新字段索引（如果不存在）
+          if (!objectStore.indexNames.contains('image_caption')) {
+            objectStore.createIndex('image_caption', 'image_caption', { unique: false });
+          }
+          if (!objectStore.indexNames.contains('style_tags')) {
+            objectStore.createIndex('style_tags', 'style_tags', { unique: false, multiEntry: true });
+          }
+          if (!objectStore.indexNames.contains('object_tags')) {
+            objectStore.createIndex('object_tags', 'object_tags', { unique: false, multiEntry: true });
+          }
+          
+          console.log('[Eagle Storage] 🔧 Database upgraded to version 3 (aligned field names)');
         }
       };
     });
@@ -209,8 +226,8 @@
       const { url, image_caption, style_tags = [], object_tags = [], dominant_colors = [] } = data.payload;
       if (!url || !image_caption) return;
       const hash = await hashUrl(url);
-      const tags = [...style_tags, ...object_tags];
-      await updateImageCaption(hash, image_caption, tags);
+      // ✅ 使用新字段名更新 IndexedDB（对齐数据库字段名）
+      await updateImageCaption(hash, image_caption, style_tags, object_tags, dominant_colors);
       if (isPinterestPage(url)) {
         await updatePinterestCardTitle(url, image_caption);
       }
@@ -628,8 +645,16 @@
       const result = await generateCaptionFromAPI(dataUrl, imageUrl);
 
       if (result && result.quickCaption) {
-        // 更新 IndexedDB 中的 caption 和 tags
-        await updateImageCaption(hash, result.quickCaption, result.tags);
+        // ✅ 更新 IndexedDB 中的 caption 和 tags（兼容旧格式）
+        // 注意：generateCaptionFromAPI 返回的是 quickCaption 和 tags，需要兼容处理
+        const image_caption = result.image_caption || result.quickCaption || '';
+        const style_tags = result.style_tags || [];
+        const object_tags = result.object_tags || [];
+        // 如果没有分离的 tags，尝试从 tags 中分离（不准确，但兼容）
+        const allTags = result.tags || [];
+        const finalStyleTags = style_tags.length > 0 ? style_tags : (allTags.length > 0 ? allTags : []);
+        const finalObjectTags = object_tags.length > 0 ? object_tags : [];
+        await updateImageCaption(hash, image_caption, finalStyleTags, finalObjectTags, []);
 
         // 🆕 如果是 Pinterest 页面，更新卡片的 title
         if (isPinterestPage(imageUrl)) {
@@ -653,7 +678,8 @@
   /**
    * 🆕 更新图片的 caption 和 tags
    */
-  async function updateImageCaption(hash, quickCaption, tags) {
+  // ✅ 更新函数签名：支持新字段名（对齐数据库）
+  async function updateImageCaption(hash, image_caption, style_tags = [], object_tags = [], dominant_colors = []) {
     try {
       await initDB();
       
@@ -669,9 +695,15 @@
             return;
           }
           
-          // 更新 caption 和 tags
-          imageData.quickCaption = quickCaption;
-          imageData.tags = tags;
+          // ✅ 更新新字段（与数据库字段名一致）
+          imageData.image_caption = image_caption;
+          imageData.style_tags = Array.isArray(style_tags) ? style_tags : [];
+          imageData.object_tags = Array.isArray(object_tags) ? object_tags : [];
+          imageData.dominant_colors = Array.isArray(dominant_colors) ? dominant_colors : [];
+          
+          // ✅ 保持向后兼容：同时更新旧字段
+          imageData.quickCaption = image_caption; // 兼容旧代码
+          imageData.tags = [...imageData.style_tags, ...imageData.object_tags]; // 兼容旧代码
           
           const putRequest = store.put(imageData);
           putRequest.onsuccess = () => resolve(imageData);
@@ -706,9 +738,14 @@
         dataUrl,
         colors,
         timestamp: Date.now(),
-        // 🆕 新增字段（先用本地生成的，后续 API 会更新）
-        quickCaption,
-        tags,
+        // ✅ 新字段（与数据库字段名一致）
+        image_caption: quickCaption, // 先用本地生成的，后续 API 会更新
+        style_tags: [], // 本地生成时为空，后续 API 会更新
+        object_tags: [], // 本地生成时为空，后续 API 会更新
+        dominant_colors: colors || [], // 使用提取的颜色
+        // ⚠️ 兼容字段（向后兼容，但优先使用新字段）
+        quickCaption, // 兼容旧代码
+        tags, // 兼容旧代码
         dateTime,
         ...metadata, // 允许传入额外元数据
       };
@@ -1801,7 +1838,14 @@
                     const result = await generateCaptionFromAPI(img.dataUrl, img.originalUrl);
                     
                     if (result && result.quickCaption && result.quickCaption.trim()) {
-                      await updateImageCaption(img.hash, result.quickCaption, result.tags);
+                      // ✅ 兼容处理：generateCaptionFromAPI 可能只返回 quickCaption 和 tags
+                      const image_caption = result.image_caption || result.quickCaption || '';
+                      const style_tags = result.style_tags || [];
+                      const object_tags = result.object_tags || [];
+                      const allTags = result.tags || [];
+                      const finalStyleTags = style_tags.length > 0 ? style_tags : (allTags.length > 0 ? allTags : []);
+                      const finalObjectTags = object_tags.length > 0 ? object_tags : [];
+                      await updateImageCaption(img.hash, image_caption, finalStyleTags, finalObjectTags, []);
                       
                       if (isPinterestPage(img.originalUrl)) {
                         console.log(`[Eagle Storage] 🎨 [ENRICH] Pinterest detected, updating title...`);
@@ -1882,8 +1926,14 @@
               const result = await generateCaptionFromAPI(img.dataUrl, img.originalUrl);
               
               if (result && result.quickCaption && result.quickCaption.trim()) {
-                // 更新 IndexedDB
-                await updateImageCaption(img.hash, result.quickCaption, result.tags);
+                // ✅ 兼容处理：generateCaptionFromAPI 可能只返回 quickCaption 和 tags
+                const image_caption = result.image_caption || result.quickCaption || '';
+                const style_tags = result.style_tags || [];
+                const object_tags = result.object_tags || [];
+                const allTags = result.tags || [];
+                const finalStyleTags = style_tags.length > 0 ? style_tags : (allTags.length > 0 ? allTags : []);
+                const finalObjectTags = object_tags.length > 0 ? object_tags : [];
+                await updateImageCaption(img.hash, image_caption, finalStyleTags, finalObjectTags, []);
                 
                 // 如果是 Pinterest 页面，更新卡片标题
                 if (isPinterestPage(img.originalUrl)) {
@@ -2013,10 +2063,18 @@
               );
               
               if (itemIndex >= 0) {
+                // ✅ 统一使用新字段名（对齐数据库）
+                const image_caption = vectordbData.image_caption || vectordbData.quickCaption || '';
+                const style_tags = vectordbData.style_tags || [];
+                const object_tags = vectordbData.object_tags || [];
+                const dominant_colors = vectordbData.dominant_colors || [];
+                
                 const updatedItem = {
                   ...session.opengraphData[itemIndex],
-                  image_caption: vectordbData.quickCaption,
-                  style_tags: [...(vectordbData.tags || [])],
+                  image_caption: image_caption,
+                  style_tags: style_tags,
+                  object_tags: object_tags,
+                  dominant_colors: dominant_colors,
                 };
                 
                 session.opengraphData[itemIndex] = updatedItem;
@@ -2026,14 +2084,21 @@
                 
                 // 如果是 Pinterest 页面，更新标题
                 if (isPinterestPage(url)) {
-                  await updatePinterestCardTitle(url, vectordbData.quickCaption);
+                  await updatePinterestCardTitle(url, image_caption);
                 }
                 
                 // 同时更新 IndexedDB（如果图片已保存）
                 try {
                   const imageData = await loadImage(url);
                   if (imageData && imageData.hash) {
-                    await updateImageCaption(imageData.hash, vectordbData.quickCaption, vectordbData.tags || []);
+                    // ✅ 使用新字段名更新 IndexedDB
+                    await updateImageCaption(
+                      imageData.hash, 
+                      image_caption, 
+                      style_tags, 
+                      object_tags, 
+                      dominant_colors
+                    );
                   }
                 } catch (e) {
                   // IndexedDB 更新失败不影响主流程
@@ -2245,8 +2310,18 @@
               try {
                 const imageData = await loadImage(url);
                 if (imageData && imageData.hash) {
-                  const allTags = [...(result.style_tags || []), ...(result.object_tags || [])];
-                  await updateImageCaption(imageData.hash, result.quickCaption || result.image_caption, allTags);
+                  // ✅ 使用新字段名更新 IndexedDB（对齐数据库字段名）
+                  const image_caption = result.image_caption || result.quickCaption || '';
+                  const style_tags = result.style_tags || [];
+                  const object_tags = result.object_tags || [];
+                  const dominant_colors = result.dominant_colors || [];
+                  await updateImageCaption(
+                    imageData.hash, 
+                    image_caption, 
+                    style_tags, 
+                    object_tags, 
+                    dominant_colors
+                  );
                   console.log(`[Eagle Storage] ✅ [BATCH UPDATE] IndexedDB updated for:`, url.substring(0, 60));
                 } else {
                   console.log(`[Eagle Storage] ℹ️ [BATCH UPDATE] Image not in IndexedDB:`, url.substring(0, 60));

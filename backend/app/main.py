@@ -683,13 +683,14 @@ async def batch_get_captions(
         results = []
         for item in items:
             # ✅ 优先从新字段读取，降级到 metadata（向后兼容）
+            # 注意：数据库字段名是 image_caption，确保字段名一致
             image_caption = item.get("image_caption") or ""
             style_tags = item.get("style_tags") or []
             object_tags = item.get("object_tags") or []
             dominant_colors = item.get("dominant_colors") or []
             
             # 如果新字段为空，尝试从 metadata 读取（向后兼容）
-            if not image_caption or not style_tags or not object_tags:
+            if not image_caption or (not style_tags and not object_tags):
                 metadata = item.get("metadata", {})
                 if isinstance(metadata, str):
                     try:
@@ -697,6 +698,7 @@ async def batch_get_captions(
                     except:
                         metadata = {}
                 
+                # ✅ 优先从 metadata 的 image_caption 读取，降级到 quickCaption/caption
                 if not image_caption:
                     image_caption = metadata.get("image_caption") or metadata.get("quickCaption") or metadata.get("caption") or ""
                 if not style_tags:
@@ -706,14 +708,16 @@ async def batch_get_captions(
                 if not dominant_colors:
                     dominant_colors = metadata.get("dominant_colors", [])
             
+            # ✅ 确保返回的字段名与数据库字段名一致（image_caption）
             results.append({
                 "url": item.get("url", ""),
-                "quickCaption": image_caption,
-                "tags": (style_tags or []) + (object_tags or []),
-                "image_caption": image_caption,
+                "image_caption": image_caption,  # ✅ 主字段：与数据库字段名一致
                 "style_tags": style_tags or [],
                 "object_tags": object_tags or [],
                 "dominant_colors": dominant_colors or [],
+                # 兼容字段（向后兼容，但优先使用 image_caption）
+                "quickCaption": image_caption,  # 兼容旧代码
+                "tags": (style_tags or []) + (object_tags or []),  # 兼容旧代码
             })
         
         print(f"[API] Batch captions: found {len(results)} items with caption/tags")

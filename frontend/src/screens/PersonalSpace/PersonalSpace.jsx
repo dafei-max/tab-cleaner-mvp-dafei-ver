@@ -520,14 +520,15 @@ export const PersonalSpace = () => {
     };
   }, [sessions, updateSession]);
 
-  // 🆕 监听 Caption 更新（方案 C：混合方案 - WebSocket 通知 + 按需批量拉取）
+  // 🆕 监听 Caption 更新（方案 C：混合方案 - WebSocket 推送完整数据 + 批量拉取兜底）
   useEffect(() => {
     const pendingUrls = new Set();
     let fetchTimer = null;
 
     const handleCaptionReady = async (message) => {
       if (message.action === 'caption-ready') {
-        const { url, image_caption, dominant_colors, style_tags, object_tags } = message.payload || {};
+        const payload = message.payload || {};
+        const { url, image_caption, dominant_colors, style_tags, object_tags } = payload;
         
         if (!url) {
           console.warn('[PersonalSpace] ⚠️ Caption ready message missing URL');
@@ -537,11 +538,12 @@ export const PersonalSpace = () => {
         console.log('[PersonalSpace] 📨 Received caption-ready notification:', {
           url: url.substring(0, 50),
           hasCaption: !!image_caption,
-          hasTags: !!(style_tags?.length || object_tags?.length)
+          hasTags: !!(style_tags?.length || object_tags?.length),
+          hasColors: !!(dominant_colors?.length)
         });
         
-        // 如果 WebSocket 消息包含完整数据，直接更新
-        if (image_caption || style_tags?.length > 0 || object_tags?.length > 0) {
+        // ✅ 方案 C 步骤 1：如果 WebSocket 消息包含完整数据，直接更新（优先）
+        if (image_caption || style_tags?.length > 0 || object_tags?.length > 0 || dominant_colors?.length > 0) {
           const safeSessions = Array.isArray(sessions) ? sessions : [];
           let updated = false;
           
@@ -560,15 +562,16 @@ export const PersonalSpace = () => {
               };
               updateSession(session.id, { opengraphData: updatedData });
               updated = true;
-              console.log('[PersonalSpace] ✅ Caption updated via WebSocket:', url.substring(0, 50));
+              console.log('[PersonalSpace] ✅ Caption updated via WebSocket (real-time):', url.substring(0, 50));
               break;
             }
           }
           
-          if (updated) return; // 已更新，不需要批量拉取
+          // 如果成功更新，不需要批量拉取
+          if (updated) return;
         }
         
-        // 如果 WebSocket 消息只包含 URL（轻量级通知），累积到待拉取列表
+        // ✅ 方案 C 步骤 2：如果 WebSocket 数据不完整或更新失败，累积到待拉取列表（兜底）
         pendingUrls.add(url);
         
         // 防抖：500ms 内的多个通知合并成一次批量请求
@@ -578,9 +581,9 @@ export const PersonalSpace = () => {
             const urls = Array.from(pendingUrls);
             pendingUrls.clear();
             
-            console.log('[PersonalSpace] 📦 Batch fetching captions for', urls.length, 'URLs');
+            console.log('[PersonalSpace] 📦 Batch fetching captions (fallback) for', urls.length, 'URLs');
             
-            // 批量获取 caption
+            // 批量获取 caption（兜底机制）
             try {
               const apiUrl = window.__TAB_CLEANER_API_CONFIG?.getBaseUrlSync?.() || 'https://tab-cleaner-mvp-app-production.up.railway.app';
               const userId = await chrome.storage.local.get(['user_id']).then(r => r.user_id || 'anonymous');
@@ -602,7 +605,10 @@ export const PersonalSpace = () => {
                   const sessionUpdates = new Map(); // sessionId -> updated og list
                   
                   for (const captionResult of result.results) {
-                    const { url: resultUrl, image_caption, style_tags, object_tags, dominant_colors } = captionResult;
+                    // ✅ 统一使用 image_caption（与数据库字段名一致）
+                    // 兼容处理：如果 API 返回 quickCaption，也支持（向后兼容）
+                    const { url: resultUrl, image_caption: resultImageCaption, quickCaption, style_tags, object_tags, dominant_colors } = captionResult;
+                    const image_caption = resultImageCaption || quickCaption || ''; // 优先使用 image_caption
                     
                     for (const session of safeSessions) {
                       if (!session?.opengraphData) continue;
@@ -630,7 +636,7 @@ export const PersonalSpace = () => {
                   });
                   
                   if (sessionUpdates.size > 0) {
-                    console.log('[PersonalSpace] ✅ Batch caption update complete:', sessionUpdates.size, 'sessions updated');
+                    console.log('[PersonalSpace] ✅ Batch caption update complete (fallback):', sessionUpdates.size, 'sessions updated');
                   }
                 }
               } else {
@@ -640,7 +646,7 @@ export const PersonalSpace = () => {
               console.error('[PersonalSpace] ❌ Batch caption fetch error:', error);
             }
           }
-        }, 500);
+        }, 500); // 防抖延迟 500ms
       }
     };
 

@@ -147,10 +147,10 @@ async def _update_item_caption_in_db(
                 # 导入 main 模块中的 broadcast_caption_updates 函数
                 from app.main import broadcast_caption_updates
                 
-                # 构造通知数据
+                # 构造通知数据（确保字段名与数据库一致）
                 caption_item = {
                     "url": url,
-                    "image_caption": caption,
+                    "image_caption": caption,  # ✅ 使用 image_caption（与数据库字段名一致）
                     "dominant_colors": dominant_colors if dominant_colors else [],
                     "style_tags": style_tags if style_tags else [],
                     "object_tags": object_tags if object_tags else [],
@@ -158,7 +158,7 @@ async def _update_item_caption_in_db(
                 
                 # 发送 WebSocket 通知
                 await broadcast_caption_updates([caption_item], user_id)
-                print(f"[AutoCaption] ✅ WebSocket notification sent for {url[:50]}...")
+                print(f"[AutoCaption] ✅ WebSocket notification sent for {url[:50]}... (image_caption length: {len(caption) if caption else 0})")
             except Exception as ws_error:
                 # WebSocket 通知失败不影响主流程
                 print(f"[AutoCaption] ⚠️ WebSocket notification failed: {ws_error}")
