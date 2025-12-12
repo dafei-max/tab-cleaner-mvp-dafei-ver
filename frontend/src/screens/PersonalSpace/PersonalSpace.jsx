@@ -311,6 +311,169 @@ export const PersonalSpace = () => {
     return () => clearTimeout(timer);
   }, [sessions, isSessionsLoading]);
 
+  // ✅ 主动补齐现有卡片的 caption（方便本地查询）
+  const syncExistingCardsCaptions = useCallback(async () => {
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+    
+    console.log('[PersonalSpace] 🔍 Checking existing cards for missing captions...');
+    
+    // 1. 收集所有缺少 caption 的卡片 URL
+    const cardsNeedingCaption = [];
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    
+    for (const session of safeSessions) {
+      if (!session?.opengraphData) continue;
+      
+      session.opengraphData.forEach((item, itemIndex) => {
+        const url = item.url || item.original_image_url || item.image || '';
+        if (!url || url.startsWith('eagle://') || url.startsWith('data:')) return;
+        
+        // 检查是否缺少 caption 或 tags
+        const hasCaption = item.image_caption && 
+                          item.image_caption.trim() && 
+                          !item.image_caption.includes('主要颜色:') &&
+                          item.image_caption.length > 20;
+        const hasTags = (item.style_tags && Array.isArray(item.style_tags) && item.style_tags.length > 0) ||
+                       (item.object_tags && Array.isArray(item.object_tags) && item.object_tags.length > 0);
+        
+        if (!hasCaption || !hasTags) {
+          cardsNeedingCaption.push({
+            url,
+            sessionId: session.id,
+            itemIndex, // ✅ 使用 forEach 的 index 参数，更可靠
+            hasCaption: !!hasCaption,
+            hasTags: !!hasTags,
+          });
+        }
+      });
+    }
+    
+    if (cardsNeedingCaption.length === 0) {
+      console.log('[PersonalSpace] ✅ All existing cards have captions');
+      return;
+    }
+    
+    console.log(`[PersonalSpace] 📋 Found ${cardsNeedingCaption.length} cards needing captions`);
+    
+    // 2. 批量拉取 caption（分批处理，避免一次性请求过多）
+    const batchSize = 20;
+    const apiUrl = window.__TAB_CLEANER_API_CONFIG?.getBaseUrlSync?.() || 'https://tab-cleaner-mvp-app-production.up.railway.app';
+    const userId = await chrome.storage.local.get(['user_id']).then(r => r.user_id || 'anonymous');
+    
+    let totalUpdated = 0;
+    const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+    
+    for (let i = 0; i < cardsNeedingCaption.length; i += batchSize) {
+      const batch = cardsNeedingCaption.slice(i, i + batchSize);
+      const urls = batch.map(c => c.url);
+      
+      try {
+        console.log(`[PersonalSpace] 📦 Fetching captions for batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(cardsNeedingCaption.length / batchSize)} (${urls.length} URLs)`);
+        
+        const response = await fetch(`${apiUrl}/api/v1/search/batch-captions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': userId,
+          },
+          body: JSON.stringify({ urls }),
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          if (result?.success !== false && result?.results) {
+            const sessionUpdates = new Map(); // sessionId -> updated og list
+            
+            // 3. 更新 sessions 数据
+            for (const captionResult of result.results) {
+              const { url: resultUrl, image_caption: resultImageCaption, quickCaption, style_tags, object_tags, dominant_colors } = captionResult;
+              const image_caption = resultImageCaption || quickCaption || '';
+              
+              if (!image_caption) continue;
+              
+              // 找到对应的卡片
+              const cardInfo = batch.find(c => {
+                const cardUrl = (c.url || '').toLowerCase();
+                const resultUrlLower = (resultUrl || '').toLowerCase();
+                return cardUrl === resultUrlLower;
+              });
+              
+              if (!cardInfo) continue;
+              
+              const { sessionId, itemIndex } = cardInfo;
+              const session = safeSessions.find(s => s.id === sessionId);
+              
+              if (session && session.opengraphData && session.opengraphData[itemIndex]) {
+                if (!sessionUpdates.has(sessionId)) {
+                  sessionUpdates.set(sessionId, [...session.opengraphData]);
+                }
+                
+                const ogList = sessionUpdates.get(sessionId);
+                ogList[itemIndex] = {
+                  ...ogList[itemIndex],
+                  image_caption: image_caption || ogList[itemIndex].image_caption,
+                  dominant_colors: dominant_colors || ogList[itemIndex].dominant_colors || [],
+                  style_tags: style_tags || ogList[itemIndex].style_tags || [],
+                  object_tags: object_tags || ogList[itemIndex].object_tags || [],
+                };
+              }
+              
+              // 4. 同时更新 IndexedDB（如果图片已保存）
+              if (eagleStorage && eagleStorage.loadImage && eagleStorage.updateImageCaption) {
+                try {
+                  const imageData = await eagleStorage.loadImage(resultUrl);
+                  if (imageData && imageData.hash) {
+                    await eagleStorage.updateImageCaption(
+                      imageData.hash,
+                      image_caption,
+                      style_tags || [],
+                      object_tags || [],
+                      dominant_colors || []
+                    );
+                  }
+                } catch (e) {
+                  // IndexedDB 更新失败不影响主流程
+                  console.warn(`[PersonalSpace] ⚠️ Failed to update IndexedDB for ${resultUrl.substring(0, 50)}:`, e);
+                }
+              }
+            }
+            
+            // 批量更新 sessions
+            sessionUpdates.forEach((ogList, sessionId) => {
+              updateSession(sessionId, { opengraphData: ogList });
+            });
+            
+            totalUpdated += sessionUpdates.size;
+            console.log(`[PersonalSpace] ✅ Batch ${Math.floor(i / batchSize) + 1} complete: ${sessionUpdates.size} sessions updated`);
+          }
+        } else {
+          console.warn(`[PersonalSpace] ⚠️ Batch fetch failed:`, response.status);
+        }
+      } catch (error) {
+        console.error(`[PersonalSpace] ❌ Batch fetch error:`, error);
+      }
+      
+      // 避免请求过快，添加小延迟
+      if (i + batchSize < cardsNeedingCaption.length) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+    
+    console.log(`[PersonalSpace] ✅ Caption sync complete: ${totalUpdated} sessions updated`);
+  }, [sessions, isSessionsLoading, updateSession]);
+
+  // ✅ 在页面加载时主动补齐现有卡片的 caption
+  useEffect(() => {
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+    
+    // 延迟 12 秒执行，确保其他初始化完成
+    const timer = setTimeout(() => {
+      syncExistingCardsCaptions();
+    }, 12000);
+    
+    return () => clearTimeout(timer);
+  }, [sessions, isSessionsLoading, syncExistingCardsCaptions]);
+
   // 🆕 补充 session 图片的 caption 和 tags
   const enrichSessionImages = useCallback(async () => {
     if (isSessionsLoading || !sessions || sessions.length === 0) return;
