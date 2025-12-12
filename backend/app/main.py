@@ -57,14 +57,24 @@ async def broadcast_caption_updates(items: list[dict], user_id: str):
   for ws in list(_ws_clients):
     try:
       for item in items:
+        # ✅ 确保字段映射（enrich_item_with_caption 返回 "caption" 和 "image_caption"，优先使用 "image_caption"）
+        image_caption = item.get("image_caption") or item.get("caption") or ""
+        style_tags = item.get("style_tags", [])
+        object_tags = item.get("object_tags", [])
+        dominant_colors = item.get("dominant_colors", [])
+        
+        # 只发送有 Caption 的更新
+        if not image_caption:
+          continue
+        
         payload = {
           "type": "caption_ready",
           "user_id": user_id,
           "url": item.get("url"),
-          "image_caption": item.get("image_caption"),
-          "style_tags": item.get("style_tags", []),
-          "object_tags": item.get("object_tags", []),
-          "dominant_colors": item.get("dominant_colors", []),
+          "image_caption": image_caption,
+          "style_tags": style_tags,
+          "object_tags": object_tags,
+          "dominant_colors": dominant_colors,
           "image": item.get("image"),
         }
         await ws.send_json(payload)
@@ -426,6 +436,19 @@ async def generate_embeddings(
         # 合并结果：已有的 + 新生成的
         all_enriched_items = items_already_done + enriched_items
         print(f"[API] Total enriched items: {len(all_enriched_items)}")
+        
+        # ✅ 确保字段映射完成（enrich_item_with_caption 返回 "caption" 和 "image_caption"，确保都有值）
+        for item in all_enriched_items:
+            # 如果只有 "caption" 没有 "image_caption"，映射过去
+            if "caption" in item and ("image_caption" not in item or not item.get("image_caption")):
+                item["image_caption"] = item.get("caption", "")
+            # 确保其他字段存在
+            if "style_tags" not in item:
+                item["style_tags"] = []
+            if "object_tags" not in item:
+                item["object_tags"] = []
+            if "dominant_colors" not in item:
+                item["dominant_colors"] = []
         
         # 🆕 推送 caption 更新（如果有 WS 连接）
         try:
