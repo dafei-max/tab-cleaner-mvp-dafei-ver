@@ -344,6 +344,7 @@ export const PersonalSpace = () => {
     
     // 1. 收集所有缺少 caption 的卡片 URL
     const cardsNeedingCaption = [];
+    const dedupUrlSet = new Set(); // 避免重复发送
     const safeSessions = Array.isArray(sessions) ? sessions : [];
     
     for (const session of safeSessions) {
@@ -354,6 +355,8 @@ export const PersonalSpace = () => {
         // 因为数据库中存储的 url 字段是图片 URL，需要匹配
         const url = item.original_image_url || item.url || item.image || '';
         if (!url || url.startsWith('eagle://') || url.startsWith('data:')) return;
+        // 过滤 view-source: 噪声 URL
+        if (url.startsWith('view-source:')) return;
         
         // 检查是否缺少 caption 或 tags
         const hasCaption = item.image_caption && 
@@ -396,8 +399,30 @@ export const PersonalSpace = () => {
     
     for (let i = 0; i < cardsNeedingCaption.length; i += batchSize) {
       const batch = cardsNeedingCaption.slice(i, i + batchSize);
-      // ✅ 规范化 URL（与后端保持一致）
-      const urls = batch.map(c => normalizeUrl(c.url)).filter(Boolean);
+      // ✅ 规范化 URL（与后端保持一致），并附带页面 URL + 图片 URL 去重发送
+      const urls = [];
+      batch.forEach(c => {
+        const rawUrl = c.url;
+        const normPage = normalizeUrl(rawUrl);
+        if (normPage && !normPage.startsWith('view-source:')) {
+          const key = normPage.toLowerCase();
+          if (!dedupUrlSet.has(key)) {
+            dedupUrlSet.add(key);
+            urls.push(normPage);
+          }
+        }
+        // 如果有 original_image_url 单独再带一次
+        if (c.originalImageUrl && c.originalImageUrl !== rawUrl) {
+          const normImg = normalizeUrl(c.originalImageUrl);
+          if (normImg) {
+            const key2 = normImg.toLowerCase();
+            if (!dedupUrlSet.has(key2)) {
+              dedupUrlSet.add(key2);
+              urls.push(normImg);
+            }
+          }
+        }
+      });
       
       try {
         console.log(`[PersonalSpace] 📦 Fetching captions for batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(cardsNeedingCaption.length / batchSize)} (${urls.length} URLs)`);

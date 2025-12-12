@@ -1111,7 +1111,11 @@ async def batch_upsert_items(items: List[Dict], user_id: Optional[str], batch_si
     # ✅ 自动补齐机制：检查已保存但无 Caption 的项，自动触发生成
     items_needing_caption = []
     try:
-        from search.normalize import _normalize_url_for_storage
+        # 在部分运行环境中需要显式带上 app 前缀
+        try:
+            from search.normalize import _normalize_url_for_storage
+        except ImportError:
+            from app.search.normalize import _normalize_url_for_storage
         
         # 批量检查所有要保存的项，找出数据库中已有但无 Caption 的
         urls_to_check = []
