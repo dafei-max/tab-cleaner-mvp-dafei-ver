@@ -640,6 +640,83 @@ async def search_content(
         raise HTTPException(status_code=500, detail=error_detail)
 
 
+# 🆕 批量查询 Caption 和 Tags
+class BatchCaptionsRequest(BaseModel):
+    urls: List[str]  # 要查询的 URL 列表
+
+
+@app.post("/api/v1/search/batch-captions")
+async def batch_get_captions(
+    request: BatchCaptionsRequest,
+    user_id: Optional[str] = Header(None, alias="X-User-ID")
+):
+    """
+    批量查询多个 URL 的 caption 和 tags（用于缓存和更新显示）
+    
+    请求参数:
+    - urls: URL 列表（必需）
+    
+    返回:
+    - results: 每个 URL 的 caption 和 tags 数据
+    """
+    try:
+        if not request.urls or len(request.urls) == 0:
+            return {"ok": True, "results": []}
+        
+        # 检查数据库配置
+        db_host = os.getenv("ADBPG_HOST", "")
+        if not db_host:
+            raise HTTPException(
+                status_code=503,
+                detail="Vector database not configured. Please set ADBPG_HOST environment variable."
+            )
+        
+        normalized_user_id = (user_id or "anonymous").strip() or "anonymous"
+        print(f"[API] Batch captions request: {len(request.urls)} URLs for user={normalized_user_id}")
+        
+        # 从 vectordb 批量查询
+        from vector_db import get_items_by_urls
+        
+        items = await get_items_by_urls(normalized_user_id, request.urls)
+        
+        # 格式化返回结果
+        results = []
+        for item in items:
+            # 提取 caption 和 tags
+            metadata = item.get("metadata", {})
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except:
+                    metadata = {}
+            
+            results.append({
+                "url": item.get("url", ""),
+                "quickCaption": metadata.get("image_caption") or metadata.get("quickCaption") or "",
+                "tags": metadata.get("style_tags", []) + metadata.get("object_tags", []),
+                "image_caption": metadata.get("image_caption") or metadata.get("quickCaption") or "",
+                "style_tags": metadata.get("style_tags", []),
+                "object_tags": metadata.get("object_tags", []),
+                "dominant_colors": metadata.get("dominant_colors", []),
+            })
+        
+        print(f"[API] Batch captions: found {len(results)} items with caption/tags")
+        
+        return {
+            "ok": True,
+            "results": results,
+            "count": len(results),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[API] ERROR in batch_get_captions: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        error_detail = f"{type(e).__name__}: {str(e)}"
+        raise HTTPException(status_code=500, detail=error_detail)
+
+
 # 聚类 API
 class ManualClusterRequest(BaseModel):
     item_ids: List[str]

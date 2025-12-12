@@ -377,6 +377,52 @@ export const PersonalSpace = () => {
     return () => clearTimeout(timer);
   }, [sessions, isSessionsLoading]);
 
+  // 🆕 监听新卡片收录，批量更新老卡片
+  useEffect(() => {
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+    
+    const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+    if (!eagleStorage || !eagleStorage.batchUpdateOldCardsFromVectordb) {
+      return;
+    }
+
+    // 延迟 10 秒执行，确保新卡片已经保存完成
+    const timer = setTimeout(() => {
+      (async () => {
+        try {
+          // 收集所有当前卡片的 URL（作为排除列表，避免重复查询新卡片）
+          const allCurrentUrls = [];
+          sessions.forEach(session => {
+            if (session && Array.isArray(session.opengraphData)) {
+              session.opengraphData.forEach(item => {
+                const url = item.url || item.original_image_url || item.image || '';
+                if (url && !url.startsWith('eagle://') && !url.startsWith('data:')) {
+                  allCurrentUrls.push(url);
+                }
+              });
+            }
+          });
+
+          console.log('[PersonalSpace] 🚀 Starting batch update for old cards...');
+          const result = await eagleStorage.batchUpdateOldCardsFromVectordb({
+            excludeUrls: allCurrentUrls, // 排除所有当前卡片（只更新真正缺少 caption/tags 的老卡片）
+            batchSize: 20,
+            onProgress: (processed, total, updated) => {
+              if (processed % 20 === 0 || processed === total) {
+                console.log(`[PersonalSpace] 📊 [BATCH UPDATE] Progress: ${processed}/${total} (${updated} updated)`);
+              }
+            },
+          });
+          console.log('[PersonalSpace] ✅ Batch update complete:', result);
+        } catch (error) {
+          console.error('[PersonalSpace] ❌ Batch update failed:', error);
+        }
+      })();
+    }, 10000); // 延迟 10 秒执行
+    
+    return () => clearTimeout(timer);
+  }, [sessions, isSessionsLoading]);
+
   // 🆕 监听 Pinterest 卡片标题更新事件（实时更新 UI）
   useEffect(() => {
     const handlePinterestTitleUpdate = async (event) => {

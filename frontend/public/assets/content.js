@@ -1024,6 +1024,54 @@
       return;
     }
 
+    // 🆕 Vectordb 批量 Caption 请求：页面 -> content -> background
+    if (event.data && event.data.type === 'TAB_CLEANER_VECTORDB_BATCH_CAPTIONS_REQUEST') {
+      const { messageId, urls } = event.data;
+      console.log('[Tab Cleaner Content] 📦 [VECTORDB] Received batch captions request:', {
+        messageId,
+        urlCount: urls?.length || 0,
+      });
+      chrome.runtime.sendMessage({
+        action: 'batch-get-vectordb-captions',
+        urls,
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('[Tab Cleaner Content] ❌ [VECTORDB] Runtime error:', chrome.runtime.lastError);
+          window.postMessage({
+            type: 'TAB_CLEANER_VECTORDB_BATCH_CAPTIONS_RESPONSE',
+            messageId,
+            success: false,
+            results: [],
+            error: chrome.runtime.lastError.message,
+          }, '*');
+          return;
+        }
+        if (!response) {
+          console.error('[Tab Cleaner Content] ❌ [VECTORDB] Empty response from background');
+          window.postMessage({
+            type: 'TAB_CLEANER_VECTORDB_BATCH_CAPTIONS_RESPONSE',
+            messageId,
+            success: false,
+            results: [],
+            error: 'Empty response from background',
+          }, '*');
+          return;
+        }
+        window.postMessage({
+          type: 'TAB_CLEANER_VECTORDB_BATCH_CAPTIONS_RESPONSE',
+          messageId,
+          success: response.success !== false,
+          results: response.results || [],
+          error: response.error || null,
+        }, '*');
+        console.log('[Tab Cleaner Content] ✅ [VECTORDB] Batch captions response sent:', {
+          messageId,
+          resultCount: (response.results || []).length,
+        });
+      });
+      return;
+    }
+
     // 🆕 Vectordb Caption 请求：页面 -> content -> background（通过 URL 查询）
     if (event.data && event.data.type === 'TAB_CLEANER_VECTORDB_CAPTION_REQUEST') {
       const { messageId, url } = event.data;

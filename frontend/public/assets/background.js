@@ -346,6 +346,68 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // 异步响应
   }
 
+  // 🆕 批量查询多个 URL 的 caption 和 tags
+  if (message?.action === 'batch-get-vectordb-captions') {
+    (async () => {
+      try {
+        const { urls } = message;
+        if (!Array.isArray(urls) || urls.length === 0) {
+          sendResponse({ success: true, results: [] });
+          return;
+        }
+
+        const apiUrl = API_CONFIG.getBaseUrlSync();
+        if (!apiUrl) {
+          sendResponse({ success: false, results: [], error: 'API base URL not configured' });
+          return;
+        }
+
+        const userId = await getUserId();
+        const batchUrl = `${apiUrl}/api/v1/search/batch-captions`;
+
+        console.log('[Background] 📦 [VECTORDB] Batch captions request:', {
+          url: batchUrl,
+          urlCount: urls.length,
+          userId,
+        });
+
+        const resp = await fetch(batchUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': userId,
+          },
+          body: JSON.stringify({ urls }),
+        });
+
+        if (!resp.ok) {
+          let detail = '';
+          try { detail = await resp.text(); } catch (e) { detail = ''; }
+          console.error('[Background] ❌ [VECTORDB] Batch captions API error:', {
+            status: resp.status,
+            statusText: resp.statusText,
+            detail: detail?.substring(0, 200),
+          });
+          sendResponse({ success: false, results: [], error: `API ${resp.status}` });
+          return;
+        }
+
+        const result = await resp.json();
+        const results = result?.results || [];
+
+        console.log('[Background] ✅ [VECTORDB] Batch captions success:', {
+          resultCount: results.length,
+        });
+
+        sendResponse({ success: true, results });
+      } catch (err) {
+        console.warn('[Background] ❌ [VECTORDB] Batch captions failed:', err);
+        sendResponse({ success: false, results: [], error: err?.message || String(err) });
+      }
+    })();
+    return true; // 异步响应
+  }
+
   // 🆕 从 vectordb 获取 URL 对应的 caption
   if (message?.action === 'get-vectordb-caption') {
     (async () => {

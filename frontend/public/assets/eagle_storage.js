@@ -342,6 +342,46 @@
   }
 
   /**
+   * 🆕 批量查询多个 URL 的 caption 和 tags（从 vectordb）
+   * @param {string[]} urls - URL 列表
+   * @returns {Promise<Array<{url: string, quickCaption: string, tags: string[], image_caption: string, style_tags: string[], object_tags: string[], dominant_colors: string[]}>>}
+   */
+  function requestBatchVectordbCaptionsViaContent(urls) {
+    return new Promise((resolve, reject) => {
+      if (!Array.isArray(urls) || urls.length === 0) {
+        resolve([]);
+        return;
+      }
+
+      const messageId = `vectordb_batch_captions_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', onMessage);
+        resolve([]); // 超时返回空结果
+      }, 30000); // 30 秒超时（批量查询可能需要更长时间）
+
+      function onMessage(event) {
+        if (event.source !== window) return;
+        const data = event.data || {};
+        if (data.type !== 'TAB_CLEANER_VECTORDB_BATCH_CAPTIONS_RESPONSE' || data.messageId !== messageId) return;
+        window.removeEventListener('message', onMessage);
+        clearTimeout(timeout);
+        if (data.success && Array.isArray(data.results)) {
+          resolve(data.results);
+        } else {
+          resolve([]); // 失败返回空结果
+        }
+      }
+
+      window.addEventListener('message', onMessage);
+      window.postMessage({
+        type: 'TAB_CLEANER_VECTORDB_BATCH_CAPTIONS_REQUEST',
+        messageId,
+        urls,
+      }, '*');
+    });
+  }
+
+  /**
    * 🆕 从视觉语言模型 API 生成快速 caption 和 tags
    * @param {string} dataUrl - 图片 Data URL
    * @param {string} imageUrl - 原始图片 URL（用于日志）
@@ -1985,6 +2025,170 @@
     }
   }
 
+  /**
+   * 🆕 当有新卡片收录时，批量更新所有老卡片的 caption 和 tags（从 vectordb）
+   * @param {Object} options - 选项
+   * @param {string[]} options.excludeUrls - 要排除的 URL 列表（新卡片的 URL）
+   * @param {Function} options.onProgress - 进度回调 (processed, total, updated)
+   * @param {number} options.batchSize - 每批处理的 URL 数量（默认 20）
+   */
+  async function batchUpdateOldCardsFromVectordb(options = {}) {
+    try {
+      const { excludeUrls = [], onProgress, batchSize = 20 } = options;
+      
+      // 检查是否有 chrome.storage.local 访问权限
+      if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
+        console.log('[Eagle Storage] ℹ️ chrome.storage.local not available, skipping batch update');
+        return { error: 'chrome.storage.local not available' };
+      }
+
+      await initDB();
+
+      // 1. 获取所有 sessions
+      const storageResult = await chrome.storage.local.get(['sessions']);
+      const sessions = storageResult.sessions || [];
+      
+      if (!Array.isArray(sessions) || sessions.length === 0) {
+        console.log('[Eagle Storage] ℹ️ No sessions found');
+        return { updated: 0, skipped: 0, total: 0 };
+      }
+
+      // 2. 收集所有老卡片的 URL（排除新卡片）
+      const excludeUrlSet = new Set(excludeUrls.map(url => url.toLowerCase()));
+      const oldCardUrls = [];
+      
+      sessions.forEach(session => {
+        if (!session || !session.opengraphData || !Array.isArray(session.opengraphData)) return;
+        
+        session.opengraphData.forEach(item => {
+          const url = item.url || item.original_image_url || item.image || '';
+          if (!url || url.startsWith('eagle://') || url.startsWith('data:')) return;
+          if (excludeUrlSet.has(url.toLowerCase())) return; // 排除新卡片
+          
+          // 检查是否缺少 caption 或 tags
+          const hasCaption = item.image_caption && item.image_caption.trim() && 
+                           !item.image_caption.includes('主要颜色:') &&
+                           item.image_caption.length > 20;
+          const hasTags = item.style_tags && Array.isArray(item.style_tags) && item.style_tags.length > 0;
+          
+          if (!hasCaption || !hasTags) {
+            oldCardUrls.push({
+              url,
+              sessionId: session.id,
+              item,
+            });
+          }
+        });
+      });
+
+      if (oldCardUrls.length === 0) {
+        console.log('[Eagle Storage] ✅ All old cards already have caption and tags');
+        return { updated: 0, skipped: 0, total: 0 };
+      }
+
+      console.log(`[Eagle Storage] 🚀 [BATCH UPDATE] Processing ${oldCardUrls.length} old cards from vectordb`);
+
+      let updated = 0;
+      let skipped = 0;
+
+      // 3. 分批批量查询
+      for (let i = 0; i < oldCardUrls.length; i += batchSize) {
+        const batch = oldCardUrls.slice(i, i + batchSize);
+        const urls = batch.map(b => b.url);
+
+        try {
+          // 批量查询
+          const batchResults = await requestBatchVectordbCaptionsViaContent(urls);
+          
+          // 处理每个结果
+          for (const result of batchResults) {
+            if (!result.quickCaption) {
+              skipped++;
+              continue;
+            }
+
+            // 找到对应的卡片
+            const cardInfo = batch.find(b => {
+              const cardUrl = (b.url || '').toLowerCase();
+              const resultUrl = (result.url || '').toLowerCase();
+              return cardUrl === resultUrl;
+            });
+
+            if (!cardInfo) continue;
+
+            const { url, sessionId } = cardInfo;
+            const session = sessions.find(s => s.id === sessionId);
+            
+            if (session && session.opengraphData) {
+              const itemIndex = session.opengraphData.findIndex(
+                it => {
+                  const itUrl = (it.url || it.original_image_url || it.image || '').toLowerCase();
+                  return itUrl === url.toLowerCase();
+                }
+              );
+              
+              if (itemIndex >= 0) {
+                const updatedItem = {
+                  ...session.opengraphData[itemIndex],
+                  image_caption: result.image_caption || result.quickCaption,
+                  style_tags: [...(result.style_tags || [])],
+                  object_tags: [...(result.object_tags || [])],
+                  dominant_colors: result.dominant_colors || [],
+                };
+                
+                session.opengraphData[itemIndex] = updatedItem;
+                
+                // 如果是 Pinterest 页面，更新标题
+                if (isPinterestPage(url)) {
+                  const displayTitle = result.quickCaption || result.image_caption || '';
+                  if (displayTitle) {
+                    await updatePinterestCardTitle(url, displayTitle);
+                  }
+                }
+                
+                // 同时更新 IndexedDB（如果图片已保存）
+                try {
+                  const imageData = await loadImage(url);
+                  if (imageData && imageData.hash) {
+                    const allTags = [...(result.style_tags || []), ...(result.object_tags || [])];
+                    await updateImageCaption(imageData.hash, result.quickCaption || result.image_caption, allTags);
+                  }
+                } catch (e) {
+                  // IndexedDB 更新失败不影响主流程
+                }
+                
+                updated++;
+              }
+            }
+          }
+
+          // 保存更新后的 sessions
+          if (updated > 0) {
+            await chrome.storage.local.set({ sessions });
+          }
+
+          // 进度回调
+          if (onProgress) {
+            onProgress(Math.min(i + batchSize, oldCardUrls.length), oldCardUrls.length, updated);
+          }
+
+          console.log(`[Eagle Storage] 📊 [BATCH UPDATE] Processed ${Math.min(i + batchSize, oldCardUrls.length)}/${oldCardUrls.length} (${updated} updated, ${skipped} skipped)`);
+
+        } catch (error) {
+          console.error('[Eagle Storage] ❌ [BATCH UPDATE] Batch failed:', error);
+          skipped += batch.length;
+        }
+      }
+
+      console.log(`[Eagle Storage] ✅ [BATCH UPDATE] Complete: ${updated} updated, ${skipped} skipped`);
+
+      return { updated, skipped, total: oldCardUrls.length };
+    } catch (error) {
+      console.error('[Eagle Storage] ❌ [BATCH UPDATE] Failed:', error);
+      return { error: error.message, updated: 0, skipped: 0, total: 0 };
+    }
+  }
+
   // ==================== 导出 API ====================
   
   window.__TAB_CLEANER_EAGLE_STORAGE = {
@@ -2011,6 +2215,7 @@
     // 🆕 批量补充功能
     enrichSessionImages,  // 为 session 中的图片补充 caption 和 tags
     enrichSessionImagesFromVectordb,  // 🆕 从 vectordb 补充 session 中卡片的 caption 和 tags
+    batchUpdateOldCardsFromVectordb,  // 🆕 当有新卡片收录时，批量更新所有老卡片的 caption 和 tags
   };
   
   // 自动初始化
