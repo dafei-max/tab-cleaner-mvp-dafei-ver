@@ -15,7 +15,7 @@ sys.path.insert(0, str(parent_dir))
 from .caption import enrich_item_with_caption, batch_enrich_items
 from .qwen_vl_client import QwenVLClient
 from .embed import embed_text
-from vector_db import upsert_opengraph_item, get_pool, ACTIVE_TABLE, ACTIVE_TABLE_NAME, NAMESPACE, _normalize_user_id
+from vector_db import upsert_opengraph_item, get_pool, ACTIVE_TABLE, ACTIVE_TABLE_NAME, NAMESPACE, _normalize_user_id, _normalize_url_for_storage
 
 
 # 全局任务队列和信号量（控制并发）
@@ -63,6 +63,8 @@ async def _update_item_caption_in_db(
     try:
         pool = await get_pool()
         user_id = _normalize_user_id(user_id)
+        # ✅ 关键修复：规范化 URL（与存储时保持一致）
+        normalized_url = _normalize_url_for_storage(url)
         
         async with pool.acquire() as conn:
             # 检查新字段是否存在（如果不存在，降级到 metadata）
@@ -96,13 +98,13 @@ async def _update_item_caption_in_db(
                     style_tags if style_tags else None,
                     object_tags if object_tags else None,
                     user_id,
-                    url
+                    normalized_url  # ✅ 使用规范化后的 URL
                 )
             else:
                 # 降级到 metadata（向后兼容）
                 existing_metadata = await conn.fetchval(
                     f"SELECT metadata FROM {ACTIVE_TABLE} WHERE user_id = $1 AND url = $2",
-                    user_id, url
+                    user_id, normalized_url  # ✅ 使用规范化后的 URL
                 )
                 
                 if existing_metadata:
@@ -132,7 +134,7 @@ async def _update_item_caption_in_db(
                         updated_at = NOW()
                     WHERE user_id = $2 AND url = $3
                     """,
-                    metadata_json, user_id, url
+                    metadata_json, user_id, normalized_url  # ✅ 使用规范化后的 URL
                 )
             
             # ✅ 发送 WebSocket 通知（包含完整数据）
@@ -148,8 +150,9 @@ async def _update_item_caption_in_db(
                 from app.main import broadcast_caption_updates
                 
                 # 构造通知数据（确保字段名与数据库一致）
+                # ✅ 使用规范化后的 URL 发送 WebSocket 通知（与数据库存储的 URL 一致）
                 caption_item = {
-                    "url": url,
+                    "url": normalized_url,  # ✅ 使用规范化后的 URL
                     "image_caption": caption,  # ✅ 使用 image_caption（与数据库字段名一致）
                     "dominant_colors": dominant_colors if dominant_colors else [],
                     "style_tags": style_tags if style_tags else [],
@@ -158,7 +161,7 @@ async def _update_item_caption_in_db(
                 
                 # 发送 WebSocket 通知
                 await broadcast_caption_updates([caption_item], user_id)
-                print(f"[AutoCaption] ✅ WebSocket notification sent for {url[:50]}... (image_caption length: {len(caption) if caption else 0})")
+                print(f"[AutoCaption] ✅ WebSocket notification sent for {normalized_url[:50]}... (image_caption length: {len(caption) if caption else 0})")
             except Exception as ws_error:
                 # WebSocket 通知失败不影响主流程
                 print(f"[AutoCaption] ⚠️ WebSocket notification failed: {ws_error}")

@@ -46,8 +46,14 @@ async def caption_ws(ws: WebSocket):
 async def broadcast_caption_updates(items: list[dict], user_id: str):
   """将 caption 结果推送给所有活跃的 WS 客户端"""
   if not _ws_clients or not items:
+    if not _ws_clients:
+      print(f"[WS] ⚠️ No WebSocket clients connected, skipping broadcast for {len(items)} items")
     return
+  
+  print(f"[WS] 📡 Broadcasting {len(items)} caption updates to {len(_ws_clients)} clients (user_id: {user_id})")
+  
   dead = set()
+  success_count = 0
   for ws in list(_ws_clients):
     try:
       for item in items:
@@ -62,11 +68,18 @@ async def broadcast_caption_updates(items: list[dict], user_id: str):
           "image": item.get("image"),
         }
         await ws.send_json(payload)
+        success_count += 1
+        print(f"[WS] ✅ Sent caption update for {item.get('url', '')[:50]}... to client")
     except Exception as e:
-      print(f"[WS] ⚠️ send failed: {e}")
+      print(f"[WS] ⚠️ send failed for client: {e}")
       dead.add(ws)
+  
   for ws in dead:
     _ws_clients.discard(ws)
+    print(f"[WS] 🗑️ Removed dead client (remaining: {len(_ws_clients)})")
+  
+  if success_count > 0:
+    print(f"[WS] ✅ Successfully broadcasted {success_count} messages to {len(_ws_clients)} clients")
 
 
 @app.on_event("startup")

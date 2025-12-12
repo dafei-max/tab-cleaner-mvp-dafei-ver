@@ -317,6 +317,31 @@ export const PersonalSpace = () => {
     
     console.log('[PersonalSpace] 🔍 Checking existing cards for missing captions...');
     
+    // ✅ URL 规范化函数（与后端保持一致）
+    const normalizeUrl = (url) => {
+      if (!url) return url;
+      try {
+        const urlObj = new URL(url);
+        // 移除查询参数、锚点、尾随斜杠
+        urlObj.search = '';
+        urlObj.hash = '';
+        let path = urlObj.pathname;
+        // 移除尾随斜杠（但保留根路径的斜杠）
+        if (path.length > 1 && path.endsWith('/')) {
+          path = path.slice(0, -1);
+        }
+        urlObj.pathname = path;
+        return urlObj.toString();
+      } catch (e) {
+        // 如果 URL 解析失败，尝试简单处理
+        let normalized = url.split('?')[0].split('#')[0];
+        if (normalized.length > 1 && normalized.endsWith('/')) {
+          normalized = normalized.slice(0, -1);
+        }
+        return normalized;
+      }
+    };
+    
     // 1. 收集所有缺少 caption 的卡片 URL
     const cardsNeedingCaption = [];
     const safeSessions = Array.isArray(sessions) ? sessions : [];
@@ -367,10 +392,12 @@ export const PersonalSpace = () => {
     
     for (let i = 0; i < cardsNeedingCaption.length; i += batchSize) {
       const batch = cardsNeedingCaption.slice(i, i + batchSize);
-      const urls = batch.map(c => c.url);
+      // ✅ 规范化 URL（与后端保持一致）
+      const urls = batch.map(c => normalizeUrl(c.url)).filter(Boolean);
       
       try {
         console.log(`[PersonalSpace] 📦 Fetching captions for batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(cardsNeedingCaption.length / batchSize)} (${urls.length} URLs)`);
+        console.log(`[PersonalSpace] 🔍 Sample URLs being sent:`, urls.slice(0, 3).map(u => u.substring(0, 80)));
         
         const response = await fetch(`${apiUrl}/api/v1/search/batch-captions`, {
           method: 'POST',
@@ -383,6 +410,16 @@ export const PersonalSpace = () => {
         
         if (response.ok) {
           const result = await response.json();
+          console.log(`[PersonalSpace] 📥 Batch response:`, {
+            success: result?.success,
+            resultsCount: result?.results?.length || 0,
+            sampleResults: result?.results?.slice(0, 2).map(r => ({
+              url: r.url?.substring(0, 60),
+              hasCaption: !!r.image_caption,
+              hasTags: !!(r.style_tags?.length || r.object_tags?.length)
+            }))
+          });
+          
           if (result?.success !== false && result?.results) {
             const sessionUpdates = new Map(); // sessionId -> updated og list
             
@@ -391,52 +428,82 @@ export const PersonalSpace = () => {
               const { url: resultUrl, image_caption: resultImageCaption, quickCaption, style_tags, object_tags, dominant_colors } = captionResult;
               const image_caption = resultImageCaption || quickCaption || '';
               
-              if (!image_caption) continue;
-              
-              // 找到对应的卡片
-              const cardInfo = batch.find(c => {
-                const cardUrl = (c.url || '').toLowerCase();
-                const resultUrlLower = (resultUrl || '').toLowerCase();
-                return cardUrl === resultUrlLower;
-              });
-              
-              if (!cardInfo) continue;
-              
-              const { sessionId, itemIndex } = cardInfo;
-              const session = safeSessions.find(s => s.id === sessionId);
-              
-              if (session && session.opengraphData && session.opengraphData[itemIndex]) {
-                if (!sessionUpdates.has(sessionId)) {
-                  sessionUpdates.set(sessionId, [...session.opengraphData]);
-                }
-                
-                const ogList = sessionUpdates.get(sessionId);
-                ogList[itemIndex] = {
-                  ...ogList[itemIndex],
-                  image_caption: image_caption || ogList[itemIndex].image_caption,
-                  dominant_colors: dominant_colors || ogList[itemIndex].dominant_colors || [],
-                  style_tags: style_tags || ogList[itemIndex].style_tags || [],
-                  object_tags: object_tags || ogList[itemIndex].object_tags || [],
-                };
+              if (!image_caption) {
+                console.log(`[PersonalSpace] ⚠️ Skipping result with no caption:`, resultUrl?.substring(0, 60));
+                continue;
               }
               
-              // 4. 同时更新 IndexedDB（如果图片已保存）
-              if (eagleStorage && eagleStorage.loadImage && eagleStorage.updateImageCaption) {
-                try {
-                  const imageData = await eagleStorage.loadImage(resultUrl);
-                  if (imageData && imageData.hash) {
-                    await eagleStorage.updateImageCaption(
-                      imageData.hash,
-                      image_caption,
-                      style_tags || [],
-                      object_tags || [],
-                      dominant_colors || []
-                    );
+              // ✅ 直接从 sessions 中查找匹配的卡片（更可靠）
+              // 因为后端可能返回网页 URL 或图片 URL，需要同时匹配
+              let matched = false;
+              
+              for (const session of safeSessions) {
+                if (!session?.opengraphData) continue;
+                
+                const itemIndex = session.opengraphData.findIndex(item => {
+                  // ✅ 规范化所有 URL 后再比较（与后端保持一致）
+                  const itemUrl = normalizeUrl(item.url || '').toLowerCase();
+                  const itemImageUrl = normalizeUrl(item.original_image_url || '').toLowerCase();
+                  const resultUrlLower = normalizeUrl(resultUrl || '').toLowerCase();
+                  return itemUrl === resultUrlLower || itemImageUrl === resultUrlLower;
+                });
+                
+                if (itemIndex >= 0) {
+                  // 找到匹配的卡片
+                  if (!sessionUpdates.has(session.id)) {
+                    sessionUpdates.set(session.id, [...session.opengraphData]);
                   }
-                } catch (e) {
-                  // IndexedDB 更新失败不影响主流程
-                  console.warn(`[PersonalSpace] ⚠️ Failed to update IndexedDB for ${resultUrl.substring(0, 50)}:`, e);
+                  
+                  const ogList = sessionUpdates.get(session.id);
+                  ogList[itemIndex] = {
+                    ...ogList[itemIndex],
+                    image_caption: image_caption || ogList[itemIndex].image_caption,
+                    dominant_colors: dominant_colors || ogList[itemIndex].dominant_colors || [],
+                    style_tags: style_tags || ogList[itemIndex].style_tags || [],
+                    object_tags: object_tags || ogList[itemIndex].object_tags || [],
+                  };
+                  
+                  matched = true;
+                  console.log(`[PersonalSpace] ✅ Matched and updated card:`, {
+                    sessionId: session.id,
+                    itemIndex,
+                    resultUrl: resultUrl?.substring(0, 60),
+                    itemUrl: session.opengraphData[itemIndex].url?.substring(0, 60),
+                    itemImageUrl: session.opengraphData[itemIndex].original_image_url?.substring(0, 60)
+                  });
+                  
+                  // 同时更新 IndexedDB（如果图片已保存）
+                  if (eagleStorage && eagleStorage.loadImage && eagleStorage.updateImageCaption) {
+                    try {
+                      const matchedItem = session.opengraphData[itemIndex];
+                      const imageUrl = matchedItem.original_image_url || matchedItem.url || matchedItem.image;
+                      if (imageUrl && !imageUrl.startsWith('eagle://') && !imageUrl.startsWith('data:')) {
+                        const imageData = await eagleStorage.loadImage(imageUrl);
+                        if (imageData && imageData.hash) {
+                          await eagleStorage.updateImageCaption(
+                            imageData.hash,
+                            image_caption,
+                            style_tags || [],
+                            object_tags || [],
+                            dominant_colors || []
+                          );
+                          console.log(`[PersonalSpace] ✅ Updated IndexedDB for:`, imageUrl.substring(0, 60));
+                        }
+                      }
+                    } catch (e) {
+                      console.warn(`[PersonalSpace] ⚠️ Failed to update IndexedDB:`, e);
+                    }
+                  }
+                  
+                  break; // 找到匹配后退出循环
                 }
+              }
+              
+              if (!matched) {
+                console.log(`[PersonalSpace] ⚠️ No matching card found for result:`, {
+                  resultUrl: resultUrl?.substring(0, 60),
+                  searchedIn: safeSessions.length + ' sessions'
+                });
               }
             }
             
@@ -447,9 +514,14 @@ export const PersonalSpace = () => {
             
             totalUpdated += sessionUpdates.size;
             console.log(`[PersonalSpace] ✅ Batch ${Math.floor(i / batchSize) + 1} complete: ${sessionUpdates.size} sessions updated`);
+            if (sessionUpdates.size === 0 && result?.results?.length > 0) {
+              console.warn(`[PersonalSpace] ⚠️ Got ${result.results.length} results but matched 0 cards - check URL matching logic`);
+            }
+          } else {
+            console.warn(`[PersonalSpace] ⚠️ Batch response has no results:`, result);
           }
         } else {
-          console.warn(`[PersonalSpace] ⚠️ Batch fetch failed:`, response.status);
+          console.warn(`[PersonalSpace] ⚠️ Batch fetch failed:`, response.status, await response.text().catch(() => ''));
         }
       } catch (error) {
         console.error(`[PersonalSpace] ❌ Batch fetch error:`, error);
@@ -577,15 +649,18 @@ export const PersonalSpace = () => {
           sessions.forEach((session, sIdx) => {
             if (session && Array.isArray(session.opengraphData)) {
               session.opengraphData.forEach((item, iIdx) => {
-                const url = item.url || item.original_image_url || item.image || '';
-                const isPinterest = url.includes('pinterest.com') || url.includes('pinimg.com');
+                // ✅ 对齐：日志显示使用 url（页面 URL）更清晰，但查询时使用 original_image_url
+                const displayUrl = item.url || item.original_image_url || item.image || '';
+                const queryUrl = item.original_image_url || item.url || item.image || '';
+                const isPinterest = displayUrl.includes('pinterest.com') || displayUrl.includes('pinimg.com');
                 const hasCaption = item.image_caption && item.image_caption.trim() && 
                                  !item.image_caption.includes('主要颜色:') &&
                                  item.image_caption.length > 20;
                 const hasTags = item.style_tags && Array.isArray(item.style_tags) && item.style_tags.length > 0;
                 
                 console.log(`[PersonalSpace]   Card [${sIdx}-${iIdx}]:`, {
-                  url: url.substring(0, 60),
+                  url: displayUrl.substring(0, 60),
+                  queryUrl: queryUrl.substring(0, 60),
                   isPinterest,
                   hasCaption,
                   caption: hasCaption ? item.image_caption.substring(0, 50) : 'NO CAPTION',
@@ -614,15 +689,18 @@ export const PersonalSpace = () => {
           updatedSessionsData.forEach((session, sIdx) => {
             if (session && Array.isArray(session.opengraphData)) {
               session.opengraphData.forEach((item, iIdx) => {
-                const url = item.url || item.original_image_url || item.image || '';
-                const isPinterest = url.includes('pinterest.com') || url.includes('pinimg.com');
+                // ✅ 对齐：日志显示使用 url（页面 URL）更清晰，但查询时使用 original_image_url
+                const displayUrl = item.url || item.original_image_url || item.image || '';
+                const queryUrl = item.original_image_url || item.url || item.image || '';
+                const isPinterest = displayUrl.includes('pinterest.com') || displayUrl.includes('pinimg.com');
                 const hasCaption = item.image_caption && item.image_caption.trim() && 
                                  !item.image_caption.includes('主要颜色:') &&
                                  item.image_caption.length > 20;
                 const hasTags = item.style_tags && Array.isArray(item.style_tags) && item.style_tags.length > 0;
                 
                 console.log(`[PersonalSpace]   Card [${sIdx}-${iIdx}]:`, {
-                  url: url.substring(0, 60),
+                  url: displayUrl.substring(0, 60),
+                  queryUrl: queryUrl.substring(0, 60),
                   isPinterest,
                   hasCaption,
                   caption: hasCaption ? item.image_caption.substring(0, 50) : 'NO CAPTION',
@@ -688,6 +766,31 @@ export const PersonalSpace = () => {
 
   // 🆕 监听 Caption 更新（方案 C：混合方案 - WebSocket 推送完整数据 + 批量拉取兜底）
   useEffect(() => {
+    // ✅ URL 规范化函数（与后端保持一致）
+    const normalizeUrl = (url) => {
+      if (!url) return url;
+      try {
+        const urlObj = new URL(url);
+        // 移除查询参数、锚点、尾随斜杠
+        urlObj.search = '';
+        urlObj.hash = '';
+        let path = urlObj.pathname;
+        // 移除尾随斜杠（但保留根路径的斜杠）
+        if (path.length > 1 && path.endsWith('/')) {
+          path = path.slice(0, -1);
+        }
+        urlObj.pathname = path;
+        return urlObj.toString();
+      } catch (e) {
+        // 如果 URL 解析失败，尝试简单处理
+        let normalized = url.split('?')[0].split('#')[0];
+        if (normalized.length > 1 && normalized.endsWith('/')) {
+          normalized = normalized.slice(0, -1);
+        }
+        return normalized;
+      }
+    };
+    
     const pendingUrls = new Set();
     let fetchTimer = null;
 
@@ -713,10 +816,19 @@ export const PersonalSpace = () => {
           const safeSessions = Array.isArray(sessions) ? sessions : [];
           let updated = false;
           
+          // ✅ 规范化 WebSocket 传来的 URL
+          const normalizedUrl = normalizeUrl(url).toLowerCase();
+          
           for (const session of safeSessions) {
             if (!session?.opengraphData) continue;
             
-            const idx = session.opengraphData.findIndex(item => item?.url === url);
+            // ✅ 修复：同时匹配 url 和 original_image_url，并规范化比较
+            const idx = session.opengraphData.findIndex(item => {
+              const itemUrl = normalizeUrl(item?.url || '').toLowerCase();
+              const itemImageUrl = normalizeUrl(item?.original_image_url || '').toLowerCase();
+              return itemUrl === normalizedUrl || itemImageUrl === normalizedUrl;
+            });
+            
             if (idx >= 0) {
               const updatedData = [...session.opengraphData];
               updatedData[idx] = {
@@ -728,6 +840,31 @@ export const PersonalSpace = () => {
               };
               updateSession(session.id, { opengraphData: updatedData });
               updated = true;
+              
+              // ✅ 同时更新 IndexedDB
+              const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+              if (eagleStorage && eagleStorage.loadImage && eagleStorage.updateImageCaption) {
+                try {
+                  const matchedItem = session.opengraphData[idx];
+                  const imageUrl = matchedItem.original_image_url || matchedItem.url || matchedItem.image;
+                  if (imageUrl && !imageUrl.startsWith('eagle://') && !imageUrl.startsWith('data:')) {
+                    const imageData = await eagleStorage.loadImage(imageUrl);
+                    if (imageData && imageData.hash) {
+                      await eagleStorage.updateImageCaption(
+                        imageData.hash,
+                        image_caption,
+                        style_tags || [],
+                        object_tags || [],
+                        dominant_colors || []
+                      );
+                      console.log('[PersonalSpace] ✅ Updated IndexedDB via WebSocket:', imageUrl.substring(0, 50));
+                    }
+                  }
+                } catch (e) {
+                  console.warn('[PersonalSpace] ⚠️ Failed to update IndexedDB via WebSocket:', e);
+                }
+              }
+              
               console.log('[PersonalSpace] ✅ Caption updated via WebSocket (real-time):', url.substring(0, 50));
               break;
             }
@@ -744,7 +881,8 @@ export const PersonalSpace = () => {
         clearTimeout(fetchTimer);
         fetchTimer = setTimeout(async () => {
           if (pendingUrls.size > 0) {
-            const urls = Array.from(pendingUrls);
+            // ✅ 规范化 URL（与后端保持一致）
+            const urls = Array.from(pendingUrls).map(u => normalizeUrl(u)).filter(Boolean);
             pendingUrls.clear();
             
             console.log('[PersonalSpace] 📦 Batch fetching captions (fallback) for', urls.length, 'URLs');
@@ -779,7 +917,13 @@ export const PersonalSpace = () => {
                     for (const session of safeSessions) {
                       if (!session?.opengraphData) continue;
                       
-                      const idx = session.opengraphData.findIndex(item => item?.url === resultUrl);
+                      // ✅ 修复：同时匹配 url 和 original_image_url，并规范化比较
+                      const idx = session.opengraphData.findIndex(item => {
+                        const itemUrl = normalizeUrl(item?.url || '').toLowerCase();
+                        const itemImageUrl = normalizeUrl(item?.original_image_url || '').toLowerCase();
+                        const resultUrlLower = normalizeUrl(resultUrl || '').toLowerCase();
+                        return itemUrl === resultUrlLower || itemImageUrl === resultUrlLower;
+                      });
                       if (idx >= 0) {
                         if (!sessionUpdates.has(session.id)) {
                           sessionUpdates.set(session.id, [...session.opengraphData]);
@@ -792,6 +936,48 @@ export const PersonalSpace = () => {
                           style_tags: style_tags || ogList[idx].style_tags || [],
                           object_tags: object_tags || ogList[idx].object_tags || [],
                         };
+                      }
+                    }
+                  }
+                  
+                  // ✅ 同时更新 IndexedDB（批量拉取兜底机制）
+                  const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+                  if (eagleStorage && eagleStorage.loadImage && eagleStorage.updateImageCaption) {
+                    for (const captionResult of result.results) {
+                      const { url: resultUrl, image_caption: resultImageCaption, quickCaption, style_tags, object_tags, dominant_colors } = captionResult;
+                      const image_caption = resultImageCaption || quickCaption || '';
+                      if (!image_caption) continue;
+                      
+                      try {
+                        // 找到匹配的 session item 获取 imageUrl
+                        for (const session of safeSessions) {
+                          if (!session?.opengraphData) continue;
+                          const matchedItem = session.opengraphData.find(item => {
+                            const itemUrl = normalizeUrl(item?.url || '').toLowerCase();
+                            const itemImageUrl = normalizeUrl(item?.original_image_url || '').toLowerCase();
+                            const resultUrlLower = normalizeUrl(resultUrl || '').toLowerCase();
+                            return itemUrl === resultUrlLower || itemImageUrl === resultUrlLower;
+                          });
+                          
+                          if (matchedItem) {
+                            const imageUrl = matchedItem.original_image_url || matchedItem.url || matchedItem.image;
+                            if (imageUrl && !imageUrl.startsWith('eagle://') && !imageUrl.startsWith('data:')) {
+                              const imageData = await eagleStorage.loadImage(imageUrl);
+                              if (imageData && imageData.hash) {
+                                await eagleStorage.updateImageCaption(
+                                  imageData.hash,
+                                  image_caption,
+                                  style_tags || [],
+                                  object_tags || [],
+                                  dominant_colors || []
+                                );
+                                break; // 找到匹配后退出
+                              }
+                            }
+                          }
+                        }
+                      } catch (e) {
+                        console.warn('[PersonalSpace] ⚠️ Failed to update IndexedDB (fallback):', e);
                       }
                     }
                   }
