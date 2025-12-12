@@ -677,7 +677,11 @@ async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dic
             """)
             
             # 使用 IN 查询批量获取（只返回 active 记录）
-            placeholders = ','.join([f'${i+1}' for i in range(len(normalized_urls))])
+            # ✅ 关键修复：同时匹配 url 字段（网页 URL）和 image 字段（图片 URL）
+            # 因为前端可能传入网页 URL 或图片 URL，都需要能查到
+            url_placeholders = ','.join([f'${i+1}' for i in range(len(normalized_urls))])
+            image_placeholders = ','.join([f'${i+len(normalized_urls)+1}' for i in range(len(normalized_urls))])
+            user_id_param = len(normalized_urls) * 2 + 1
             
             if has_caption_fields:
                 # ✅ 包含 caption 相关字段
@@ -686,16 +690,20 @@ async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dic
                            tab_id, tab_title, text_embedding, image_embedding, metadata,
                            image_caption, caption_embedding, dominant_colors, style_tags, object_tags
                     FROM {ACTIVE_TABLE}
-                    WHERE user_id = ${len(normalized_urls)+1} AND url IN ({placeholders}) AND status = 'active';
-                """, *normalized_urls, user_id)
+                    WHERE user_id = ${user_id_param} 
+                      AND (url IN ({url_placeholders}) OR image IN ({image_placeholders}))
+                      AND status = 'active';
+                """, *normalized_urls, *normalized_urls, user_id)
             else:
                 # 降级：不包含 caption 字段（向后兼容）
                 rows = await conn.fetch(f"""
                     SELECT user_id, url, title, description, image, screenshot_image, site_name,
                            tab_id, tab_title, text_embedding, image_embedding, metadata
                     FROM {ACTIVE_TABLE}
-                    WHERE user_id = ${len(normalized_urls)+1} AND url IN ({placeholders}) AND status = 'active';
-                """, *normalized_urls, user_id)
+                    WHERE user_id = ${user_id_param} 
+                      AND (url IN ({url_placeholders}) OR image IN ({image_placeholders}))
+                      AND status = 'active';
+                """, *normalized_urls, *normalized_urls, user_id)
             
             results = []
             for row in rows:
