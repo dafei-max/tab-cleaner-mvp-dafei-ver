@@ -836,6 +836,15 @@
     const pet = findPetElement();
     if (!pet) return;
     
+    // 通知桌宠播放清洗成功动画
+    try {
+      if (window.__TAB_CLEANER_PET && typeof window.__TAB_CLEANER_PET.setState === 'function') {
+        window.__TAB_CLEANER_PET.setState('clean-success', { nextState: 'idle' });
+      }
+    } catch (e) {
+      console.warn('[Image Capture] Failed to trigger pet clean-success state:', e);
+    }
+    
     // 桌宠闪烁动画
     pet.style.animation = 'tc-success-pulse 0.5s ease-out';
     
@@ -1338,6 +1347,15 @@
           draggedImage.element.style.opacity = '0.5';
           draggedImage.element.style.transition = 'opacity 0.2s ease';
         }
+
+        // ✅ 通知桌宠进入「注意力」状态（raise-attention）
+        try {
+          if (window.__TAB_CLEANER_PET && typeof window.__TAB_CLEANER_PET.setState === 'function') {
+            window.__TAB_CLEANER_PET.setState('raise-attention', { loop: true });
+          }
+        } catch (err) {
+          console.warn('[Image Capture] Failed to trigger pet attention state on dragstart:', err);
+        }
         
         // ✅ 设置 dataTransfer，确保在有蒙层的网站上拖拽效果正常
         if (e.dataTransfer) {
@@ -1463,6 +1481,14 @@
           logEvent('drag_end_outside_pet', {
             url: draggedImage && draggedImage.url,
           });
+          // 拖拽结束但未喂给桌宠，恢复为 idle
+          try {
+            if (window.__TAB_CLEANER_PET && typeof window.__TAB_CLEANER_PET.setState === 'function') {
+              window.__TAB_CLEANER_PET.setState('idle', { loop: true });
+            }
+          } catch (err) {
+            console.warn('[Image Capture] Failed to reset pet state on drag cancel:', err);
+          }
         }
         
         // 移除高亮和磁吸效果

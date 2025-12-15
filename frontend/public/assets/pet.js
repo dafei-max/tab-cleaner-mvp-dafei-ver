@@ -1579,6 +1579,16 @@
     isVisible: () => isPetVisible,
     ensureInitialized: ensureInitialized, // ✅ 新增：等待初始化完成的方法
     forceShow: forceShow, // ✅ v2.1: 强制显示方法
+    setState: (state, options) => {
+      try {
+        if (state && petFSM && petFSM.PET_STATES) {
+          const normalized = petFSM.PET_STATES[state.toUpperCase()] || state;
+          petFSM.setState(normalized, options || {});
+        }
+      } catch (e) {
+        console.warn('[Tab Cleaner Pet] Failed to set state from external caller:', state, e);
+      }
+    },
   };
   
   try {

@@ -1,11 +1,11 @@
 (() => {
   const globalCfg = window.__TAB_CLEANER_PET_CONFIG || {};
   const DEFAULT_CFG = {
-    roamIntervalMin: 20000,
-    roamIntervalMax: 40000,
-    walkSpeed: 140,        // px/s
-    walkDurationMin: 2800, // ms
-    walkDurationMax: 6500, // ms
+    roamIntervalMin: 40000,  // 默认 40s 后才开始漫步
+    roamIntervalMax: 70000,  // 40-70s 随机，降低频率
+    walkSpeed: 100,          // px/s，降低移动速度，减轻重排压力
+    walkDurationMin: 3000,   // ms
+    walkDurationMax: 7000,   // ms
   };
 
   const PET_STATES = {
@@ -61,6 +61,7 @@
     }
 
     function scheduleRoam() {
+      if (document.hidden) return; // 页面不可见时不排程漫步
       clearRoamTimer();
       const delay = cfg.roamIntervalMin + Math.random() * Math.max(0, cfg.roamIntervalMax - cfg.roamIntervalMin);
       roamTimer = setTimeout(() => {
@@ -69,6 +70,10 @@
     }
 
     function startRoaming() {
+      if (document.hidden) {
+        scheduleRoam();
+        return;
+      }
       const petContainer = petContainerRef?.();
       const avatarVideoEl = videoElRef?.();
       if (!petContainer || !avatarVideoEl || getIsDragging?.()) {
@@ -148,6 +153,13 @@
       avatarVideoEl.preload = 'auto';
       avatarVideoEl.currentTime = 0;
 
+      // 根据状态调整播放速度：清洗成功动画稍微放慢一点
+      if (state === PET_STATES.CLEAN_SUCCESS) {
+        avatarVideoEl.playbackRate = 0.75;
+      } else {
+        avatarVideoEl.playbackRate = 1.0;
+      }
+
       const playPromise = avatarVideoEl.play();
       if (playPromise && typeof playPromise.catch === 'function') {
         playPromise.catch(err => {
@@ -170,6 +182,29 @@
       } else if (state !== PET_STATES.WALK_LEFT && state !== PET_STATES.WALK_RIGHT) {
         clearRoamTimer();
       }
+    }
+
+    // 页面可见性变化时暂停/恢复漫步与视频，防止长时间后台消耗资源
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        const video = videoElRef?.();
+        if (document.hidden) {
+          clearRoamTimer();
+          if (video) {
+            video.pause();
+          }
+        } else {
+          if (petState === PET_STATES.IDLE) {
+            scheduleRoam();
+          }
+          if (video) {
+            const playPromise = video.play();
+            if (playPromise && typeof playPromise.catch === 'function') {
+              playPromise.catch(() => {});
+            }
+          }
+        }
+      });
     }
 
     return {
