@@ -201,3 +201,5 @@ const cropped = canvas.toDataURL('image/png');
 
 
 
+
+

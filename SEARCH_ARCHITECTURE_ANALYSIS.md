@@ -314,3 +314,5 @@ useSearch.js → performSearch()
 - 实现混合搜索：本地 + vectordb，合并结果
 
 
+
+

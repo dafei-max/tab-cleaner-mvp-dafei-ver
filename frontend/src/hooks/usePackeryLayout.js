@@ -31,42 +31,60 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
   const imageLoadHandlersRef = useRef(new Map()); // 存储图片加载事件处理器
   const resizeHandlerRef = useRef(null);
   const draggableFailedRef = useRef(false); // ✅ 修复：标记拖拽功能是否失败
+  const isUserScrollingRef = useRef(false); // ✅ 标记用户是否正在滚动
+  const scrollRestoreTimerRef = useRef(null); // ✅ 滚动恢复定时器
+  const scrollHandlersRef = useRef([]); // ✅ 存储滚动事件处理器，用于清理
 
-  // 更新布局（带防抖）
+  // 更新布局（带防抖，并保存/恢复滚动位置）
   const updateLayout = useCallback(() => {
     if (masonryInstanceRef.current) {
-      // ✅ 调试：记录布局更新前的状态
-      const itemElements = masonryInstanceRef.current.getItemElements 
-        ? masonryInstanceRef.current.getItemElements() 
-        : [];
-      const itemsCount = masonryInstanceRef.current.items 
-        ? masonryInstanceRef.current.items.length 
-        : 0;
+      // ✅ 如果用户正在滚动，不恢复滚动位置（避免跳回）
+      if (isUserScrollingRef.current) {
+        masonryInstanceRef.current?.layout();
+        return;
+      }
       
-      // console.log(`[DEBUG-MASONRY] 准备更新布局... 
-      //   - 当前元素数量 (getItemElements): ${itemElements.length}
-      //   - Masonry items 数量: ${itemsCount}`); // ✅ 已注释：用于定位搜索问题
+      // ✅ 保存当前滚动位置（支持 window 和容器滚动）
+      let savedScrollY = 0;
+      let savedScrollTop = 0;
+      let scrollContainer = null;
       
+      if (typeof window !== 'undefined') {
+        savedScrollY = window.scrollY || window.pageYOffset || 0;
+      }
+      
+      // 查找最近的滚动容器
       if (masonryRef.current) {
-        // console.log(`[DEBUG-MASONRY] 布局更新前容器状态:
-        //   - offsetHeight: ${masonryRef.current.offsetHeight}px
-        //   - scrollHeight: ${masonryRef.current.scrollHeight}px
-        //   - clientHeight: ${masonryRef.current.clientHeight}px`); // ✅ 已注释：用于定位搜索问题
+        let parent = masonryRef.current.parentElement;
+        while (parent && parent !== document.body) {
+          const style = window.getComputedStyle(parent);
+          if (style.overflowY === 'auto' || style.overflowY === 'scroll' || 
+              style.overflow === 'auto' || style.overflow === 'scroll') {
+            scrollContainer = parent;
+            savedScrollTop = parent.scrollTop || 0;
+            break;
+          }
+          parent = parent.parentElement;
+        }
       }
       
       setTimeout(() => {
         masonryInstanceRef.current?.layout();
         
-        // ✅ 调试：记录布局更新后的状态
-        if (masonryRef.current) {
-          // console.log(`[DEBUG-MASONRY] 📏 布局更新完成。
-          //   - 容器实际高度 (offsetHeight): ${masonryRef.current.offsetHeight}px
-          //   - 容器滚动高度 (scrollHeight): ${masonryRef.current.scrollHeight}px
-          //   - 容器可视高度 (clientHeight): ${masonryRef.current.clientHeight}px
-          //   - 可滚动距离: ${masonryRef.current.scrollHeight - masonryRef.current.clientHeight}px
-          //   - Masonry 实例内的 items 数量: ${masonryInstanceRef.current.items?.length || 0}
-          // `); // ✅ 已注释：用于定位搜索问题
-        }
+        // ✅ 恢复滚动位置（仅在用户未滚动时恢复，使用 requestAnimationFrame 确保在布局完成后恢复）
+        requestAnimationFrame(() => {
+          // 再次检查用户是否正在滚动
+          if (isUserScrollingRef.current) {
+            return;
+          }
+          
+          if (typeof window !== 'undefined' && savedScrollY > 0) {
+            window.scrollTo(0, savedScrollY);
+          }
+          if (scrollContainer && savedScrollTop > 0) {
+            scrollContainer.scrollTop = savedScrollTop;
+          }
+        });
       }, MASONRY_CONFIG.layout.imageLoadDelay);
     } else {
       // console.warn(`[DEBUG-MASONRY] ❌ 尝试更新布局，但实例不存在`); // ✅ 已注释：用于定位搜索问题
@@ -519,12 +537,64 @@ export const usePackeryLayout = (viewMode, opengraphData) => {
           resizeHandlerRef.current = null;
         }
 
+        // 清理滚动监听
+        scrollHandlersRef.current.forEach(({ element, handler }) => {
+          try {
+            element.removeEventListener('scroll', handler);
+          } catch (e) {
+            console.warn('[usePackeryLayout] Failed to remove scroll listener:', e);
+          }
+        });
+        scrollHandlersRef.current = [];
+        
+        if (scrollRestoreTimerRef.current) {
+          clearTimeout(scrollRestoreTimerRef.current);
+          scrollRestoreTimerRef.current = null;
+        }
+        isUserScrollingRef.current = false;
+
         // 销毁 Masonry 实例
         if (masonryInstanceRef.current) {
           masonryInstanceRef.current.destroy();
           masonryInstanceRef.current = null;
         }
       };
+      
+      // ✅ 添加滚动事件监听器，检测用户滚动
+      const handleScroll = () => {
+        isUserScrollingRef.current = true;
+        
+        // 清除之前的定时器
+        if (scrollRestoreTimerRef.current) {
+          clearTimeout(scrollRestoreTimerRef.current);
+        }
+        
+        // 滚动停止后 150ms 才允许恢复滚动位置
+        scrollRestoreTimerRef.current = setTimeout(() => {
+          isUserScrollingRef.current = false;
+        }, 150);
+      };
+      
+      // 监听 window 和滚动容器的滚动事件
+      if (typeof window !== 'undefined') {
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        scrollHandlersRef.current.push({ element: window, handler: handleScroll });
+      }
+      
+      // 查找滚动容器并监听
+      if (masonryRef.current) {
+        let parent = masonryRef.current.parentElement;
+        while (parent && parent !== document.body) {
+          const style = window.getComputedStyle(parent);
+          if (style.overflowY === 'auto' || style.overflowY === 'scroll' || 
+              style.overflow === 'auto' || style.overflow === 'scroll') {
+            parent.addEventListener('scroll', handleScroll, { passive: true });
+            scrollHandlersRef.current.push({ element: parent, handler: handleScroll });
+            break;
+          }
+          parent = parent.parentElement;
+        }
+      }
       
       initMasonry();
       

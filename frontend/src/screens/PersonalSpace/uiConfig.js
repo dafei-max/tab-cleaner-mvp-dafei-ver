@@ -76,7 +76,7 @@ export const UI_CONFIG = {
     },
     elephantIcon: {
       size: 90,
-      marginLeft: -30,
+      marginLeft: -10, // 往右移动宠物按钮
     },
     statusText: {
       fontSize: 6,

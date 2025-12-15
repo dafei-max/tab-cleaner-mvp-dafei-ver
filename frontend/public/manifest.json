@@ -29,6 +29,8 @@
         "assets/opengraph_local_v2.js",
         "assets/image_capture_enhanced.js",
         "assets/screenshot_capture.js",
+        "assets/pet_config.js",
+        "assets/pet_state_machine.js",
         "assets/pet.js",
         "assets/content.js"
       ],
@@ -55,6 +57,7 @@
         "assets/*.css",
         "assets/card.html",
         "static/img/*",
+        "static/video/*",
         "test_opengraph_simple.html"
       ],
       "matches": ["<all_urls>"],

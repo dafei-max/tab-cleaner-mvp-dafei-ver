@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import { getImageUrl } from "../../shared/utils";
+import { getImageUrl, getAssetUrl } from "../../shared/utils";
 import { UI_CONFIG } from "../../screens/PersonalSpace/uiConfig";
 import { ColorPicker } from "./ColorPicker";
 import searchBarBg from "./search-bar.svg";
@@ -25,7 +25,9 @@ export const SearchBar = ({
   const [hoveredButton, setHoveredButton] = useState(null);
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [petIconError, setPetIconError] = useState(false);
   const colorPickerRef = useRef(null);
+  const petIconSize = UI_CONFIG.searchBar.elephantIcon.size; // 保留尺寸配置用于视频缩放
   
   // 点击外部关闭颜色选择器
   useEffect(() => {
@@ -299,15 +301,35 @@ export const SearchBar = ({
           whileTap={{ scale: 0.95 }}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
         >
-          <img 
-            src={getImageUrl("icon-elephant (1).png")} 
-            alt="Pet settings"
-            style={{ 
-              width: `${UI_CONFIG.searchBar.elephantIcon.size}px`, 
-              height: `${UI_CONFIG.searchBar.elephantIcon.size}px`, 
-              objectFit: 'contain' 
-            }}
-          />
+          <div className="pet-icon-button">
+            <div className="pet-icon-shine" />
+            {!petIconError ? (
+              <video
+                className="pet-icon-video"
+                src={getAssetUrl("static/video/smile-icon 2.webm")}
+                autoPlay
+                loop
+                muted
+                playsInline
+                aria-label="Pet settings"
+                onError={() => setPetIconError(true)}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                }}
+              />
+            ) : (
+              <img
+                className="pet-icon-fallback"
+                src={getImageUrl("icon-elephant (1).png")}
+                alt="Pet settings"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                }}
+              />
+            )}
+          </div>
           {hoveredButton === 'pet' && createPortal(
             <div className="tooltip" style={getTooltipStyle()}>
               宠物设定空间
