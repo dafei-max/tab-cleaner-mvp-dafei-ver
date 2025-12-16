@@ -286,6 +286,8 @@ async def get_ai_insight(request: AIInsightRequest):
 # 搜索 API
 class EmbeddingRequest(BaseModel):
     opengraph_items: List[Dict[str, Any]]
+    # 是否在生成 embedding 后自动触发 caption 生成（默认保持兼容，开启）
+    auto_caption: Optional[bool] = True
 
 
 class SearchRequest(BaseModel):
@@ -311,6 +313,8 @@ async def generate_embeddings(
     3. 返回包含 saved 字段的响应
     """
     try:
+        # 是否自动触发 caption 生成，由前端通过 auto_caption 控制（默认 True 保持兼容）
+        auto_caption = bool(getattr(request, "auto_caption", True))
         normalized_user_id = (user_id or "anonymous").strip() or "anonymous"
         # ✅ 详细日志：显示接收到的用户ID
         print(f"[API] 📥 Received request with {len(request.opengraph_items)} items for embedding generation")
@@ -495,25 +499,26 @@ async def generate_embeddings(
                 if saved_count > 0:
                     print(f"[API] ✓ Stored {saved_count}/{len(items_to_store)} items to vector DB")
                     
-                    # 4. 异步触发 Caption 生成任务（只处理有图片且没有 Caption 的项）
-                    try:
-                        from search.auto_caption import batch_enqueue_caption_tasks
-                        # 过滤出需要生成 Caption 的项（有图片但没有 Caption）
-                        items_for_caption = [
-                            item for item in items_to_store
-                            if item.get("image") and not item.get("image_caption")
-                        ]
-                        if items_for_caption:
-                            await batch_enqueue_caption_tasks(
-                                normalized_user_id,
-                                items_for_caption,
-                                max_items=50  # 每次最多处理 50 个，避免队列过载
-                            )
-                            print(f"[API] ✓ Enqueued {len(items_for_caption)} caption generation tasks")
-                    except Exception as caption_error:
-                        print(f"[API] ⚠ Failed to enqueue caption tasks: {caption_error}")
-                        import traceback
-                        traceback.print_exc()
+                    # 4. 按需触发 Caption 生成任务（只处理有图片且没有 Caption 的项）
+                    if auto_caption:
+                        try:
+                            from search.auto_caption import batch_enqueue_caption_tasks
+                            # 过滤出需要生成 Caption 的项（有图片但没有 Caption）
+                            items_for_caption = [
+                                item for item in items_to_store
+                                if item.get("image") and not item.get("image_caption")
+                            ]
+                            if items_for_caption:
+                                await batch_enqueue_caption_tasks(
+                                    normalized_user_id,
+                                    items_for_caption,
+                                    max_items=50  # 每次最多处理 50 个，避免队列过载
+                                )
+                                print(f"[API] ✓ Enqueued {len(items_for_caption)} caption generation tasks")
+                        except Exception as caption_error:
+                            print(f"[API] ⚠ Failed to enqueue caption tasks: {caption_error}")
+                            import traceback
+                            traceback.print_exc()
                 else:
                     print(f"[API] ⚠ Failed to store items to vector DB (saved_count=0)")
             except Exception as e:
@@ -888,6 +893,8 @@ async def delete_tab(
         删除结果
     """
     try:
+        # 是否自动触发 caption 生成，由前端通过 auto_caption 控制（默认 True 保持兼容）
+        auto_caption = bool(getattr(request, "auto_caption", True))
         normalized_user_id = (user_id or "anonymous").strip() or "anonymous"
         
         from vector_db import soft_delete_tab

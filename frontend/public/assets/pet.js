@@ -43,6 +43,9 @@
   let hoverCooldown = false;  // Hover 触发节流
   let isDraggingPet = false;  // 标记用户拖拽
   let petFSM = null;          // 状态机实例
+  let clickCount = 0;         // 连续点击计数器
+  let clickTimer = null;      // 点击时间窗口定时器
+  let clickCooldown = false;  // 点击后冷却期，避免 hover 立即触发 wave
   
   // ✅ 初始化状态标志：标记容器是否真正添加到 DOM
   let petInitialized = false;
@@ -1299,13 +1302,25 @@
         if (isDragging) {
           return;
         }
+        
+        // ✅ 点击时立即切换按钮显示状态（兼容原有功能）
         setButtonsVisible(!isButtonsVisible);
+        
+        // ✅ 同时播放 dizzy 动画（优先级高于 wave）
+        setPetState(PET_STATES.DIZZY, { nextState: PET_STATES.IDLE });
+        
+        // 设置点击冷却期，避免 hover 立即触发 wave
+        clickCooldown = true;
+        setTimeout(() => {
+          clickCooldown = false;
+        }, 2000); // 2秒冷却期，确保 dizzy 动画播放完
       };
       
       if (avatar) {
         avatar.addEventListener('click', handleAvatarClick);
         avatar.addEventListener('mouseenter', () => {
-          if (hoverCooldown) return;
+          // ✅ 如果刚点击过（在冷却期内），不触发 wave，让 dizzy 动画优先
+          if (clickCooldown || hoverCooldown) return;
           hoverCooldown = true;
           setPetState(PET_STATES.WAVE, { nextState: PET_STATES.IDLE });
           setTimeout(() => hoverCooldown = false, 1200);
@@ -1315,7 +1330,8 @@
       if (avatarVideo) {
         avatarVideo.addEventListener('click', handleAvatarClick);
         avatarVideo.addEventListener('mouseenter', () => {
-          if (hoverCooldown) return;
+          // ✅ 如果刚点击过（在冷却期内），不触发 wave，让 dizzy 动画优先
+          if (clickCooldown || hoverCooldown) return;
           hoverCooldown = true;
           setPetState(PET_STATES.WAVE, { nextState: PET_STATES.IDLE });
           setTimeout(() => hoverCooldown = false, 1200);

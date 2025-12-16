@@ -2,7 +2,7 @@
  * Tab Cleaner - 截图模式（框选截图）
  * 
  * 功能特性:
- * 1. Alt + 拖拽 = 框选区域截图
+ * 1. Mac: ⌘+Shift+S / Win: Ctrl+Shift+S = 框选区域截图
  * 2. 支持 Canvas/Video 截图
  * 3. 应对特殊渲染场景（Figma、Canva、视频帧等）
  * 4. 智能识别需要截图的元素
@@ -22,8 +22,11 @@
   // ==================== 配置 ====================
   
   const CONFIG = {
-    // 快捷键
-    selectionKey: 'Alt', // Alt 键触发框选模式
+    // 平台检测
+    platform: {
+      isMac: /Mac|iPhone|iPod|iPad/i.test(navigator.platform),
+      modifierName: null,
+    },
     
     // 框选样式
     selectionStyle: {
@@ -44,7 +47,10 @@
       canva: '[class*="canvas"], [class*="canva"]',
     },
   };
-
+  
+  // 初始化平台检测
+  CONFIG.platform.modifierName = CONFIG.platform.isMac ? '⌘' : 'Ctrl';
+  
   // ==================== 状态管理 ====================
   
   let selectionMode = false;
@@ -503,22 +509,11 @@
    * 处理键盘事件
    */
   function handleKeyDown(e) {
-    // Alt 键按下，准备进入框选模式
-    if (e.key === 'Alt' && !selectionMode) {
-      // 延迟启动，等待 Alt 键释放
-      const handleAltUp = () => {
-        if (e.altKey) {
-          startSelectionMode();
-        }
-        document.removeEventListener('keyup', handleAltUp);
-      };
-      document.addEventListener('keyup', handleAltUp, { once: true });
-    }
-    
     // ESC 退出框选模式
     if (e.key === 'Escape' && selectionMode) {
       exitSelectionMode();
     }
+    // 注意：快捷键 Command+Shift+S / Ctrl+Shift+S 由 image_capture_enhanced.js 处理
   }
 
   // ==================== 智能检测 ====================
@@ -567,7 +562,7 @@
       `;
       hint.innerHTML = `
         <div style="font-weight: 600; margin-bottom: 4px;">📸 需要截图？</div>
-        <div style="font-size: 12px; opacity: 0.9;">按 <kbd style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">Alt</kbd> + 拖拽选择区域</div>
+        <div style="font-size: 12px; opacity: 0.9;">按 <kbd style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">${CONFIG.platform.modifierName}</kbd> + <kbd style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">Shift</kbd> + <kbd style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">S</kbd> 框选截图</div>
       `;
       
       hint.addEventListener('click', () => {

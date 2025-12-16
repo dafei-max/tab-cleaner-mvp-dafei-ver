@@ -810,6 +810,8 @@
           const result = request.result;
           if (result) {
             console.log('[Eagle Storage] 📖 Image loaded:', hash);
+            // ✅ 修复：即使 dataUrl 被清理，也返回颜色、caption 等元数据
+            // 确保 color filter 能够正确读取颜色信息
             resolve(result);
           } else {
             resolve(null);
@@ -826,6 +828,33 @@
     }
   }
   
+  /**
+   * ✅ 删除单个卡片对应的图片（只在用户主动删除卡片时调用）
+   * 完全删除图片记录，包括所有元数据（colors, caption 等）
+   */
+  async function deleteImageForCard(imageUrl) {
+    try {
+      await initDB();
+      const hash = await hashUrl(imageUrl);
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.delete(hash);
+        request.onsuccess = () => {
+          console.log('[Eagle Storage] ✅ Image deleted for card:', imageUrl.substring(0, 60));
+          resolve(true);
+        };
+        request.onerror = (event) => {
+          console.error('[Eagle Storage] ❌ Failed to delete image for card:', imageUrl.substring(0, 60), event.target.error);
+          reject(new Error('Failed to delete image for card'));
+        };
+      });
+    } catch (error) {
+      console.error('[Eagle Storage] ❌ Delete image for card failed:', error);
+      return false;
+    }
+  }
+
   /**
    * 🆕 从 IndexedDB 读取图片（通过 hash，用于 eagle://hash 协议）
    */
@@ -2410,6 +2439,7 @@
     loadImageByHash,  // 🆕 通过 hash 加载
     resolveImageReference,  // 🆕 解析图片引用（支持 eagle:// 协议）
     saveImage,
+    deleteImageForCard,  // ✅ 删除单个卡片对应的图片（只在用户主动删除卡片时调用）
     
     // 批量操作
     migrateExistingImages,
@@ -2428,6 +2458,9 @@
     enrichSessionImages,  // 为 session 中的图片补充 caption 和 tags
     enrichSessionImagesFromVectordb,  // 🆕 从 vectordb 补充 session 中卡片的 caption 和 tags
     batchUpdateOldCardsFromVectordb,  // 🆕 当有新卡片收录时，批量更新所有老卡片的 caption 和 tags
+    
+    // ✅ Caption 更新
+    updateImageCaption,  // ✅ 更新图片的 caption 和颜色信息
   };
   
   // 自动初始化

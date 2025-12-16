@@ -1803,7 +1803,7 @@
         <div class="tc-shortcuts-list">
           <div class="tc-shortcut-item">
             <kbd>${CONFIG.platform.modifierName}</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd>
-            <span>保存当前悬停的图片</span>
+            <span>框选截图区域</span>
           </div>
           <div class="tc-shortcut-item">
             <kbd>?</kbd>

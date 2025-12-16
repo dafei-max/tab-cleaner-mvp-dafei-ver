@@ -254,6 +254,7 @@ function rgbToHex(rgb) {
 }
 import { getImageUrl } from '../../shared/utils';
 import { UI_CONFIG } from './uiConfig';
+import GradientPlaceholder from '../../components/BlurGradientBg/GradientPlaceholder';
 
 /**
  * 带错误处理和重试的图片组件
@@ -274,7 +275,34 @@ const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCar
   useEffect(() => {
     // ✅ 优先使用 chrome.storage.local 中的图片（可能是 URL 或 Data URL）
     const newSrc = getBestImageSource(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75);
-    setImageSrc(newSrc);
+    
+    // ✅ 修复 CSP 问题：如果返回的是 eagle:// 协议，需要从 IndexedDB 加载并转换为 data: URL
+    if (newSrc && newSrc.startsWith('eagle://')) {
+      // 异步加载 eagle:// 协议的图片
+      (async () => {
+        try {
+          const hash = newSrc.replace('eagle://', '');
+          if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.loadImageByHash) {
+            const imageData = await window.__TAB_CLEANER_EAGLE_STORAGE.loadImageByHash(hash);
+            if (imageData && imageData.dataUrl) {
+              setImageSrc(imageData.dataUrl);
+              console.log('[ImageWithFallback] ✅ Loaded eagle:// image from IndexedDB');
+              return;
+            }
+          }
+          // 如果加载失败，使用占位符
+          const placeholder = getPlaceholderImage(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75);
+          setImageSrc(placeholder);
+        } catch (error) {
+          console.warn('[ImageWithFallback] ⚠️ Failed to load eagle:// image:', error);
+          const placeholder = getPlaceholderImage(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75);
+          setImageSrc(placeholder);
+        }
+      })();
+    } else {
+      setImageSrc(newSrc);
+    }
+    
     setHasError(false);
     setRetryCount(0);
     setColorExtracted(false);
@@ -434,6 +462,32 @@ const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCar
     }
   }, [hasError, og?.image, og?.url]);
   
+  // 检测是否是占位符（SVG data URI）
+  // 无论是初始占位符还是错误后的占位符，都应该使用渐变背景
+  const isPlaceholder = imageSrc && imageSrc.startsWith('data:image/svg+xml');
+  
+  // 调试日志
+  if (process.env.NODE_ENV === 'development' && isPlaceholder) {
+    console.log('[ImageWithFallback] Using GradientPlaceholder for:', og.url?.substring(0, 50), 'src:', imageSrc.substring(0, 50));
+  }
+  
+  // 如果是占位符，使用渐变背景组件
+  if (isPlaceholder) {
+    return (
+      <GradientPlaceholder
+        og={og}
+        width={resolvedCardWidth}
+        height={resolvedCardWidth * 0.75}
+        className={`opengraph-image ${isDocCard ? 'doc-card' : ''} ${isTopResult ? 'top-result' : ''} ${isSelected ? 'selected' : ''}`}
+        style={{
+          cursor: 'pointer',
+          transition: 'box-shadow 0.2s ease',
+        }}
+      />
+    );
+  }
+  
+  // 否则使用普通图片
   return (
     <img
       ref={imgRef}

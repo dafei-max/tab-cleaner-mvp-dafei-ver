@@ -631,7 +631,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                  opengraph_items: [normalizedItem]
+                  opengraph_items: [normalizedItem],
+                  auto_caption: false,
                 }),
               });
               
@@ -847,7 +848,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      opengraph_items: normalizedBatch
+                      opengraph_items: normalizedBatch,
+                      auto_caption: true,
                     }),
                   });
                   
@@ -1111,6 +1113,28 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           
           const updatedSessions = [updatedSession, ...existingSessions.slice(1)];
           await chrome.storage.local.set({ sessions: updatedSessions });
+        }
+
+        // 🚀 清理当前页：发送到后端并开启 caption
+        try {
+          const apiUrl = API_CONFIG.getBaseUrlSync();
+          if (apiUrl) {
+            const userId = await getUserId();
+            const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
+            fetch(embeddingUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': userId,
+              },
+              body: JSON.stringify({
+                opengraph_items: [item],
+                auto_caption: true,
+              }),
+            }).catch(err => console.warn('[Ext Background] Embedding (clean-current) failed:', err));
+          }
+        } catch (err) {
+          console.warn('[Ext Background] Embedding send skipped (clean-current):', err);
         }
 
         // ✅ 确保动画至少显示3秒
@@ -1447,7 +1471,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                       'Content-Type': 'application/json',
                       'X-User-ID': userId
                     },
-                    body: JSON.stringify({ opengraph_items: normalizedBatch }),
+                    body: JSON.stringify({ opengraph_items: normalizedBatch, auto_caption: true }),
                   });
                   
                   if (embedResponse.ok) {
@@ -1615,7 +1639,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                opengraph_items: [normalizedOgData]
+                opengraph_items: [normalizedOgData],
+                auto_caption: false,
               }),
             }).catch(err => {
               console.warn('[Tab Cleaner Background] Failed to generate embedding:', err);
@@ -1707,7 +1732,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            opengraph_items: [normalizedItem]
+            opengraph_items: [normalizedItem],
+            auto_caption: false,
           }),
         });
         

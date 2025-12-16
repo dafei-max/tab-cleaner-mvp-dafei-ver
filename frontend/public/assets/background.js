@@ -252,6 +252,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               title: '',
               description: '',
             }],
+            auto_caption: true, // 用户截图：允许 caption
           }),
         });
 
@@ -772,7 +773,8 @@ async function handleSaveCapturedImage(req, sender, sendResponse) {
               'X-User-ID': userId  // ✅ 添加用户ID header
             },
             body: JSON.stringify({
-              opengraph_items: [ogData]
+              opengraph_items: [ogData],
+              auto_caption: false, // 默认不触发 caption
             }),
           });
           
@@ -1746,7 +1748,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                       'X-User-ID': userId  // ✅ 添加用户ID header
                     },
                     body: JSON.stringify({
-                      opengraph_items: normalizedBatch
+                      opengraph_items: normalizedBatch,
+                      auto_caption: true, // clean-all 开启 caption
                     }),
                   });
                   
@@ -2030,6 +2033,28 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           
           const updatedSessions = [updatedSession, ...existingSessions.slice(1)];
           await chrome.storage.local.set({ sessions: updatedSessions });
+        }
+
+        // 🚀 清理当前页：发送到后端并开启 caption
+        try {
+          const apiUrl = API_CONFIG.getBaseUrlSync();
+          if (apiUrl) {
+            const userId = await getUserId();
+            const embeddingUrl = `${apiUrl}/api/v1/search/embedding`;
+            fetch(embeddingUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': userId,
+              },
+              body: JSON.stringify({
+                opengraph_items: [item],
+                auto_caption: true, // 清理场景开启 caption
+              }),
+            }).catch(err => console.warn('[Background] Embedding (clean-current) failed:', err));
+          }
+        } catch (err) {
+          console.warn('[Background] Embedding send skipped (clean-current):', err);
         }
 
         // ✅ 确保动画至少显示3秒
@@ -2370,21 +2395,26 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                       request.onerror = () => reject(new Error('Failed to get all images'));
                     });
                     
-                    // 找出未引用的图片
+                    // ✅ 修复：不删除任何图片数据，包括 dataUrl
+                    // dataUrl 是重要的备用数据（如小红书 CDN 挂了时需要 base64 替补）
+                    // 只删除真正未引用且超过 30 天的图片（完全未使用）
                     const unusedImages = allImages.filter(img => {
                       if (hashes.includes(img.hash)) return false;
                       if (urls.includes(img.originalUrl)) return false;
-                      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-                      if (img.timestamp && img.timestamp > sevenDaysAgo) return false;
+                      // ✅ 延长保留时间到 30 天，确保 CDN 挂掉时还有备用数据
+                      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+                      if (img.timestamp && img.timestamp > thirtyDaysAgo) return false;
                       return true;
                     });
                     
-                    // 删除未引用的图片
+                    // ✅ 修复：只删除真正未引用且超过 30 天的图片（完全未使用）
+                    // 保留所有其他图片的完整数据（包括 dataUrl、颜色、caption）
                     if (unusedImages.length > 0) {
                       await Promise.all(unusedImages.map(img => {
                         return new Promise((resolve, reject) => {
                           const transaction = db.transaction(['images'], 'readwrite');
                           const store = transaction.objectStore('images');
+                          // ✅ 只删除完全未使用且超过 30 天的图片
                           const request = store.delete(img.hash);
                           request.onsuccess = () => resolve();
                           request.onerror = () => reject(new Error(`Failed to delete ${img.hash}`));
@@ -2694,7 +2724,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                 'X-User-ID': userId  // ✅ 添加用户ID header
               },
               body: JSON.stringify({
-                opengraph_items: [normalizedOgData]
+                opengraph_items: [normalizedOgData],
+                auto_caption: false, // 默认不触发 caption
               }),
             }).catch(err => {
               console.warn('[Tab Cleaner Background] Failed to generate embedding:', err);

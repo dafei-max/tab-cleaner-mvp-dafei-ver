@@ -1399,6 +1399,7 @@ export const PersonalSpace = () => {
                     title: item.title,
                     description: item.description,
                   }],
+                  auto_caption: true, // PersonalSpace 补 embedding，开启 caption
                 }),
               });
               
@@ -2211,8 +2212,28 @@ export const PersonalSpace = () => {
           .map(normalizeHex)
           .filter(Boolean);
         
+        // ✅ 修复：如果 session 中没有颜色，尝试从 IndexedDB 读取（即使 dataUrl 被清理了）
         if (itemColors.length === 0) {
-          // 没有颜色数据，尝试从 IndexedDB 提取
+          // 先尝试从 IndexedDB 读取颜色信息（即使 dataUrl 被清理了，颜色信息仍然存在）
+          const imageUrl = item.original_image_url || item.image || item.url;
+          if (imageUrl && !imageUrl.startsWith('data:') && !imageUrl.startsWith('eagle://')) {
+            try {
+              if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.loadImage) {
+                const indexedDbData = await window.__TAB_CLEANER_EAGLE_STORAGE.loadImage(imageUrl);
+                if (indexedDbData && indexedDbData.dominant_colors && indexedDbData.dominant_colors.length > 0) {
+                  // ✅ 从 IndexedDB 读取到颜色信息，直接使用
+                  itemsCopy[i] = { ...itemsCopy[i], dominant_colors: indexedDbData.dominant_colors };
+                  extractedCount++;
+                  console.log(`[ColorFilter] ✅ 从 IndexedDB 读取颜色信息: ${item.url?.substring(0, 50)}`);
+                  continue; // 跳过后续提取流程
+                }
+              }
+            } catch (error) {
+              console.warn(`[ColorFilter] ⚠️ 从 IndexedDB 读取颜色失败: ${item.url?.substring(0, 50)}`, error);
+            }
+          }
+          
+          // 如果 IndexedDB 中没有颜色信息，尝试从图片提取
           itemsToExtract.push({ index: i, item });
         }
       }
@@ -2223,15 +2244,27 @@ export const PersonalSpace = () => {
         
         const extractPromises = itemsToExtract.slice(0, 10).map(async ({ index, item }) => {
           try {
-            // 1. 优先从 IndexedDB 加载图片
-            let imageDataUrl = null;
-            
-            if (item.original_image_url) {
+            // ✅ 修复：优先从 IndexedDB 读取颜色信息（即使 dataUrl 被清理了，颜色信息仍然存在）
+            const imageUrl = item.original_image_url || item.image || item.url;
+            if (imageUrl && !imageUrl.startsWith('data:') && !imageUrl.startsWith('eagle://')) {
               try {
                 if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.loadImage) {
-                  const indexedDbData = await window.__TAB_CLEANER_EAGLE_STORAGE.loadImage(item.original_image_url);
+                  const indexedDbData = await window.__TAB_CLEANER_EAGLE_STORAGE.loadImage(imageUrl);
+                  // ✅ 优先使用 IndexedDB 中的颜色信息（即使 dataUrl 被清理了）
+                  if (indexedDbData && indexedDbData.dominant_colors && indexedDbData.dominant_colors.length > 0) {
+                    extractedCount++;
+                    console.log(`[ColorFilter] ✅ 从 IndexedDB 读取颜色信息: ${item.url?.substring(0, 50)}`);
+                    return { index, colors: indexedDbData.dominant_colors, itemId: item.id, itemUrl: item.url };
+                  }
+                  
+                  // 如果 IndexedDB 中有 dataUrl，使用它提取颜色
                   if (indexedDbData && indexedDbData.dataUrl) {
-                    imageDataUrl = indexedDbData.dataUrl;
+                    const colors = await extractColorsFromBase64(indexedDbData.dataUrl);
+                    if (colors && colors.length > 0) {
+                      extractedCount++;
+                      console.log(`[ColorFilter] ✅ 从 IndexedDB 图片提取颜色成功: ${item.url?.substring(0, 50)}`);
+                      return { index, colors, itemId: item.id, itemUrl: item.url };
+                    }
                   }
                 }
               } catch (error) {
@@ -2240,6 +2273,7 @@ export const PersonalSpace = () => {
             }
             
             // 2. 如果没有从 IndexedDB 加载到，尝试使用已有的 base64
+            let imageDataUrl = null;
             if (!imageDataUrl) {
               imageDataUrl =
                 item.thumbnail ||
@@ -2252,7 +2286,7 @@ export const PersonalSpace = () => {
               const colors = await extractColorsFromBase64(imageDataUrl);
               if (colors && colors.length > 0) {
                 extractedCount++;
-                console.log(`[ColorFilter] ✅ 从 IndexedDB 提取颜色成功: ${item.url?.substring(0, 50)}`);
+                console.log(`[ColorFilter] ✅ 从图片数据提取颜色成功: ${item.url?.substring(0, 50)}`);
                 return { index, colors, itemId: item.id, itemUrl: item.url };
               }
             }
