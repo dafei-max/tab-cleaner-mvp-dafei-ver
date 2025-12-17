@@ -299,8 +299,43 @@ function mergeScreenshotsIntoOpenGraph(opengraphItems, screenshotResults) {
   });
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   console.log("Tab Cleaner installed");
+  
+  // 🆕 检测首次安装或更新，设置新手教程标记
+  if (details.reason === 'install') {
+    // 首次安装
+    console.log('[Background] 🎉 First install detected, setting onboarding flag');
+    chrome.storage.local.set({ 
+      showOnboarding: true,
+      onboardingDismissed: false 
+    }, () => {
+      // 首次安装完成后自动打开个人空间，让引导弹窗立即出现
+      try {
+        chrome.tabs.create({
+          url: chrome.runtime.getURL("personalspace.html")
+        });
+      } catch (e) {
+        console.warn('[Background] Failed to open personalspace after install:', e);
+      }
+    });
+  } else if (details.reason === 'update') {
+    // 更新时也显示（可选，根据需求调整）
+    console.log('[Background] 🔄 Extension updated, setting onboarding flag');
+    chrome.storage.local.set({ 
+      showOnboarding: true,
+      onboardingDismissed: false 
+    }, () => {
+      // 扩展更新后也自动打开个人空间，展示最新新手引导
+      try {
+        chrome.tabs.create({
+          url: chrome.runtime.getURL("personalspace.html")
+        });
+      } catch (e) {
+        console.warn('[Background] Failed to open personalspace after update:', e);
+      }
+    });
+  }
 });
 
 chrome.action.onClicked.addListener(async (tab) => {

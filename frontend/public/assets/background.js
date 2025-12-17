@@ -194,8 +194,25 @@ function createContextMenus() {
 }
 
 // 扩展安装时创建菜单
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   createContextMenus();
+  
+  // 🆕 检测首次安装或更新，设置新手教程标记
+  if (details.reason === 'install') {
+    // 首次安装
+    console.log('[Background] 🎉 First install detected, setting onboarding flag');
+    chrome.storage.local.set({ 
+      showOnboarding: true,
+      onboardingDismissed: false 
+    });
+  } else if (details.reason === 'update') {
+    // 更新时也显示（可选，根据需求调整）
+    console.log('[Background] 🔄 Extension updated, setting onboarding flag');
+    chrome.storage.local.set({ 
+      showOnboarding: true,
+      onboardingDismissed: false 
+    });
+  }
 });
 
 // 启动时创建菜单

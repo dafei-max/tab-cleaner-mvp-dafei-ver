@@ -1,0 +1,43 @@
+<svg width="57" height="57" viewBox="0 0 57 57" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 近似 Figma Polygon 3：57x57, radius 8, fill #D9D9D9, stroke #979797 -->
+  <defs>
+    <!-- 内阴影效果近似：通过两层渐变叠加 -->
+    <filter id="innerShadow" x="0" y="0" width="57" height="57" filterUnits="userSpaceOnUse">
+      <feOffset dx="0" dy="-4" />
+      <feGaussianBlur stdDeviation="2" result="blur1" />
+      <feComposite in="SourceAlpha" in2="blur1" operator="arithmetic" k2="-1" k3="1" result="inner1" />
+      <feColorMatrix in="inner1" type="matrix"
+        values="0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0.25 0" />
+      <feOffset dx="0" dy="4" />
+      <feGaussianBlur stdDeviation="2" result="blur2" />
+      <feComposite in="SourceAlpha" in2="blur2" operator="arithmetic" k2="-1" k3="1" result="inner2" />
+      <feColorMatrix in="inner2" type="matrix"
+        values="0 0 0 0 1
+                0 0 0 0 1
+                0 0 0 0 1
+                0 0 0 0.25 0" />
+    </filter>
+  </defs>
+  <!-- 圆角三角形路径 -->
+  <path
+    d="M28.5 4
+       Q30 4 30.8 5.4
+       L50 40
+       Q50.8 41.4 50 42.8
+       Q49.2 44.2 47.6 44.2
+       H9.4
+       Q7.8 44.2 7 42.8
+       Q6.2 41.4 7 40
+       L26.2 5.4
+       Q27 4 28.5 4Z"
+    fill="#D9D9D9"
+    stroke="#979797"
+    stroke-width="1"
+    filter="url(#innerShadow)"
+  />
+</svg>
+
+

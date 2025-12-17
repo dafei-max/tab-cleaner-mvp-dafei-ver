@@ -29,6 +29,7 @@ import { useClustering } from "./hooks/useClustering";
 import { PersonalSpaceHeader } from "./components/PersonalSpaceHeader";
 import { SearchOverlay } from "./components/SearchOverlay";
 import { ViewContainer } from "./components/ViewContainer";
+import { OnboardingModal } from "../../components/OnboardingModal";
 import { 
   calculateDeltaE, 
   hexToLab, 
@@ -129,6 +130,81 @@ export const PersonalSpace = () => {
   const [selectedColorFilter, setSelectedColorFilter] = useState(null);
   const colorEnrichRunningRef = useRef(false); // 前端渲染后兜底补色，避免并发
   const colorFetchRunningRef = useRef(false); // 远程 fetch 补色并发控制
+
+  // 🆕 新手教程状态
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // 🆕 检查是否需要显示新手教程
+  useEffect(() => {
+    const checkOnboarding = async () => {
+      try {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          const result = await new Promise((resolve) => {
+            chrome.storage.local.get(['showOnboarding', 'onboardingDismissed'], (items) => {
+              resolve(items);
+            });
+          });
+
+          // 如果需要显示且未被关闭，则显示
+          if (result.showOnboarding && !result.onboardingDismissed) {
+            setShowOnboarding(true);
+          }
+        }
+      } catch (error) {
+        console.error('[PersonalSpace] Error checking onboarding:', error);
+      }
+    };
+
+    checkOnboarding();
+  }, []);
+
+  // 🆕 处理继续按钮
+  const handleOnboardingContinue = async () => {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        await new Promise((resolve) => {
+          chrome.storage.local.set({
+            showOnboarding: false,
+            onboardingDismissed: true,
+            onboardingCompleted: true,
+          }, () => {
+            console.log('[PersonalSpace] ✅ Onboarding continued');
+            resolve();
+          });
+        });
+      }
+      setShowOnboarding(false);
+      // TODO: 可以在这里启动新手教程流程
+    } catch (error) {
+      console.error('[PersonalSpace] Error handling onboarding continue:', error);
+    }
+  };
+
+  // 🆕 处理跳过按钮
+  const handleOnboardingSkip = async () => {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        await new Promise((resolve) => {
+          chrome.storage.local.set({
+            showOnboarding: false,
+            onboardingDismissed: true,
+            onboardingCompleted: false,
+          }, () => {
+            console.log('[PersonalSpace] ✅ Onboarding skipped');
+            resolve();
+          });
+        });
+      }
+      setShowOnboarding(false);
+    } catch (error) {
+      console.error('[PersonalSpace] Error handling onboarding skip:', error);
+    }
+  };
+
+  // 🆕 处理关闭按钮
+  const handleOnboardingClose = async () => {
+    await handleOnboardingSkip(); // 关闭等同于跳过
+  };
 
   // 选中分组名称
   const [selectedGroupName, setSelectedGroupName] = useState("未命名分组");
@@ -2723,6 +2799,15 @@ export const PersonalSpace = () => {
 
       return (
         <>
+          {/* 新手教程引导弹窗 */}
+          {showOnboarding && (
+            <OnboardingModal
+              onContinue={handleOnboardingContinue}
+              onSkip={handleOnboardingSkip}
+              onClose={handleOnboardingClose}
+            />
+          )}
+
           {/* 静态天空背景 - 使用 background-space.png */}
           {/* <FluidGlassCursor /> */} {/* ⚠️ 临时禁用：移除自定义cursor样式 */}
           <FlowingSkyBackground />

@@ -1,23 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Tab Cleaner MVP",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "A tab management tool with rounded corners UI",
   "icons": {
     "16": "static/img/icon-16.png",
     "48": "static/img/icon-48.png",
-    "128": "static/img/icon-128.png",
-    "256": "static/img/icon-256.png",
-    "512": "static/img/icon-512.png"
+    "128": "static/img/icon-128.png"
   },
   "action": {
     "default_title": "Tab Cleaner - Click to open",
     "default_icon": {
       "16": "static/img/icon-16.png",
       "48": "static/img/icon-48.png",
-      "128": "static/img/icon-128.png",
-      "256": "static/img/icon-256.png",
-      "512": "static/img/icon-512.png"
+      "128": "static/img/icon-128.png"
     }
   },
   "side_panel": {
@@ -33,8 +29,6 @@
         "assets/opengraph_local_v2.js",
         "assets/image_capture_enhanced.js",
         "assets/screenshot_capture.js",
-        "assets/pet_config.js",
-        "assets/pet_state_machine.js",
         "assets/pet.js",
         "assets/content.js"
       ],
@@ -61,7 +55,6 @@
         "assets/*.css",
         "assets/card.html",
         "static/img/*",
-        "static/video/*",
         "test_opengraph_simple.html"
       ],
       "matches": ["<all_urls>"],

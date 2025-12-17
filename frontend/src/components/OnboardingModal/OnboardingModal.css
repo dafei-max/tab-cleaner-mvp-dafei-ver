@@ -1,0 +1,379 @@
+/* 新手教程引导弹窗样式 */
+
+.onboarding-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+/* 气泡背景层 */
+.onboarding-bubble-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.onboarding-bubble-layer .bubble-bg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 确保内容层在气泡背景之上（只调 z-index，不改 position，避免覆盖子元素自身的 absolute） */
+.onboarding-container > *:not(.onboarding-bubble-layer) {
+  z-index: 1;
+}
+
+/* 主容器 - Overlay: 1047x708, 1:1 还原居中 */
+.onboarding-container {
+  position: relative;
+  width: 1047px;
+  height: 708px;
+  /* 形状和描边交给 bubble-lay.svg 内部的矢量完成，这里保持透明容器即可 */
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 21px;
+  overflow: hidden;
+}
+
+/* 关闭按钮 - close-button: 55x55, left: 960px, top: 6px */
+.onboarding-close-button {
+  position: absolute;
+  width: 55px;
+  height: 55px;
+  left: 960px;
+  top: 6px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid #FFFFFF;
+  box-shadow: 3px 4px 4px rgba(130, 130, 130, 0.25);
+  border-radius: 21px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  transition: all 0.2s ease;
+}
+
+.onboarding-close-button:hover {
+  background: rgba(255, 255, 255, 0.7);
+  transform: scale(1.05);
+  transform-origin: center;
+}
+
+.onboarding-close-button .close-icon {
+  /* 让 X 在 55x55 容器内完全居中，由父级 flex 控制对齐 */
+  position: static;
+  width: 34px;
+  height: 34px;
+  font-family: 'FZLanTingYuanS-R-GB', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 48px;
+  line-height: 56px;
+  letter-spacing: 1px;
+  color: #FFFFFF;
+  text-shadow: 3px 2px 6.1px rgba(0, 0, 0, 0.25);
+  transform: rotate(45deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 箭头 - Arrow.svg */
+.onboarding-arrow {
+  position: absolute;
+  width: 75px;
+  height: 45px;
+  /* 水平居中，垂直位置沿用 Figma 百分比（约 Tab 和卡片中间） */
+  left: 50.05%;
+  top: 56%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* 文本内容区域 - textcontent */
+.onboarding-textcontent {
+  position: absolute;
+  width: 735px;
+  height: 312px;
+  left: calc(50% - 735px / 2 + 17px);
+  top: 147px;
+}
+
+/* 欢迎来到 Tab 洗衣房 我是值班长 Leo */
+.onboarding-title {
+  position: absolute;
+  width: 735px;
+  height: 74px;
+  left: calc(50% - 735px / 2);
+  top: 0px;
+  font-family: 'FZLanTingYuanS-R-GB', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 32px;
+  line-height: 37px;
+  text-align: center;
+  letter-spacing: 1px;
+  color: #4D4D4D;
+  margin: 0;
+  z-index: 2;
+}
+
+/* 很多 Tab 就像堆在一起的衣物... 接下来我们来试试吧～ */
+.onboarding-description {
+  position: absolute;
+  width: 514px;
+  left: calc(50% - 514px / 2 + 5.5px);
+  top: 33.97%;
+  bottom: 21.15%;
+  font-family: 'FZLanTingYuanS-R-GB', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 20px;
+  line-height: 23px;
+  text-align: center;
+  letter-spacing: 1px;
+  color: #A4A4A4;
+  margin: 0;
+  z-index: 2;
+}
+
+/* Tab 示例 - Tab: 398x133.13, left: 149px, top: 382px */
+.onboarding-tab-example {
+  position: absolute;
+  width: 398px;
+  height: 133.13px;
+  left: 149px;
+  top: 382px;
+  pointer-events: none;
+}
+
+/* Tab.svg 图片本身等比例铺满容器 */
+.onboarding-tab-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.tab-vector-619 {
+  position: absolute;
+  width: 68.5px;
+  height: 0px;
+  left: 350px; /* Figma 精确值：相对于 Overlay 容器 */
+  top: 304px; /* Figma 精确值：相对于 Overlay 容器 */
+  border: 6px solid #CECECE;
+  border-radius: 11px;
+}
+
+/* 卡片示例 - card: 108x153, left: 685px, top: 368px */
+.onboarding-card-example {
+  position: absolute;
+  width: 108px;
+  height: 153px;
+  left: 685px;
+  top: 368px;
+  pointer-events: none;
+}
+
+.card-glow {
+  position: absolute;
+  width: 140px;
+  height: 173px;
+  left: -16px;
+  top: -10px;
+  background: #FFFFFF;
+  filter: blur(23.45px);
+}
+
+.card-wrapper {
+  position: absolute;
+  width: 108px;
+  height: 153px;
+  left: 0px;
+  top: 0px;
+  filter: drop-shadow(0px 1px 6.6px rgba(255, 255, 255, 0.8));
+}
+
+.card-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0.91px 0.91px 7.28px rgba(84, 84, 84, 0.25));
+}
+
+/* 按钮组 - button-group */
+.onboarding-buttons {
+  position: absolute;
+  width: 462px;
+  height: 57px;
+  left: calc(50% - 462px / 2 + 15.5px);
+  top: 560px;
+  display: flex;
+  align-items: center;
+  z-index: 10;
+}
+
+.onboarding-skip-btn:hover,
+.onboarding-continue-btn:hover {
+  transform: scale(1.05);
+  transition: transform 0.2s ease;
+}
+
+.onboarding-skip-btn:active,
+.onboarding-continue-btn:active {
+  transform: scale(0.95);
+}
+
+/* 跳过按钮 - 相对于 button-group: 215x57, left: 0px, top: 0px */
+.onboarding-skip-btn {
+  position: absolute;
+  width: 240px; /* 拉大一些，避免文字换行 */
+  height: 57px;
+  left: 0px;
+  top: 0px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.onboarding-skip-btn .btn-polygon {
+  position: absolute;
+  width: 57px;
+  height: 57px;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  /* Figma: Rotation -90° */
+  transform: rotate(-90deg);
+}
+
+.onboarding-skip-btn .btn-text {
+  position: absolute;
+  width: auto;
+  height: 28px;
+  left: 66px;
+  top: 15px;
+  font-family: 'FZLanTingYuanS-R-GB', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 28px;
+  letter-spacing: 1px;
+  color: #A4A4A4;
+  z-index: 1;
+  white-space: nowrap;
+}
+
+/* 继续按钮 - 相对于 button-group: 106x57, left: 356px, top: 0px */
+.onboarding-continue-btn {
+  position: absolute;
+  width: 130px; /* 稍微放大，保证“继续”一行显示居中更自然 */
+  height: 57px;
+  left: 356px;
+  top: 0px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.onboarding-continue-btn .btn-polygon {
+  position: absolute;
+  width: 57px;
+  height: 57px;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  /* 三角尖朝右（保持 SVG 默认方向） */
+  transform: rotate(0deg);
+}
+
+.onboarding-continue-btn .btn-text {
+  position: absolute;
+  width: auto; /* 自动适配文字宽度，避免换行 */
+  height: 28px;
+  left: 57px;
+  top: 15px;
+  font-family: 'FZLanTingYuanS-R-GB', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 28px;
+  letter-spacing: 1px;
+  color: #A4A4A4;
+  z-index: 1;
+  white-space: nowrap; /* 强制单行显示“继续” */
+}
+
+/* wavehand-elephant: 121x121, left: 111px, top: -38px (Figma 精确值) */
+.onboarding-pet {
+  position: absolute;
+  width: 121px;
+  height: 121px;
+  /* 再向右 10px 微调 */
+  left: 240px;
+  top: 113px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.onboarding-pet .pet-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* 响应式调整 */
+@media (max-width: 1200px) {
+  .onboarding-container {
+    width: 90vw;
+    height: auto;
+    min-width: 600px;
+    min-height: 500px;
+  }
+  
+  .onboarding-textcontent {
+    width: 90%;
+    height: auto;
+  }
+  
+  .onboarding-title {
+    font-size: 48px;
+    line-height: 56px;
+    width: 90%;
+  }
+  
+  .onboarding-description {
+    width: 90%;
+    font-size: 20px;
+  }
+  
+  .onboarding-tab-example {
+    display: none;
+  }
+  
+  .onboarding-card-example {
+    display: none;
+  }
+}

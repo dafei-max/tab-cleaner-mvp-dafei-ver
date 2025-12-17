@@ -35,17 +35,6 @@
   let petMainEl = null;
   let choiceOverlayEl = null;
   let cleaningOverlay = null; // 全屏加载动画覆盖层
-  let avatarVideoEl = null;   // 大象视频元素
-  let petState = null;        // 当前状态机状态
-  let petStateEndHandler = null; // 视频结束事件处理器
-  let roamTimer = null;       // 漫步定时器
-  let longPressTimer = null;  // 长按定时器
-  let hoverCooldown = false;  // Hover 触发节流
-  let isDraggingPet = false;  // 标记用户拖拽
-  let petFSM = null;          // 状态机实例
-  let clickCount = 0;         // 连续点击计数器
-  let clickTimer = null;      // 点击时间窗口定时器
-  let clickCooldown = false;  // 点击后冷却期，避免 hover 立即触发 wave
   
   // ✅ 初始化状态标志：标记容器是否真正添加到 DOM
   let petInitialized = false;
@@ -293,8 +282,6 @@
     chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       if (req && req.action === 'hide-cleaning-animation') {
         hideFullscreenCleaningAnimation();
-        // 清理完成动画：播放完成后跳转 personal space
-        setPetState(PET_STATES.CLEAN_SUCCESS, { loop: false, onEnded: openPersonalSpace, nextState: PET_STATES.IDLE });
         sendResponse?.({ ok: true });
         return true;
       }
@@ -387,7 +374,6 @@
 
     // 显示全屏加载动画
     showFullscreenCleaningAnimation();
-    setPetState(PET_STATES.CLEAN_WAIT, { loop: true });
     
     const stopEffect = triggerCleaningEffect(2500);
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
@@ -415,8 +401,6 @@
     elephant: 'static/img/elephant.svg',
     squirrel: 'static/img/squrrial.svg',
   };
-  // ========== 动画状态机配置（由外部脚本提供） ==========
-  const PET_STATES = (window.TabCleanerPetFSM && window.TabCleanerPetFSM.PET_STATES) || {};
   let currentPetId = DEFAULT_PET_ID;
 
   // ========== 按钮组配置 ==========
@@ -674,9 +658,12 @@
       }
     }
     
-    // 最后的降级：直接抛错，避免伪造错误 URL
+    // 最后的降级：使用默认扩展 ID（如果已知）
     if (!url) {
-      throw new Error("[Tab Cleaner Pet] asset(): cannot resolve extension URL, likely running outside extension context");
+      console.warn("[Tab Cleaner Pet] Could not determine extension ID, using fallback");
+      const fallbackId = '71231ac5-adc5-470f-bc49-23396f94c4fd';
+      url = `chrome-extension://${fallbackId}/${path}`;
+      method = 'fallback';
     }
     
     // 调试日志（只记录一次，避免过多日志）
@@ -688,43 +675,6 @@
     console.log(`[Tab Cleaner Pet] Asset URL for "${path}":`, url);
     return url;
   }
-
-  // ========== 动画状态机辅助 ==========
-  function getVideoSrcForState(state) {
-    if (window.TabCleanerPetFSM && window.TabCleanerPetFSM.getVideoSrcForState) {
-      return window.TabCleanerPetFSM.getVideoSrcForState(state, asset);
-    }
-    // 兼容兜底（不应走到这里）
-    return asset('static/video/idle-elephant.webm');
-  }
-
-  function openPersonalSpace() {
-    try {
-      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-        chrome.runtime.sendMessage({ action: "open-personalspace" });
-      } else {
-        // 退化：尝试直接跳转
-        const url = asset('personalspace.html');
-        if (url) {
-          window.open(url, '_blank');
-        }
-      }
-    } catch (e) {
-      console.warn('[Tab Cleaner Pet] Failed to open personal space:', e);
-    }
-  }
-
-  function clearRoamTimer() {
-    petFSM?.clearRoamTimer();
-  }
-
-  function scheduleRoam() {
-    petFSM?.scheduleRoam();
-  }
-
-  const setPetState = (state, options = {}) => {
-    petFSM?.setState(state, options);
-  };
 
   // 加载 CSS
   async function loadPetCss() {
@@ -1018,19 +968,16 @@
   function generatePetHTML() {
     // 根据当前宠物类型决定使用视频还是图片
     const isElephant = currentPetId === 'elephant';
-    const videoUrl = getVideoSrcForState(PET_STATES.IDLE);
     const avatarContent = isElephant 
-      ? `<video class="avatar-video" autoplay loop muted playsinline preload="auto" src="${videoUrl}"></video>`
+      ? `<video class="avatar-video" autoplay loop muted playsinline>
+           <source src="${asset('static/video/demo_alpha.webm')}" type="video/webm">
+         </video>`
       : `<div class="avatar"></div>`;
-    
-    // 调试日志
-    if (isElephant) {
-      console.log('[Tab Cleaner Pet] Video URL generated:', videoUrl);
-    }
     
     return `
       <div class="desktop-pet-main">
         <div class="pet-main">
+          <img class="props" alt="Props" src="${asset('static/img/props.svg')}" />
           ${avatarContent}
           <div class="chat-bubble">
             <div class="div">
@@ -1147,84 +1094,11 @@
 
       // 绑定事件
       const avatar = shadow.querySelector('.avatar');
-      const avatarVideo = shadow.querySelector('.avatar-video');
       const choiceOverlay = shadow.querySelector('.choice-overlay');
       const actionButtons = shadow.querySelectorAll('.action-button');
       petMainEl = shadow.querySelector('.desktop-pet-main');
       choiceOverlayEl = choiceOverlay;
-      avatarVideoEl = avatarVideo;
-      // 初始化状态机
-      if (window.TabCleanerPetFSM && !petFSM) {
-        petFSM = window.TabCleanerPetFSM.createPetStateMachine({
-          assetFn: asset,
-          petContainerRef: () => petContainer,
-          videoElRef: () => avatarVideoEl,
-          getPetId: () => currentPetId,
-          getIsDragging: () => isDraggingPet,
-          openPersonalSpace,
-          config: window.__TAB_CLEANER_PET_CONFIG,
-        });
-      }
       applyPetSkin(currentPetId);
-      
-      // ✅ 确保视频循环播放和透明背景
-      if (avatarVideo) {
-        // 设置视频属性
-        avatarVideo.setAttribute('loop', '');
-        avatarVideo.setAttribute('autoplay', '');
-        avatarVideo.setAttribute('muted', '');
-        avatarVideo.setAttribute('playsinline', '');
-        avatarVideo.setAttribute('preload', 'auto');
-        // 初始 src 若未设置，使用 idle
-        if (!avatarVideo.src) {
-          avatarVideo.src = getVideoSrcForState(PET_STATES.IDLE);
-        }
-        
-        // 确保视频加载后开始播放
-        const playVideo = () => {
-          if (avatarVideo && avatarVideo.readyState >= 2) { // HAVE_CURRENT_DATA
-            avatarVideo.play().catch(err => {
-              console.warn('[Tab Cleaner Pet] Video autoplay failed:', err);
-              // 如果自动播放失败，尝试用户交互后播放
-              const tryPlayOnInteraction = () => {
-                avatarVideo.play().catch(() => {});
-                document.removeEventListener('click', tryPlayOnInteraction);
-                document.removeEventListener('touchstart', tryPlayOnInteraction);
-              };
-              document.addEventListener('click', tryPlayOnInteraction, { once: true });
-              document.addEventListener('touchstart', tryPlayOnInteraction, { once: true });
-            });
-          }
-        };
-        
-        // 多个事件监听确保播放
-        avatarVideo.addEventListener('loadeddata', playVideo);
-        avatarVideo.addEventListener('canplay', playVideo);
-        avatarVideo.addEventListener('canplaythrough', playVideo);
-        avatarVideo.addEventListener('error', (e) => {
-          console.error('[Tab Cleaner Pet] Video error:', e, {
-            error: avatarVideo.error,
-            src: avatarVideo.currentSrc || avatarVideo.src,
-            networkState: avatarVideo.networkState,
-            readyState: avatarVideo.readyState,
-            baseHref: document.baseURI
-          });
-        });
-        
-        // 如果视频已经加载完成，立即尝试播放
-        if (avatarVideo.readyState >= 2) {
-          playVideo();
-        }
-        
-        // 调试日志
-        console.log('[Tab Cleaner Pet] Video element initialized:', {
-          src: avatarVideo.src,
-          readyState: avatarVideo.readyState,
-          autoplay: avatarVideo.autoplay,
-          loop: avatarVideo.loop,
-          muted: avatarVideo.muted
-        });
-      }
 
       // ✅ 添加拖动功能 - 让整个 petContainer 可以拖动
       let isDragging = false;
@@ -1243,7 +1117,6 @@
         }
         
         isDragging = true;
-        isDraggingPet = true;
         const rect = petContainer.getBoundingClientRect();
         initialLeft = rect.left;
         initialTop = rect.top;
@@ -1276,7 +1149,6 @@
       const handleMouseUp = () => {
         if (isDragging) {
           isDragging = false;
-          isDraggingPet = false;
           petContainer.style.cursor = '';
         }
       };
@@ -1296,143 +1168,64 @@
       petContainer.style.cursor = 'grab';
       petContainer.style.userSelect = 'none';
 
-      // 点击 avatar 或 avatar-video 显示/隐藏按钮 + 互动状态
-      const handleAvatarClick = (e) => {
-        // 如果正在拖动，不触发点击
-        if (isDragging) {
-          return;
-        }
-        
-        // ✅ 点击时立即切换按钮显示状态（兼容原有功能）
-        setButtonsVisible(!isButtonsVisible);
-        
-        // ✅ 同时播放 dizzy 动画（优先级高于 wave）
-        setPetState(PET_STATES.DIZZY, { nextState: PET_STATES.IDLE });
-        
-        // 设置点击冷却期，避免 hover 立即触发 wave
-        clickCooldown = true;
-        setTimeout(() => {
-          clickCooldown = false;
-        }, 2000); // 2秒冷却期，确保 dizzy 动画播放完
-      };
-      
+      // 点击 avatar 显示/隐藏按钮
       if (avatar) {
-        avatar.addEventListener('click', handleAvatarClick);
-        avatar.addEventListener('mouseenter', () => {
-          // ✅ 如果刚点击过（在冷却期内），不触发 wave，让 dizzy 动画优先
-          if (clickCooldown || hoverCooldown) return;
-          hoverCooldown = true;
-          setPetState(PET_STATES.WAVE, { nextState: PET_STATES.IDLE });
-          setTimeout(() => hoverCooldown = false, 1200);
+        avatar.addEventListener('click', (e) => {
+          // 如果正在拖动，不触发点击
+          if (isDragging) {
+            return;
+          }
+          setButtonsVisible(!isButtonsVisible);
         });
-      }
-      
-      if (avatarVideo) {
-        avatarVideo.addEventListener('click', handleAvatarClick);
-        avatarVideo.addEventListener('mouseenter', () => {
-          // ✅ 如果刚点击过（在冷却期内），不触发 wave，让 dizzy 动画优先
-          if (clickCooldown || hoverCooldown) return;
-          hoverCooldown = true;
-          setPetState(PET_STATES.WAVE, { nextState: PET_STATES.IDLE });
-          setTimeout(() => hoverCooldown = false, 1200);
-        });
-      }
 
-      // 拖拽到宠物区域提示（用于喂图）
-      const handleDragEnter = (e) => {
-        e.preventDefault();
-        setPetState(PET_STATES.ATTENTION, { loop: true });
-      };
-      const handleDragOver = (e) => {
-        e.preventDefault();
-        setPetState(PET_STATES.ATTENTION, { loop: true });
-      };
-      const handleDragLeave = () => {
-        setPetState(PET_STATES.IDLE, { loop: true });
-      };
-      const handleDrop = () => {
-        setPetState(PET_STATES.CLEAN_SUCCESS, { nextState: PET_STATES.IDLE });
-      };
-      if (petMainEl) {
-        petMainEl.addEventListener('dragenter', handleDragEnter);
-        petMainEl.addEventListener('dragover', handleDragOver);
-        petMainEl.addEventListener('dragleave', handleDragLeave);
-        petMainEl.addEventListener('drop', handleDrop);
-      }
+        // 首次展示时给一个拖拽提示气泡
+        try {
+          if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+            chrome.storage.local.get(['petDragHintShown'], (items) => {
+              if (items.petDragHintShown) return;
+              const main = shadow.querySelector('.desktop-pet-main');
+              if (!main) return;
 
-      // 长按抬起状态
-      const startLongPress = () => {
-        longPressTimer = setTimeout(() => {
-          setPetState(PET_STATES.LIFTED, { loop: true });
-        }, 400);
-      };
-      const cancelLongPress = () => {
-        if (longPressTimer) {
-          clearTimeout(longPressTimer);
-          longPressTimer = null;
-        }
-        setPetState(PET_STATES.IDLE, { loop: true });
-      };
+              const hint = document.createElement('div');
+              hint.textContent = '拖拽网页图片到我这里即可收藏';
+              hint.style.cssText = `
+                position: absolute;
+                bottom: 210px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(15,23,42,0.92);
+                color: #F9FAFB;
+                padding: 6px 12px;
+                border-radius: 999px;
+                font-size: 12px;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                box-shadow: 0 6px 18px rgba(15,23,42,0.4);
+                z-index: 9999;
+                opacity: 0;
+                pointer-events: none;
+                white-space: nowrap;
+                transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+              `;
 
-      const attachLongPress = (el) => {
-        if (!el) return;
-        el.addEventListener('mousedown', startLongPress);
-        el.addEventListener('touchstart', startLongPress);
-        el.addEventListener('mouseup', cancelLongPress);
-        el.addEventListener('mouseleave', cancelLongPress);
-        el.addEventListener('touchend', cancelLongPress);
-        el.addEventListener('touchcancel', cancelLongPress);
-      };
-      attachLongPress(avatar);
-      attachLongPress(avatarVideo);
+              main.appendChild(hint);
 
-      // 首次展示时给一个拖拽提示气泡
-      try {
-        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-          chrome.storage.local.get(['petDragHintShown'], (items) => {
-            if (items.petDragHintShown) return;
-            const main = shadow.querySelector('.desktop-pet-main');
-            if (!main) return;
+              requestAnimationFrame(() => {
+                hint.style.opacity = '1';
+                hint.style.transform = 'translateX(-50%) translateY(-4px)';
+              });
 
-            const hint = document.createElement('div');
-            hint.textContent = '拖拽网页图片到我这里即可收藏';
-            hint.style.cssText = `
-              position: absolute;
-              bottom: 210px;
-              left: 50%;
-              transform: translateX(-50%);
-              background: rgba(15,23,42,0.92);
-              color: #F9FAFB;
-              padding: 6px 12px;
-              border-radius: 999px;
-              font-size: 12px;
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-              box-shadow: 0 6px 18px rgba(15,23,42,0.4);
-              z-index: 9999;
-              opacity: 0;
-              pointer-events: none;
-              white-space: nowrap;
-              transition: opacity 0.25s ease-out, transform 0.25s ease-out;
-            `;
+              setTimeout(() => {
+                hint.style.opacity = '0';
+                hint.style.transform = 'translateX(-50%) translateY(0)';
+                setTimeout(() => hint.remove(), 250);
+              }, 3500);
 
-            main.appendChild(hint);
-
-            requestAnimationFrame(() => {
-              hint.style.opacity = '1';
-              hint.style.transform = 'translateX(-50%) translateY(-4px)';
+              chrome.storage.local.set({ petDragHintShown: true }, () => {});
             });
-
-            setTimeout(() => {
-              hint.style.opacity = '0';
-              hint.style.transform = 'translateX(-50%) translateY(0)';
-              setTimeout(() => hint.remove(), 250);
-            }, 3500);
-
-            chrome.storage.local.set({ petDragHintShown: true }, () => {});
-          });
+          }
+        } catch (e) {
+          // 忽略提示错误
         }
-      } catch (e) {
-        // 忽略提示错误
       }
 
       if (actionButtons && actionButtons.length > 0) {
@@ -1445,9 +1238,6 @@
           });
         });
       }
-
-      // 初始化闲置状态并安排漫步
-      setPetState(PET_STATES.IDLE, { loop: true });
 
       // ✅ 确保 body 存在后再添加，只有真正添加到 DOM 后才标记为初始化完成
       const addToDOM = () => {
@@ -1501,8 +1291,6 @@
             petContainer.style.display = "block";
             isPetVisible = true;
             setButtonsVisible(false);
-            // 初次显示先挥手，再回到闲置
-            setPetState(PET_STATES.WAVE, { nextState: PET_STATES.IDLE });
             console.log("[Tab Cleaner Pet] Pet shown successfully", {
               containerExists: !!petContainer,
               display: petContainer.style.display,
@@ -1595,16 +1383,6 @@
     isVisible: () => isPetVisible,
     ensureInitialized: ensureInitialized, // ✅ 新增：等待初始化完成的方法
     forceShow: forceShow, // ✅ v2.1: 强制显示方法
-    setState: (state, options) => {
-      try {
-        if (state && petFSM && petFSM.PET_STATES) {
-          const normalized = petFSM.PET_STATES[state.toUpperCase()] || state;
-          petFSM.setState(normalized, options || {});
-        }
-      } catch (e) {
-        console.warn('[Tab Cleaner Pet] Failed to set state from external caller:', state, e);
-      }
-    },
   };
   
   try {
