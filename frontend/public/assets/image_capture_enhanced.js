@@ -1402,6 +1402,19 @@
         
         // 高亮桌宠
         highlightPet();
+
+        // 💬 拖拽图片开始时，让桌宠气泡说一句“丢给我/这个我熟” (id:20 或 id:24)
+        try {
+          const bubbleFsm = window.__TAB_CLEANER_PET_CHAT_BUBBLE;
+          if (bubbleFsm && typeof bubbleFsm.trigger === 'function') {
+            const candidateIds = [20, 24];
+            const randomId = candidateIds[Math.floor(Math.random() * candidateIds.length)];
+            console.log('[Image Capture] 💬 Trigger pet chat bubble on drag start, id =', randomId);
+            bubbleFsm.trigger(null, randomId);
+          }
+        } catch (err) {
+          console.warn('[Image Capture] Failed to trigger pet chat bubble on drag start:', err);
+        }
       }
     }, true);
     
