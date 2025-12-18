@@ -41,6 +41,10 @@
   
   // ✅ 全局状态同步：从 Chrome Storage 读取宠物状态
   let petStateLoaded = false;
+
+  // 🧠 状态机实例（仅大象使用）
+  let petFsm = null;
+  let petStates = null;
   
   /**
    * 显示全屏加载动画（飘泡泡效果）
@@ -474,23 +478,25 @@
         
         // ✅ v2.2: 根据存储状态立即显示或隐藏（模块已加载，响应更快）
         if (shouldBeVisible) {
-          // 延迟一下确保页面已加载
+          // ✅ 立即显示，减少延迟
           const showAndRestorePosition = async () => {
             await showPet();
             // ✅ 恢复位置（在容器创建后）
             if (result.petPosition && petContainer) {
-              petContainer.style.left = result.petPosition.left;
-              petContainer.style.top = result.petPosition.top;
+              petContainer.style.left = result.petPosition.left || '0px';
+              petContainer.style.top = result.petPosition.top || '0px';
               console.log('[Tab Cleaner Pet] Position restored:', result.petPosition);
             }
           };
           
+          // ✅ 如果 DOM 已加载，立即执行；否则等待 DOMContentLoaded
           if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
-              setTimeout(() => showAndRestorePosition(), 100);
+              showAndRestorePosition();
             }, { once: true });
           } else {
-            setTimeout(() => showAndRestorePosition(), 100);
+            // DOM 已就绪，立即执行
+            showAndRestorePosition();
           }
         } else {
           // ✅ v2.2: 如果应该隐藏，确保容器已创建但隐藏（为后续显示做准备）
@@ -524,8 +530,8 @@
           return;
         }
         const position = petContainer ? {
-          left: petContainer.style.left,
-          top: petContainer.style.top
+          left: petContainer.style.left || '0px',
+          top: petContainer.style.top || '0px'
         } : null;
         
         await new Promise((resolve) => {
@@ -614,13 +620,20 @@
     let url = null;
     let method = '';
     
-    // 方式 1: 使用 chrome.runtime.getURL（如果可用）
+    // 方式 1: 使用 chrome.runtime.getURL（如果可用且上下文有效）
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
-      try {
-        url = chrome.runtime.getURL(path);
-        method = 'chrome.runtime.getURL';
-      } catch (e) {
-        console.warn("[Tab Cleaner Pet] chrome.runtime.getURL failed:", e);
+      // ✅ 先检查扩展上下文是否有效（避免 "Extension context invalidated" 错误）
+      if (chrome.runtime.id) {
+        try {
+          url = chrome.runtime.getURL(path);
+          method = 'chrome.runtime.getURL';
+        } catch (e) {
+          // 静默处理，不输出警告（扩展上下文失效是正常情况，会在重新加载时发生）
+          // console.warn("[Tab Cleaner Pet] chrome.runtime.getURL failed:", e);
+        }
+      } else {
+        // 扩展上下文已失效，跳过此方式
+        // console.log("[Tab Cleaner Pet] Extension context invalidated, skipping chrome.runtime.getURL");
       }
     }
     
@@ -697,14 +710,6 @@
           width: 269px;
         }
 
-        .desktop-pet-main .props {
-          height: 113px;
-          left: 0;
-          position: absolute;
-          top: 78px;
-          width: 84px;
-        }
-
         .desktop-pet-main .avatar {
           background-image: url("${asset(getPetAsset(DEFAULT_PET_ID))}");
           background-size: contain;
@@ -736,79 +741,80 @@
 
         .desktop-pet-main .avatar::after,
         .desktop-pet-main .avatar-video::after {
-          content: "";
-          position: absolute;
-          inset: -20px;
-          border-radius: 50%;
-          background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(130,199,255,0.2) 60%, rgba(255,255,255,0) 100%);
-          opacity: 0;
-          transition: opacity 0.25s ease;
-          filter: blur(4px);
-          pointer-events: none;
+          /* 去掉包裹桌宠的光圈 / 气泡 */
+          content: none;
         }
 
         .desktop-pet-main .avatar:hover,
         .desktop-pet-main .avatar-video:hover {
-          transform: translateY(-6px) scale(1.03);
-          box-shadow: 0 10px 18px rgba(82, 160, 255, 0.35);
+          /* 只保留非常轻微的位移，不要任何蓝色发光 */
+          transform: translateY(-2px) scale(1.01);
+          box-shadow: none;
         }
 
         .desktop-pet-main .avatar:hover::after {
-          opacity: 0.9;
+          /* 不再使用 ::after 做发光效果 */
+          opacity: 0;
         }
 
         .desktop-pet-main .avatar-video:hover::after {
           opacity: 0.9;
         }
 
+        /* 🎯 聊天气泡样式（基于 Figma 设计） */
         .desktop-pet-main .chat-bubble {
-          display: none;
-          height: 89px;
-          left: 160px;
           position: absolute;
-          top: 0;
-          width: 109px;
+          left: 315px;  /* 桌宠右边 */
+          top: 0px;
+          width: 329px;
+          height: 225px;
+          display: none;
+          opacity: 0;
+          transform: translateY(10px) scale(0.9);
+          pointer-events: none;
+          z-index: 10;
         }
 
-        .desktop-pet-main .div {
-          flex: 1;
-          position: relative;
-          width: 111px;
+        .desktop-pet-main .chat-bubble.visible {
+          display: block;
         }
 
         .desktop-pet-main .chatbubble-bg {
-          height: 100.00%;
-          left: 0;
           position: absolute;
+          left: 0;
           top: 0;
-          width: 98.16%;
+          width: 329px;
+          height: 225px;
+          opacity: 0.9;
         }
 
-        .desktop-pet-main .rectangle {
-          background-color: #fdfdfd;
-          height: 19.07%;
-          left: 38.74%;
+        .desktop-pet-main .chat-bubble-vector {
           position: absolute;
-          top: 20.19%;
-          width: 20.72%;
+          left: 147px;
+          top: 24px;
+          width: 28.94px;
+          height: 28.9px;
+          stroke: #231815;
+          stroke-width: 0.99px;
         }
 
-        .desktop-pet-main .emoji-status {
-          align-items: center;
-          color: #000000;
-          display: flex;
-          font-family: "Inter", Helvetica;
-          font-size: 10px;
+        .desktop-pet-main .chat-bubble-text {
+          position: absolute;
+          left: 58px;
+          top: 41px;
+          width: 226px;
+          height: 133px;
+          font-family: 'FZLanTingYuanS-R-GB', '方正兰亭', 'Microsoft YaHei', '微软雅黑', sans-serif;
           font-weight: 400;
-          height: 33.66%;
-          justify-content: center;
-          left: 0;
-          letter-spacing: 0;
-          line-height: normal;
-          position: absolute;
-          text-align: center;
-          top: 26.92%;
-          width: 98.20%;
+          font-size: 18px;
+          line-height: 1.15625em;
+          letter-spacing: 5.56%;
+          color: #000000;
+          text-align: left;
+          display: flex;
+          align-items: center;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
         }
 
         .desktop-pet-main .choice-overlay {
@@ -960,6 +966,67 @@
             opacity: 0;
           }
         }
+
+        /* 🎯 拖拽释放时的弹性回弹 */
+        #tab-cleaner-pet-container.released {
+          transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* 🎯 被甩动时的晃动 */
+        @keyframes wobble {
+          0%, 100% { transform: rotate(0deg); }
+          20% { transform: rotate(-8deg); }
+          40% { transform: rotate(6deg); }
+          60% { transform: rotate(-4deg); }
+          80% { transform: rotate(2deg); }
+        }
+
+        #tab-cleaner-pet-container.shaken {
+          animation: wobble 0.5s ease-out;
+        }
+
+        /* 🎯 落地时的压扁回弹 */
+        @keyframes squish {
+          0% { transform: scaleY(1) scaleX(1); }
+          30% { transform: scaleY(0.85) scaleX(1.15); }  /* 压扁 */
+          50% { transform: scaleY(1.1) scaleX(0.9); }    /* 拉长 */
+          70% { transform: scaleY(0.95) scaleX(1.05); }
+          100% { transform: scaleY(1) scaleX(1); }
+        }
+
+        #tab-cleaner-pet-container.landed {
+          animation: squish 0.4s ease-out;
+          transform-origin: bottom center;  /* 从底部变形 */
+        }
+
+        /* 🎯 点击反馈：Ripple 效果 */
+        @keyframes ripple {
+          0% {
+            transform: scale(0);
+            opacity: 0.8;
+          }
+          50% {
+            opacity: 0.4;
+          }
+          100% {
+            transform: scale(4);
+            opacity: 0;
+          }
+        }
+
+        .pet-ripple {
+          position: fixed;
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          border: 2px solid rgba(98, 179, 255, 0.9);
+          background: rgba(98, 179, 255, 0.2);
+          pointer-events: none;
+          z-index: 2147483647;
+          animation: ripple 0.6s ease-out;
+          transform-origin: center;
+          box-shadow: 0 0 10px rgba(98, 179, 255, 0.6);
+        }
       </style>
     `;
   }
@@ -970,21 +1037,18 @@
     const isElephant = currentPetId === 'elephant';
     const avatarContent = isElephant 
       ? `<video class="avatar-video" autoplay loop muted playsinline>
-           <source src="${asset('static/video/demo_alpha.webm')}" type="video/webm">
+           <source src="${asset('static/video/idle-elephant.webm')}" type="video/webm">
          </video>`
       : `<div class="avatar"></div>`;
     
     return `
       <div class="desktop-pet-main">
         <div class="pet-main">
-          <img class="props" alt="Props" src="${asset('static/img/props.svg')}" />
           ${avatarContent}
           <div class="chat-bubble">
-            <div class="div">
-              <img class="chatbubble-bg" alt="Chatbubble bg" src="${asset('static/img/chatbubble-bg.png')}" />
-              <div class="rectangle"></div>
-              <div class="emoji-status">💦</div>
-            </div>
+            <img class="chatbubble-bg" alt="Chatbubble bg" src="${asset('static/img/chatbubble/text-bubble-bg.svg')}" />
+            <img class="chat-bubble-vector" alt="Vector" src="${asset('static/img/chatbubble/text-bubble-vector.svg')}" />
+            <div class="chat-bubble-text"></div>
           </div>
         </div>
         <div class="cleaning-bubbles" aria-hidden="true">
@@ -1083,29 +1147,185 @@
         background: "transparent",
         pointerEvents: "auto",
         display: "none",
-        willChange: "transform, left, top", // ✅ 性能优化：启用GPU加速
-        touchAction: "none", // ✅ 性能优化：禁用触摸默认行为，提升移动端体验
       });
 
       const shadow = petContainer.attachShadow({ mode: "open" });
-      const css = await loadPetCss();
-      const html = generatePetHTML();
+      // 使用 pet_ui.js 模块（如果可用）
+      const petUI = window.TabCleanerPetUI;
+      let css, html;
+      if (petUI && petUI.loadPetCss && petUI.generatePetHTML) {
+        css = petUI.loadPetCss(asset, currentPetId);
+        html = petUI.generatePetHTML(asset, currentPetId);
+      } else {
+        // 降级：使用本地函数
+        css = await loadPetCss();
+        html = generatePetHTML();
+      }
       shadow.innerHTML = `${css}${html}`;
 
-      // 绑定事件
-      const avatar = shadow.querySelector('.avatar');
+      // 绑定事件（支持图片 avatar 和视频 avatar-video）
+      const avatar = shadow.querySelector('.avatar') || shadow.querySelector('.avatar-video');
+      const avatarVideo = shadow.querySelector('.avatar-video');
       const choiceOverlay = shadow.querySelector('.choice-overlay');
       const actionButtons = shadow.querySelectorAll('.action-button');
       petMainEl = shadow.querySelector('.desktop-pet-main');
       choiceOverlayEl = choiceOverlay;
-      applyPetSkin(currentPetId);
 
       // ✅ 添加拖动功能 - 让整个 petContainer 可以拖动
+      // 🎯 拖拽锚点配置（从 pet_config.js 读取）
+      const globalCfg = window.__TAB_CLEANER_PET_CONFIG || {};
+      const DRAG_ANCHOR = {
+        x: globalCfg.dragAnchorX ?? 0.75,  // 容器宽度的百分比（默认 75%）
+        y: globalCfg.dragAnchorY ?? 0.15,  // 容器高度的百分比（默认 15%）
+      };
+      
+      // 计算锚点像素偏移（基于默认容器尺寸 315x246）
+      const PET_DEFAULT_WIDTH = 315;
+      const PET_DEFAULT_HEIGHT = 246;
+      
       let isDragging = false;
-      let startX = 0;
-      let startY = 0;
-      let initialLeft = 0;
-      let initialTop = 0;
+      let lastPositions = []; // 用于甩动检测
+      let dragStartTime = 0; // 记录拖拽开始时间
+      let dragStartX = 0; // 记录拖拽开始位置
+      let dragStartY = 0;
+      let targetX = 0; // 目标位置（用于垂摆效果）
+      let targetY = 0;
+      let currentX = 0; // 当前位置（用于垂摆效果）
+      let currentY = 0;
+      let animationFrameId = null; // 垂摆动画的 requestAnimationFrame ID
+      
+      // 🎯 连续点击检测（用于触发 DIZZY）
+      let clickCount = 0;
+      let lastClickTime = 0;
+      const globalCfgForClick = window.__TAB_CLEANER_PET_CONFIG || {};
+      const DIZZY_CLICK_THRESHOLD = globalCfgForClick.dizzyClickThreshold ?? 3;
+      const DIZZY_CLICK_RESET_TIME = globalCfgForClick.dizzyClickResetTime ?? 1000;
+      const LONG_PRESS_THRESHOLD = 200; // 长按阈值（ms），超过此时间才触发拖拽
+      
+      // 🔧 实时获取锚点偏移（修复延迟问题：每次都读取最新配置）
+      const getAnchorOffset = () => {
+        const containerWidth = petContainer.offsetWidth || PET_DEFAULT_WIDTH;
+        const containerHeight = petContainer.offsetHeight || PET_DEFAULT_HEIGHT;
+        const currentCfg = window.__TAB_CLEANER_PET_CONFIG || {};
+        const currentAnchorX = currentCfg.dragAnchorX ?? DRAG_ANCHOR.x;
+        const currentAnchorY = currentCfg.dragAnchorY ?? DRAG_ANCHOR.y;
+        return {
+          x: containerWidth * currentAnchorX,
+          y: containerHeight * currentAnchorY
+        };
+      };
+      
+      // ⚡ 节流函数（约 60fps）
+      function throttle(fn, delay = 16) {
+        let lastCall = 0;
+        return function(...args) {
+          const now = Date.now();
+          if (now - lastCall >= delay) {
+            lastCall = now;
+            fn.apply(this, args);
+          }
+        };
+      }
+      
+      // 🎭 甩动检测（仅用于动画，不触发 DIZZY）
+      const SHAKE_VELOCITY_THRESHOLD = 800; // px/s（用于触发晃动动画）
+      
+      // 计算当前速度
+      function calculateVelocity() {
+        if (lastPositions.length < 2) return 0;
+        const now = performance.now();
+        const recent = lastPositions.filter(p => now - p.time < 100);
+        if (recent.length < 2) return 0;
+        
+        const first = recent[0];
+        const last = recent[recent.length - 1];
+        const dt = (last.time - first.time) / 1000; // 秒
+        if (dt === 0) return 0;
+        const distance = Math.hypot(last.x - first.x, last.y - first.y);
+        return distance / dt;
+      }
+      
+      function trackVelocity(x, y) {
+        const now = performance.now();
+        lastPositions.push({ x, y, time: now });
+        
+        // 只保留最近 100ms 的数据（仅用于计算速度，不触发 DIZZY）
+        lastPositions = lastPositions.filter(p => now - p.time < 100);
+      }
+
+      // 🎯 创建点击 Ripple 效果（使用内联样式，因为 CSS 在 shadow DOM 中）
+      function createRipple(x, y) {
+        const ripple = document.createElement('div');
+        // 使用内联样式，确保样式生效
+        ripple.style.cssText = `
+          position: fixed;
+          left: ${x - 10}px;
+          top: ${y - 10}px;
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          border: 2px solid rgba(98, 179, 255, 0.9);
+          background: rgba(98, 179, 255, 0.2);
+          pointer-events: none;
+          z-index: 2147483647;
+          transform-origin: center;
+          box-shadow: 0 0 10px rgba(98, 179, 255, 0.6);
+          animation: pet-ripple-animation 0.6s ease-out forwards;
+        `;
+        
+        // 添加动画关键帧到主文档（如果还没有）
+        if (!document.getElementById('pet-ripple-style')) {
+          const style = document.createElement('style');
+          style.id = 'pet-ripple-style';
+          style.textContent = `
+            @keyframes pet-ripple-animation {
+              0% {
+                transform: scale(0);
+                opacity: 0.8;
+              }
+              50% {
+                opacity: 0.4;
+              }
+              100% {
+                transform: scale(4);
+                opacity: 0;
+              }
+            }
+          `;
+          document.head.appendChild(style);
+        }
+        
+        document.body.appendChild(ripple);
+        
+        setTimeout(() => {
+          if (ripple.parentNode) {
+            ripple.remove();
+          }
+        }, 600);
+      }
+
+      // 🎯 垂摆动画循环（让桌宠跟随鼠标时有延迟感）
+      function updatePendulumAnimation() {
+        if (!isDragging) {
+          animationFrameId = null;
+          return;
+        }
+        
+        // 使用缓动函数实现垂摆效果
+        const damping = 0.15; // 阻尼系数，越小越有垂摆感
+        const dx = targetX - currentX;
+        const dy = targetY - currentY;
+        
+        currentX += dx * damping;
+        currentY += dy * damping;
+        
+        // 应用位置
+        petContainer.style.left = `${currentX}px`;
+        petContainer.style.top = `${currentY}px`;
+        
+        // 继续动画
+        animationFrameId = requestAnimationFrame(updatePendulumAnimation);
+      }
 
       // 拖动处理函数
       const handleMouseDown = (e) => {
@@ -1116,50 +1336,176 @@
           return; // 按钮区域不拖动
         }
         
-        isDragging = true;
-        const rect = petContainer.getBoundingClientRect();
-        initialLeft = rect.left;
-        initialTop = rect.top;
-        startX = e.clientX;
-        startY = e.clientY;
+        // 🎯 记录开始时间和位置
+        dragStartTime = Date.now();
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
         
+        // 🔧 初始化位置变量（但不立即应用，避免点击时移动）
+        const rect = petContainer.getBoundingClientRect();
+        currentX = rect.left;
+        currentY = rect.top;
+        
+        lastPositions = []; // 重置速度追踪
         petContainer.style.cursor = 'grabbing';
         e.preventDefault();
+        
+        // 🎯 延迟触发拖拽（只有长按才触发）
+        const longPressTimer = setTimeout(() => {
+          isDragging = true;
+          
+          // 🔧 长按后立即计算并应用锚点偏移（修复长按不动时的错位问题）
+          const anchorOffset = getAnchorOffset();
+          targetX = dragStartX - anchorOffset.x;
+          targetY = dragStartY - anchorOffset.y;
+          
+          // 边界约束
+          const containerWidth = petContainer.offsetWidth || PET_DEFAULT_WIDTH;
+          const containerHeight = petContainer.offsetHeight || PET_DEFAULT_HEIGHT;
+          const maxLeft = window.innerWidth - containerWidth * 0.7;
+          const maxTop = window.innerHeight - containerHeight * 0.8;
+          const minLeft = -containerWidth * 0.3;
+          const minTop = -containerHeight * 0.2;
+          
+          targetX = Math.max(minLeft, Math.min(targetX, maxLeft));
+          targetY = Math.max(minTop, Math.min(targetY, maxTop));
+          
+          // 🎯 应用初始位置（只在真正开始拖拽时）
+          petContainer.style.left = `${targetX}px`;
+          petContainer.style.top = `${targetY}px`;
+          currentX = targetX;
+          currentY = targetY;
+          
+          // 🎯 添加弹簧感：初始拖拽时的弹性效果
+          petContainer.classList.remove('released', 'shaken', 'landed');
+          petContainer.style.transition = 'transform 0.15s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
+          requestAnimationFrame(() => {
+            petContainer.style.transform = 'scale(1.05) rotate(2deg)';
+            setTimeout(() => {
+              petContainer.style.transition = '';
+              petContainer.style.transform = '';
+            }, 150);
+          });
+
+          // 🧠 拖动开始时触发 LIFTED 状态
+          try {
+            if (petFsm && petStates && petStates.LIFTED) {
+              petFsm.setState(petStates.LIFTED, { loop: true });
+            }
+          } catch (err) {
+            console.warn('[Tab Cleaner Pet] Failed to set LIFTED state:', err);
+          }
+          
+          // 🎯 启动垂摆动画
+          if (!animationFrameId) {
+            updatePendulumAnimation();
+          }
+        }, LONG_PRESS_THRESHOLD);
+        
+        // 🎯 保存 timer，用于在 mouseup 时清理
+        petContainer._longPressTimer = longPressTimer;
       };
 
       const handleMouseMove = (e) => {
+        // 🎯 只有真正开始拖拽后才更新位置
         if (!isDragging) return;
         
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
+        // 🔧 实时获取最新锚点偏移
+        const anchorOffset = getAnchorOffset();
         
-        const newLeft = initialLeft + dx;
-        const newTop = initialTop + dy;
+        // 🎯 计算目标位置（让鼠标位置 = 锚点位置）
+        let newTargetX = e.clientX - anchorOffset.x;
+        let newTargetY = e.clientY - anchorOffset.y;
         
-        // 限制在可视区域内
-        const maxLeft = window.innerWidth - petContainer.offsetWidth;
-        const maxTop = window.innerHeight - petContainer.offsetHeight;
+        // 边界约束（允许部分超出，更自然）
+        const containerWidth = petContainer.offsetWidth || PET_DEFAULT_WIDTH;
+        const containerHeight = petContainer.offsetHeight || PET_DEFAULT_HEIGHT;
+        const maxLeft = window.innerWidth - containerWidth * 0.7;
+        const maxTop = window.innerHeight - containerHeight * 0.8;
+        const minLeft = -containerWidth * 0.3;
+        const minTop = -containerHeight * 0.2;
         
-        petContainer.style.left = `${Math.max(0, Math.min(newLeft, maxLeft))}px`;
-        petContainer.style.top = `${Math.max(0, Math.min(newTop, maxTop))}px`;
-        petContainer.style.right = 'auto';
-        petContainer.style.bottom = 'auto';
+        targetX = Math.max(minLeft, Math.min(newTargetX, maxLeft));
+        targetY = Math.max(minTop, Math.min(newTargetY, maxTop));
+        
+        // 🎯 启动垂摆动画
+        if (!animationFrameId) {
+          updatePendulumAnimation();
+        }
+        // 🎭 追踪速度（用于甩动检测）
+        trackVelocity(e.clientX, e.clientY);
       };
+      
+      // 节流移动事件
+      const throttledMouseMove = throttle(handleMouseMove, 16);
 
-      const handleMouseUp = () => {
+      const handleMouseUp = (e) => {
+        // 🎯 清理长按定时器
+        if (petContainer._longPressTimer) {
+          clearTimeout(petContainer._longPressTimer);
+          petContainer._longPressTimer = null;
+        }
+        
+        // 🎯 停止垂摆动画
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+          animationFrameId = null;
+        }
+        
+        // 🎯 判断是点击还是拖拽
+        const pressDuration = Date.now() - dragStartTime;
+        const isLongPress = pressDuration >= LONG_PRESS_THRESHOLD;
+        const moveDistance = Math.hypot(
+          e.clientX - dragStartX,
+          e.clientY - dragStartY
+        );
+        const isClick = !isLongPress && moveDistance < 5; // 移动距离小于5px认为是点击
+        
         if (isDragging) {
           isDragging = false;
           petContainer.style.cursor = '';
+          
+          // 🎯 检测是否被快速甩动
+          const velocity = calculateVelocity();
+          
+          // 清除之前的动画类
+          petContainer.classList.remove('released', 'shaken', 'landed');
+          petContainer.style.transition = '';
+          petContainer.style.transform = '';
+          
+          if (velocity > SHAKE_VELOCITY_THRESHOLD) {
+            // 甩动 → 晃动
+            petContainer.classList.add('shaken');
+            setTimeout(() => {
+              petContainer.classList.remove('shaken');
+            }, 500);
+          } else {
+            // 正常释放 → 轻微落地弹跳
+            petContainer.classList.add('landed');
+            setTimeout(() => {
+              petContainer.classList.remove('landed');
+            }, 400);
+          }
+
+          // 🧠 拖动结束回到 IDLE
+          try {
+            if (petFsm && petStates && petStates.IDLE) {
+              petFsm.setState(petStates.IDLE, { loop: true });
+            }
+          } catch (err) {
+            console.warn('[Tab Cleaner Pet] Failed to set IDLE state after drag:', err);
+          }
         }
+        // 注意：ripple 效果在 handleAvatarClick 中处理，不在这里
       };
 
       // 在 petContainer 上添加拖动事件
       petContainer.addEventListener('mousedown', handleMouseDown);
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', () => {
-        handleMouseUp();
+      document.addEventListener('mousemove', throttledMouseMove);
+      document.addEventListener('mouseup', (e) => {
+        handleMouseUp(e);
         // ✅ v2.3: 拖动结束后保存位置（无论是否可见，都保存位置）
-        if (petContainer) {
+        if (petContainer && isDragging) {
           savePetState();
         }
       });
@@ -1168,64 +1514,107 @@
       petContainer.style.cursor = 'grab';
       petContainer.style.userSelect = 'none';
 
-      // 点击 avatar 显示/隐藏按钮
-      if (avatar) {
-        avatar.addEventListener('click', (e) => {
-          // 如果正在拖动，不触发点击
-          if (isDragging) {
-            return;
-          }
-          setButtonsVisible(!isButtonsVisible);
-        });
-
-        // 首次展示时给一个拖拽提示气泡
-        try {
-          if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-            chrome.storage.local.get(['petDragHintShown'], (items) => {
-              if (items.petDragHintShown) return;
-              const main = shadow.querySelector('.desktop-pet-main');
-              if (!main) return;
-
-              const hint = document.createElement('div');
-              hint.textContent = '拖拽网页图片到我这里即可收藏';
-              hint.style.cssText = `
-                position: absolute;
-                bottom: 210px;
-                left: 50%;
-                transform: translateX(-50%);
-                background: rgba(15,23,42,0.92);
-                color: #F9FAFB;
-                padding: 6px 12px;
-                border-radius: 999px;
-                font-size: 12px;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                box-shadow: 0 6px 18px rgba(15,23,42,0.4);
-                z-index: 9999;
-                opacity: 0;
-                pointer-events: none;
-                white-space: nowrap;
-                transition: opacity 0.25s ease-out, transform 0.25s ease-out;
-              `;
-
-              main.appendChild(hint);
-
-              requestAnimationFrame(() => {
-                hint.style.opacity = '1';
-                hint.style.transform = 'translateX(-50%) translateY(-4px)';
-              });
-
-              setTimeout(() => {
-                hint.style.opacity = '0';
-                hint.style.transform = 'translateX(-50%) translateY(0)';
-                setTimeout(() => hint.remove(), 250);
-              }, 3500);
-
-              chrome.storage.local.set({ petDragHintShown: true }, () => {});
-            });
-          }
-        } catch (e) {
-          // 忽略提示错误
+      // 点击 avatar 显示/隐藏按钮（支持图片和视频两种模式）
+      const handleAvatarClick = (e) => {
+        // 如果正在拖动，不触发点击
+        if (isDragging) {
+          return;
         }
+        // 阻止事件冒泡，避免触发其他点击事件
+        e.stopPropagation();
+        
+        // 🎯 创建 Ripple 效果（点击反馈）
+        createRipple(e.clientX, e.clientY);
+        
+        // 🎯 连续点击检测（触发 DIZZY）
+        const now = Date.now();
+        if (now - lastClickTime < DIZZY_CLICK_RESET_TIME) {
+          clickCount++;
+        } else {
+          clickCount = 1; // 重置计数
+        }
+        lastClickTime = now;
+        
+        // 如果连续点击达到阈值，触发 DIZZY 状态
+        if (clickCount >= DIZZY_CLICK_THRESHOLD) {
+          console.log('[Pet] 连续点击触发 DIZZY，点击次数:', clickCount);
+          try {
+            if (petFsm && petStates && petStates.DIZZY) {
+              petFsm.setState(petStates.DIZZY, {
+                loop: false,
+                nextState: petStates.IDLE,
+              });
+              clickCount = 0; // 重置计数
+              return; // 不切换按钮，直接返回
+            }
+          } catch (err) {
+            console.warn('[Tab Cleaner Pet] Failed to set DIZZY state on click:', err);
+          }
+        }
+        
+        setButtonsVisible(!isButtonsVisible);
+        console.log('[Tab Cleaner Pet] Avatar clicked, buttons visible:', !isButtonsVisible, 'clickCount:', clickCount);
+      };
+      
+      // 同时绑定到 avatar 和 avatarVideo（确保两种模式都能点击）
+      if (avatar) {
+        avatar.addEventListener('click', handleAvatarClick);
+      }
+      if (avatarVideo) {
+        avatarVideo.addEventListener('click', handleAvatarClick);
+      }
+      // 如果都没有，绑定到 petMainEl 作为后备
+      if (!avatar && !avatarVideo && petMainEl) {
+        petMainEl.addEventListener('click', handleAvatarClick);
+      }
+
+      // 首次展示时给一个拖拽提示气泡
+      try {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.get(['petDragHintShown'], (items) => {
+            if (items.petDragHintShown) return;
+            const main = shadow.querySelector('.desktop-pet-main');
+            if (!main) return;
+
+            const hint = document.createElement('div');
+            hint.textContent = '拖拽网页图片到我这里即可收藏';
+            hint.style.cssText = `
+              position: absolute;
+              bottom: 210px;
+              left: 50%;
+              transform: translateX(-50%);
+              background: rgba(15,23,42,0.92);
+              color: #F9FAFB;
+              padding: 6px 12px;
+              border-radius: 999px;
+              font-size: 12px;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              box-shadow: 0 6px 18px rgba(15,23,42,0.4);
+              z-index: 9999;
+              opacity: 0;
+              pointer-events: none;
+              white-space: nowrap;
+              transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+            `;
+
+            main.appendChild(hint);
+
+            requestAnimationFrame(() => {
+              hint.style.opacity = '1';
+              hint.style.transform = 'translateX(-50%) translateY(-4px)';
+            });
+
+            setTimeout(() => {
+              hint.style.opacity = '0';
+              hint.style.transform = 'translateX(-50%) translateY(0)';
+              setTimeout(() => hint.remove(), 250);
+            }, 3500);
+
+            chrome.storage.local.set({ petDragHintShown: true }, () => {});
+          });
+        }
+      } catch (e) {
+        // 忽略提示错误
       }
 
       if (actionButtons && actionButtons.length > 0) {
@@ -1233,11 +1622,92 @@
           btn.addEventListener('click', (event) => {
             event.stopPropagation();
             const action = btn.getAttribute('data-action');
-            handlePetAction(action);
+            // 使用 pet_actions.js 模块（如果可用）
+            const petActions = window.TabCleanerPetActions;
+            if (petActions && petActions.handlePetAction) {
+              petActions.handlePetAction(action, {
+                showFullscreenCleaningAnimation: window.TabCleanerPetCleaningAnimation?.show || showFullscreenCleaningAnimation,
+                hideFullscreenCleaningAnimation: window.TabCleanerPetCleaningAnimation?.hide || hideFullscreenCleaningAnimation,
+                triggerCleaningEffect: (dur) => triggerCleaningEffect(dur),
+                petMainEl: petMainEl,
+              });
+            } else {
+              // 降级：使用本地函数
+              handlePetAction(action);
+            }
             setButtonsVisible(false);
           });
         });
       }
+
+      // 🧠 初始化大象状态机（仅当存在视频元素且状态机脚本已加载时）
+      if (avatarVideo && window.TabCleanerPetFSM) {
+        try {
+          const { createPetStateMachine, PET_STATES } = window.TabCleanerPetFSM;
+          petStates = PET_STATES;
+          petFsm = createPetStateMachine({
+            assetFn: asset,
+            petContainerRef: () => petContainer,
+            videoElRef: () => avatarVideo,
+            getPetId: () => currentPetId,
+            getIsDragging: () => isDragging,
+            openPersonalSpace: () => {
+              try {
+                if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+                  chrome.runtime.sendMessage({ action: "open-personalspace" });
+                }
+              } catch (_) {}
+            },
+            config: {},
+          });
+          if (petFsm && petFsm.setState) {
+            petFsm.setState(PET_STATES.IDLE, { loop: true });
+          }
+        } catch (e) {
+          console.warn('[Tab Cleaner Pet] Failed to init FSM:', e);
+        }
+      }
+
+      // 💬 初始化聊天气泡状态机
+      if (window.TabCleanerPetChatBubble) {
+        try {
+          const chatBubbleEl = shadow.querySelector('.chat-bubble');
+          const textContentEl = shadow.querySelector('.chat-bubble-text');
+          
+          if (chatBubbleEl && textContentEl) {
+            const chatBubbleCfg = (window.__TAB_CLEANER_PET_CONFIG || {}).chatBubble || {};
+            
+            // 根据配置调整位置（基于新的默认位置：left: 180px, top: -20px）
+            // 始终设置位置，确保覆盖 CSS 默认值
+            const offsetX = chatBubbleCfg.positionOffsetX !== undefined ? chatBubbleCfg.positionOffsetX : 0;
+            const offsetY = chatBubbleCfg.positionOffsetY !== undefined ? chatBubbleCfg.positionOffsetY : 0;
+            chatBubbleEl.style.left = `${180 + offsetX}px`;
+            chatBubbleEl.style.top = `${-20 + offsetY}px`;
+            
+            const chatBubbleFsm = window.TabCleanerPetChatBubble.createChatBubbleStateMachine({
+              assetFn: asset,
+              chatBubbleEl: chatBubbleEl,
+              textContentEl: textContentEl,
+              config: chatBubbleCfg,
+            });
+            
+            // 启动自动显示循环
+            if (chatBubbleFsm && chatBubbleFsm.scheduleNext) {
+              chatBubbleFsm.scheduleNext();
+            }
+            
+            // 暴露到全局，方便其他功能触发
+            window.__TAB_CLEANER_PET_CHAT_BUBBLE = chatBubbleFsm;
+            
+            console.log('[Tab Cleaner Pet] ✅ Chat bubble initialized');
+          }
+        } catch (e) {
+          console.warn('[Tab Cleaner Pet] Failed to init chat bubble:', e);
+        }
+      }
+
+      // 初始皮肤同步（非大象或后备）
+      applyPetSkin(currentPetId);
 
       // ✅ 确保 body 存在后再添加，只有真正添加到 DOM 后才标记为初始化完成
       const addToDOM = () => {
@@ -1285,24 +1755,18 @@
       
       // ✅ 立即显示，不等待初始化完成（初始化在后台继续）
       if (petContainer) {
-        // 使用 requestAnimationFrame 确保 DOM 已更新
-        requestAnimationFrame(() => {
-          if (petContainer) {
-            petContainer.style.display = "block";
-            isPetVisible = true;
-            setButtonsVisible(false);
-            console.log("[Tab Cleaner Pet] Pet shown successfully", {
-              containerExists: !!petContainer,
-              display: petContainer.style.display,
-              isVisible: isPetVisible
-            });
-            
-            // ✅ 保存状态到存储（同步到所有标签页）
-            savePetState();
-          } else {
-            console.warn("[Tab Cleaner Pet] petContainer became null in requestAnimationFrame");
-          }
+        // ✅ 直接设置显示，不使用 requestAnimationFrame（减少延迟）
+        petContainer.style.display = "block";
+        isPetVisible = true;
+        setButtonsVisible(false);
+        console.log("[Tab Cleaner Pet] Pet shown successfully", {
+          containerExists: !!petContainer,
+          display: petContainer.style.display,
+          isVisible: isPetVisible
         });
+        
+        // ✅ 保存状态到存储（同步到所有标签页）
+        savePetState();
       } else {
         console.warn("[Tab Cleaner Pet] Pet container not available after createPet(), initialization may still be in progress");
         // ✅ 即使容器还没创建，也尝试保存状态（下次会重试）
@@ -1383,6 +1847,14 @@
     isVisible: () => isPetVisible,
     ensureInitialized: ensureInitialized, // ✅ 新增：等待初始化完成的方法
     forceShow: forceShow, // ✅ v2.1: 强制显示方法
+    // 🧠 状态机接口：允许外部触发 raise-attention / clean-success / dizzy 等状态
+    setState: (state, options) => {
+      if (petFsm && typeof petFsm.setState === 'function') {
+        petFsm.setState(state, options || {});
+      } else {
+        console.warn('[Tab Cleaner Pet] setState called but FSM not initialized');
+      }
+    },
   };
   
   try {

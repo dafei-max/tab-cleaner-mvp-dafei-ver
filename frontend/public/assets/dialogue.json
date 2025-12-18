@@ -1,0 +1,135 @@
+{
+    "leo_pet_dialogs": [
+      {
+        "id": 1,
+        "content": "这、这些网页，嗨呀Prrru...，咋、咋比咱们组周报还长哇Prrrrrrru......",
+        "category": "tab_overload"
+      },
+      {
+        "id": 2,
+        "content": "这、这么多 Tab，是在搞、搞什么大项目吗Prrru...？",
+        "category": "tab_overload"
+      },
+      {
+        "id": 3,
+        "content": "活、活儿是干不完的，Prrru...其、其实吧... 摸、摸会儿鱼也、也没人看的。",
+        "category": "idle"
+      },
+      {
+        "id": 4,
+        "content": "哎呀，这、这乱糟糟的Prrru...，看、看着心里毛毛的... 还是得洗洗",
+        "category": "tab_overload"
+      },
+      {
+        "id": 5,
+        "content": "老、老板要是问起来，我就说这、这些都是我晾的。",
+        "category": "protect_user"
+      },
+      {
+        "id": 6,
+        "content": "Mruu... 又、又加、加班啊？哎，其、其实吧，我、我也习惯了，我、我陪着你哈，不、不费电。",
+        "category": "time_sensitive"
+      },
+      {
+        "id": 7,
+        "content": "T、Tab太、太多了，别、别让老板瞅见... 我、我悄悄帮你晾上哈，咱、咱们低调点。",
+        "category": "protect_user"
+      },
+      {
+        "id": 8,
+        "content": "眼干得慌... 别、Prrru...别看了，眯、眯会儿，我、我盯着。",
+        "category": "health_care"
+      },
+      {
+        "id": 9,
+        "content": "发、发量告急Prrru...... 哎呀，咱、咱们少、少卷点，保、保发要紧。",
+        "category": "health_care"
+      },
+      {
+        "id": 10,
+        "content": "腰、腰撑不住了... 咱、咱起、起来走走Prrru...？我、我帮你晾着。",
+        "category": "health_care"
+      },
+      {
+        "id": 11,
+        "content": "别别熬了，万、万一Prrru...你倒下... 哎，我、我也就没家了。",
+        "category": "time_sensitive"
+      },
+      {
+        "id": 12,
+        "content": "一、一下午没、没被艾特... 嘿、嘿嘿，我、我就像透明人一样，真、真好。",
+        "category": "happy_sad"
+      },
+      {
+        "id": 13,
+        "content": "肚、肚子大、大了？哎，工、工伤，都、都是工伤哈。",
+        "category": "health_care"
+      },
+      {
+        "id": 14,
+        "content": "没、没吃啥也、也胖？哎，过、过劳肥... 命、命苦哇。",
+        "category": "health_care"
+      },
+      {
+        "id": 15,
+        "content": "又、又冒痘？哎，压、压力太、太大... 咱、咱不抠哈。",
+        "category": "health_care"
+      },
+      {
+        "id": 16,
+        "content": "哎，我、我这腿，也、也麻了。",
+        "category": "health_care"
+      },
+      {
+        "id": 17,
+        "content": "哎呀，这、这腰围... 咱、咱俩，快、快一样宽了。",
+        "category": "health_care"
+      },
+      {
+        "id": 18,
+        "content": "嘿，你来啦～Prrru… 我、我今天值班。",
+        "category": "welcome"
+      },
+      {
+        "id": 19,
+        "content": "嗯…需要我帮忙的话，随时叫我哈。",
+        "category": "welcome"
+      },
+      {
+        "id": 20,
+        "content": "丢、丢给我丢给我💦！我、我接得住！",
+        "category": "interaction_invite"
+      },
+      {
+        "id": 21,
+        "content": "哎哟，这个看着挺重要的，要、要不要让我晾一下？",
+        "category": "feature_hint"
+      },
+      {
+        "id": 22,
+        "content": "嗯？这个是、是要收起来的吗？我、我可以帮你。",
+        "category": "feature_hint"
+      },
+      {
+        "id": 23,
+        "content": "慢点慢点～别急，交、交给我就好。",
+        "category": "interaction_invite"
+      },
+      {
+        "id": 24,
+        "content": "这个我熟，我、我来处理。",
+        "category": "feature_hint"
+      },
+      {
+        "id": 25,
+        "content": "放这儿吧，我、我看着呢。",
+        "category": "interaction_invite"
+      },
+      {
+        "id": 26,
+        "content": "嘿，你来啦～Prrru…有什么我能帮你的吗？",
+        "category": "welcome"
+      }
+    ]
+  }
+  

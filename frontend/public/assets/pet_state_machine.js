@@ -3,9 +3,13 @@
   const DEFAULT_CFG = {
     roamIntervalMin: 40000,  // 默认 40s 后才开始漫步
     roamIntervalMax: 70000,  // 40-70s 随机，降低频率
-    walkSpeed: 100,          // px/s，降低移动速度，减轻重排压力
-    walkDurationMin: 3000,   // ms
-    walkDurationMax: 7000,   // ms
+    walkSpeed: 80,           // px/s，降低移动速度
+    walkDurationMin: 4000,   // ms
+    walkDurationMax: 8000,   // ms
+    idlePlaybackRate: 0.7,   // idle 动画播放速度（0.7 = 70%，更慢）
+    walkPlaybackRate: 0.7,   // 走路动画播放速度（0.7 = 70%，更慢）
+    walkStrideMin: 0.6,      // 最小步幅倍数（相对于计算距离）
+    walkStrideMax: 1.2,      // 最大步幅倍数（相对于计算距离）
   };
 
   const PET_STATES = {
@@ -19,6 +23,7 @@
     CLEAN_SUCCESS: 'clean-success',
     ERROR: 'error',
     DIZZY: 'dizzy',
+    QUESTION: 'question',
   };
 
   const PET_VIDEO_MAP = {
@@ -32,6 +37,7 @@
     [PET_STATES.CLEAN_SUCCESS]: 'static/video/clean-successful-elephant.webm',
     [PET_STATES.ERROR]: 'static/video/error-elephant.webm',
     [PET_STATES.DIZZY]: 'static/video/dizzy-elephant.webm',
+    [PET_STATES.QUESTION]: 'static/video/question-elephant.webm',
   };
 
   function getVideoSrcForState(state, assetFn) {
@@ -69,6 +75,24 @@
       }, delay);
     }
 
+    // 🎭 边缘检测函数
+    function detectEdgePosition(petContainer) {
+      const rect = petContainer.getBoundingClientRect();
+      const threshold = 50; // 距离边缘 50px 内
+      
+      return {
+        nearLeft: rect.left < threshold,
+        nearRight: rect.right > window.innerWidth - threshold,
+        nearTop: rect.top < threshold,
+        nearBottom: rect.bottom > window.innerHeight - threshold,
+        // 角落检测
+        inCorner: (rect.left < threshold && rect.top < threshold) ||
+                  (rect.left < threshold && rect.bottom > window.innerHeight - threshold) ||
+                  (rect.right > window.innerWidth - threshold && rect.top < threshold) ||
+                  (rect.right > window.innerWidth - threshold && rect.bottom > window.innerHeight - threshold),
+      };
+    }
+
     function startRoaming() {
       if (document.hidden) {
         scheduleRoam();
@@ -89,14 +113,22 @@
       const viewportH = window.innerHeight;
       const petW = petContainer.offsetWidth || 315;
       const petH = petContainer.offsetHeight || 246;
+      
+      // 从 left/top 中获取当前位置
       const currentLeft = parseFloat(petContainer.style.left || `${(viewportW - petW) / 2}`);
       const currentTop = parseFloat(petContainer.style.top || `${(viewportH - petH) / 2}`);
+      
       const targetLeft = Math.max(margin, Math.min(Math.random() * (viewportW - petW - margin * 2) + margin, viewportW - petW - margin));
       const targetTop = Math.max(margin, Math.min(Math.random() * (viewportH - petH - margin * 2) + margin, viewportH - petH - margin));
       const direction = targetLeft >= currentLeft ? PET_STATES.WALK_RIGHT : PET_STATES.WALK_LEFT;
       const dx = targetLeft - currentLeft;
       const dy = targetTop - currentTop;
-      const distance = Math.hypot(dx, dy);
+      const baseDistance = Math.hypot(dx, dy);
+      
+      // 🎲 随机步幅：在最小和最大倍数之间随机
+      const strideMultiplier = cfg.walkStrideMin + Math.random() * (cfg.walkStrideMax - cfg.walkStrideMin);
+      const distance = baseDistance * strideMultiplier;
+      
       const speed = cfg.walkSpeed;
       const minDuration = cfg.walkDurationMin;
       const maxDuration = cfg.walkDurationMax;
@@ -105,13 +137,31 @@
       setState(direction, { loop: true });
       petContainer.style.transition = 'none';
       requestAnimationFrame(() => {
+        // 使用 left/top 定位（简化版本）
         petContainer.style.transition = `left ${moveDuration}ms ease-in-out, top ${moveDuration}ms ease-in-out`;
         petContainer.style.left = `${targetLeft}px`;
         petContainer.style.top = `${targetTop}px`;
       });
       setTimeout(() => {
         petContainer.style.transition = '';
-        setState(PET_STATES.IDLE, { loop: true });
+        
+        // 🎭 到达目标后检测边缘，触发有趣行为
+        const edge = detectEdgePosition(petContainer);
+        if (edge.inCorner) {
+          // 🎭 有趣行为：被挤到角落，晕头转向
+          setState(PET_STATES.DIZZY, {
+            loop: false,
+            nextState: PET_STATES.IDLE,
+          });
+        } else if (edge.nearLeft || edge.nearRight) {
+          // 🎭 有趣行为：探出头往外看
+          setState(PET_STATES.ATTENTION, {
+            loop: false,
+            nextState: PET_STATES.IDLE,
+          });
+        } else {
+          setState(PET_STATES.IDLE, { loop: true });
+        }
         scheduleRoam();
       }, moveDuration + 200);
     }
@@ -153,9 +203,15 @@
       avatarVideoEl.preload = 'auto';
       avatarVideoEl.currentTime = 0;
 
-      // 根据状态调整播放速度：清洗成功动画稍微放慢一点
+      // 根据状态调整播放速度
       if (state === PET_STATES.CLEAN_SUCCESS) {
         avatarVideoEl.playbackRate = 0.75;
+      } else if (state === PET_STATES.IDLE) {
+        // idle 动画播放慢一点
+        avatarVideoEl.playbackRate = cfg.idlePlaybackRate || 0.7;
+      } else if (state === PET_STATES.WALK_LEFT || state === PET_STATES.WALK_RIGHT) {
+        // 走路动画播放慢一点
+        avatarVideoEl.playbackRate = cfg.walkPlaybackRate || 0.7;
       } else {
         avatarVideoEl.playbackRate = 1.0;
       }

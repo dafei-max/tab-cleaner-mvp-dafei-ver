@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tab Cleaner MVP",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A tab management tool with rounded corners UI",
   "icons": {
     "16": "static/img/icon-16.png",
@@ -25,7 +25,18 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["assets/pet.js", "assets/content.js"],
+      "js": [
+        "assets/pet_config.js",
+        "assets/pet_state_machine.js",
+        "assets/pet_chat_bubble.js",
+        "assets/pet_cleaning_animation.js",
+        "assets/pet_storage.js",
+        "assets/pet_actions.js",
+        "assets/pet_drag.js",
+        "assets/pet_ui.js",
+        "assets/pet.js",
+        "assets/content.js"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     }
@@ -44,6 +55,8 @@
         "assets/*.css",
         "assets/card.html",
         "static/img/*",
+        "static/video/*",
+        "assets/dialogue.json",
         "test_opengraph_simple.html"
       ],
       "matches": ["<all_urls>"],

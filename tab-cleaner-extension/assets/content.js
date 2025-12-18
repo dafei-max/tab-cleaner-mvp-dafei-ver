@@ -852,6 +852,16 @@
       }
       return true; // 保持消息通道开放
     }
+    if (req.action === 'show-onboarding-overlay') {
+      try {
+        injectOnboardingOverlay();
+        sendResponse?.({ ok: true });
+      } catch (e) {
+        console.error('[Tab Cleaner Content] Failed to show onboarding overlay:', e);
+        sendResponse?.({ ok: false, error: e?.message || String(e) });
+      }
+      return true;
+    }
     if (req.action === "fetch-opengraph") {
       console.log('[Tab Cleaner Content] fetch-opengraph requested');
 
@@ -923,3 +933,355 @@
 
   console.log("Tab Cleaner content (classic) loaded.");
 })();
+
+function injectOnboardingOverlay() {
+  try {
+    if (window.__TAB_CLEANER_ONBOARDING_OVERLAY_ROOT) {
+      return;
+    }
+    const root = document.createElement('div');
+    root.id = 'tab-cleaner-onboarding-root';
+    root.style.position = 'fixed';
+    root.style.inset = '0';
+    root.style.zIndex = '2147483647';
+    root.style.pointerEvents = 'auto';
+
+    const shadow = root.attachShadow({ mode: 'open' });
+
+    const style = document.createElement('style');
+    style.textContent = `
+      .tc-onboarding-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(4px);
+      }
+      .tc-onboarding-container {
+        position: relative;
+        width: 1047px;
+        height: 708px;
+        background: transparent;
+        border-radius: 21px;
+        overflow: hidden;
+        transform: scale(0.5);
+        transform-origin: center center;
+        animation: tc-onboarding-zoom-in 0.4s ease-out forwards;
+      }
+      @keyframes tc-onboarding-zoom-in {
+        from { opacity: 0; transform: scale(0); }
+        to { opacity: 1; transform: scale(0.5); }
+      }
+      .tc-onboarding-bubble-layer {
+        position: absolute;
+        inset: 0;
+        opacity: 0.9;
+        pointer-events: none;
+        z-index: 0;
+      }
+      .tc-bubble-bg {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .tc-onboarding-container > *:not(.tc-onboarding-bubble-layer) {
+        position: absolute;
+        z-index: 1;
+      }
+      .tc-onboarding-close-button {
+        position: absolute;
+        width: 55px;
+        height: 55px;
+        left: 960px;
+        top: 6px;
+        background: rgba(255,255,255,0.5);
+        border: 1px solid #FFFFFF;
+        box-shadow: 3px 4px 4px rgba(130,130,130,0.25);
+        border-radius: 21px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+      }
+      .tc-onboarding-close-button:hover {
+        background: rgba(255,255,255,0.7);
+        transform: scale(1.05);
+      }
+      .tc-close-icon {
+        font-size: 48px;
+        line-height: 56px;
+        color: #FFFFFF;
+        text-shadow: 3px 2px 6.1px rgba(0,0,0,0.25);
+        transform: rotate(45deg);
+      }
+      .tc-onboarding-arrow {
+        position: absolute;
+        width: 75px;
+        height: 45px;
+        left: 50.05%;
+        top: 56%;
+        transform: translateX(-50%);
+        pointer-events: none;
+      }
+      .tc-onboarding-textcontent {
+        position: absolute;
+        width: 735px;
+        height: 312px;
+        left: calc(50% - 735px / 2 + 17px);
+        top: 147px;
+      }
+      .tc-onboarding-title {
+        position: absolute;
+        width: 735px;
+        height: 148px;
+        left: 0;
+        top: 0;
+        font-family: 'FZLanTingYuanS-R-GB', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-weight: 400;
+        font-size: 64px;
+        line-height: 74px;
+        text-align: center;
+        letter-spacing: 1px;
+        color: #4D4D4D;
+        margin: 0;
+      }
+      .tc-onboarding-description {
+        position: absolute;
+        width: 514px;
+        left: calc(50% - 514px / 2 + 5.5px);
+        top: 33.97%;
+        font-family: 'FZLanTingYuanS-R-GB', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-weight: 400;
+        font-size: 20px;
+        line-height: 23px;
+        text-align: center;
+        letter-spacing: 1px;
+        color: #A4A4A4;
+        margin: 0;
+      }
+      .tc-onboarding-tab-example {
+        position: absolute;
+        width: 398px;
+        height: 133.13px;
+        left: 149px;
+        top: 382px;
+        pointer-events: none;
+      }
+      .tc-onboarding-tab-image {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+      }
+      .tc-onboarding-card-example {
+        position: absolute;
+        width: 108px;
+        height: 153px;
+        left: 685px;
+        top: 368px;
+        pointer-events: none;
+      }
+      .tc-card-glow {
+        position: absolute;
+        width: 140px;
+        height: 173px;
+        left: -16px;
+        top: -10px;
+        background: #FFFFFF;
+        filter: blur(23.45px);
+      }
+      .tc-card-wrapper {
+        position: absolute;
+        width: 108px;
+        height: 153px;
+        left: 0;
+        top: 0;
+        filter: drop-shadow(0px 1px 6.6px rgba(255,255,255,0.8));
+      }
+      .tc-card-image {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        filter: drop-shadow(0.91px 0.91px 7.28px rgba(84,84,84,0.25));
+      }
+      .tc-onboarding-buttons {
+        position: absolute;
+        width: 462px;
+        height: 57px;
+        left: calc(50% - 462px / 2 + 15.5px);
+        top: 560px;
+      }
+      .tc-onboarding-skip-btn,
+      .tc-onboarding-continue-btn {
+        position: absolute;
+        height: 57px;
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        background: transparent;
+        border: none;
+        padding: 0;
+      }
+      .tc-onboarding-skip-btn {
+        width: 240px;
+        left: 0;
+        top: 0;
+      }
+      .tc-onboarding-continue-btn {
+        width: 130px;
+        left: 356px;
+        top: 0;
+      }
+      .tc-btn-polygon {
+        position: absolute;
+        width: 57px;
+        height: 57px;
+        left: 0;
+        top: 0;
+        pointer-events: none;
+      }
+      .tc-skip-polygon {
+        transform: rotate(-90deg);
+      }
+      .tc-continue-polygon {
+        transform: rotate(0deg);
+      }
+      .tc-btn-text {
+        position: absolute;
+        height: 28px;
+        top: 15px;
+        font-family: 'FZLanTingYuanS-R-GB', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-weight: 400;
+        font-size: 24px;
+        line-height: 28px;
+        letter-spacing: 1px;
+        color: #A4A4A4;
+        z-index: 1;
+        white-space: nowrap;
+      }
+      .tc-skip-text {
+        left: 66px;
+      }
+      .tc-continue-text {
+        left: 57px;
+      }
+      .tc-onboarding-pet {
+        position: absolute;
+        width: 121px;
+        height: 121px;
+        left: 240px;
+        top: 113px;
+        pointer-events: none;
+        z-index: 5;
+      }
+      .tc-pet-video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+    `;
+
+    const bubbleUrl   = chrome.runtime.getURL('static/img/onboarding/bubble-lay.svg');
+    const arrowUrl    = chrome.runtime.getURL('static/img/onboarding/Arrow.svg');
+    const tabUrl      = chrome.runtime.getURL('static/img/onboarding/Tab.svg');
+    const cardUrl     = chrome.runtime.getURL('static/img/onboarding/card-example.png');
+    const skipPolyUrl = chrome.runtime.getURL('static/img/onboarding/Polygon 3.svg');
+    const contPolyUrl = chrome.runtime.getURL('static/img/onboarding/Polygon 1 (2).svg');
+    const petVideoUrl = chrome.runtime.getURL('static/video/wave-hand.webm');
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tc-onboarding-overlay';
+    wrapper.innerHTML = `
+      <div class="tc-onboarding-container">
+        <div class="tc-onboarding-bubble-layer">
+          <img src="${bubbleUrl}" alt="" class="tc-bubble-bg" />
+        </div>
+        <button class="tc-onboarding-close-button" type="button">
+          <span class="tc-close-icon">+</span>
+        </button>
+        <img src="${arrowUrl}" alt="" class="tc-onboarding-arrow" />
+        <div class="tc-onboarding-textcontent">
+          <h1 class="tc-onboarding-title">
+            欢迎来到 Tab 洗衣房<br />我是值班长 Leo
+          </h1>
+          <p class="tc-onboarding-description">
+            很多 Tab 就像堆在一起的衣物，虽然开着，但并没有被有效利用。我的工作，就是帮你将暂时不用的 Tab 挂起来晾晒、收纳妥当。<br />
+            接下来我们来试试吧～
+          </p>
+        </div>
+        <div class="tc-onboarding-tab-example">
+          <img src="${tabUrl}" alt="Tab 示例" class="tc-onboarding-tab-image" />
+        </div>
+        <div class="tc-onboarding-card-example">
+          <div class="tc-card-glow"></div>
+          <div class="tc-card-wrapper">
+            <img src="${cardUrl}" alt="卡片示例" class="tc-card-image" />
+          </div>
+        </div>
+        <div class="tc-onboarding-buttons">
+          <button class="tc-onboarding-skip-btn" type="button">
+            <img src="${skipPolyUrl}" alt="" class="tc-btn-polygon tc-skip-polygon" />
+            <span class="tc-btn-text tc-skip-text">跳过新手教程</span>
+          </button>
+          <button class="tc-onboarding-continue-btn" type="button">
+            <img src="${contPolyUrl}" alt="" class="tc-btn-polygon tc-continue-polygon" />
+            <span class="tc-btn-text tc-continue-text">继续</span>
+          </button>
+        </div>
+        <div class="tc-onboarding-pet">
+          <video
+            class="tc-pet-video"
+            src="${petVideoUrl}"
+            autoplay
+            loop
+            muted
+            playsinline
+          ></video>
+        </div>
+      </div>
+    `;
+
+    shadow.appendChild(style);
+    shadow.appendChild(wrapper);
+    document.documentElement.appendChild(root);
+    window.__TAB_CLEANER_ONBOARDING_OVERLAY_ROOT = root;
+
+    const handleDismiss = (completed) => {
+      try {
+        if (chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({
+            showOnboarding: false,
+            onboardingDismissed: true,
+            onboardingCompleted: !!completed,
+          });
+        }
+      } catch (e) {
+        console.warn('[Tab Cleaner Content] Failed to persist onboarding state:', e);
+      }
+      if (window.__TAB_CLEANER_ONBOARDING_OVERLAY_ROOT) {
+        window.__TAB_CLEANER_ONBOARDING_OVERLAY_ROOT.remove();
+        window.__TAB_CLEANER_ONBOARDING_OVERLAY_ROOT = null;
+      }
+    };
+
+    const closeBtn = shadow.querySelector('.tc-onboarding-close-button');
+    const skipBtn = shadow.querySelector('.tc-onboarding-skip-btn');
+    const continueBtn = shadow.querySelector('.tc-onboarding-continue-btn');
+
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => handleDismiss(false));
+    }
+    if (skipBtn) {
+      skipBtn.addEventListener('click', () => handleDismiss(false));
+    }
+    if (continueBtn) {
+      continueBtn.addEventListener('click', () => handleDismiss(true));
+    }
+  } catch (e) {
+    console.error('[Tab Cleaner Content] injectOnboardingOverlay failed:', e);
+  }
+}

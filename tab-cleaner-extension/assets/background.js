@@ -299,41 +299,107 @@ function mergeScreenshotsIntoOpenGraph(opengraphItems, screenshotResults) {
   });
 }
 
+async function injectContentScriptsToExistingTabs() {
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      const url = tab.url || '';
+      const lower = url.toLowerCase();
+      // 跳过特殊页面和商店页
+      if (
+        !url ||
+        url.startsWith('chrome://') ||
+        url.startsWith('chrome-extension://') ||
+        url.startsWith('about:') ||
+        url.startsWith('edge://') ||
+        lower.includes('chrome.google.com/webstore') ||
+        lower.includes('webstore.google.com')
+      ) {
+        continue;
+      }
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["assets/pet.js", "assets/content.js"],
+        });
+        console.log('[Background] ✅ Injected pet.js + content.js into tab', tab.id, url);
+      } catch (e) {
+        console.warn('[Background] ⚠️ Failed to inject content scripts into tab', tab.id, url, e);
+      }
+    }
+  } catch (e) {
+    console.warn('[Background] ⚠️ injectContentScriptsToExistingTabs failed:', e);
+  }
+}
+
+async function triggerOnboardingOnActiveTab() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) {
+      console.warn('[Background] No active tab to show onboarding');
+      return;
+    }
+    const url = tab.url || '';
+    const lower = url.toLowerCase();
+    if (
+      !url ||
+      url.startsWith('chrome://') ||
+      url.startsWith('chrome-extension://') ||
+      url.startsWith('about:') ||
+      url.startsWith('edge://') ||
+      lower.includes('chrome.google.com/webstore') ||
+      lower.includes('webstore.google.com')
+    ) {
+      console.warn('[Background] Active tab is not suitable for onboarding:', url);
+      return;
+    }
+
+    // 确保 content.js 已注入，然后发送 overlay 指令
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["assets/content.js"],
+      });
+    } catch (e) {
+      console.warn('[Background] ⚠️ Failed to pre-inject content.js for onboarding:', e);
+    }
+
+    try {
+      await chrome.tabs.sendMessage(tab.id, { action: 'show-onboarding-overlay' });
+      console.log('[Background] ✅ Sent show-onboarding-overlay to active tab');
+    } catch (e) {
+      console.warn('[Background] ⚠️ Failed to send show-onboarding-overlay:', e);
+    }
+  } catch (e) {
+    console.warn('[Background] ⚠️ triggerOnboardingOnActiveTab failed:', e);
+  }
+}
+
 chrome.runtime.onInstalled.addListener((details) => {
   console.log("Tab Cleaner installed");
   
-  // 🆕 检测首次安装或更新，设置新手教程标记
+  // 🆕 检测首次安装或更新，设置新手教程标记 + 初次注入内容脚本
   if (details.reason === 'install') {
-    // 首次安装
     console.log('[Background] 🎉 First install detected, setting onboarding flag');
     chrome.storage.local.set({ 
       showOnboarding: true,
       onboardingDismissed: false 
     }, () => {
-      // 首次安装完成后自动打开个人空间，让引导弹窗立即出现
-      try {
-        chrome.tabs.create({
-          url: chrome.runtime.getURL("personalspace.html")
-        });
-      } catch (e) {
-        console.warn('[Background] Failed to open personalspace after install:', e);
-      }
+      // 1) 首次安装时，把宠物和卡片脚本注入到当前所有已打开页面
+      injectContentScriptsToExistingTabs();
+      // 2) 在当前活动标签页上弹出 overlay 引导
+      triggerOnboardingOnActiveTab();
     });
   } else if (details.reason === 'update') {
-    // 更新时也显示（可选，根据需求调整）
     console.log('[Background] 🔄 Extension updated, setting onboarding flag');
     chrome.storage.local.set({ 
       showOnboarding: true,
       onboardingDismissed: false 
     }, () => {
-      // 扩展更新后也自动打开个人空间，展示最新新手引导
-      try {
-        chrome.tabs.create({
-          url: chrome.runtime.getURL("personalspace.html")
-        });
-      } catch (e) {
-        console.warn('[Background] Failed to open personalspace after update:', e);
-      }
+      // 更新后同样注入一次，防止脚本版本不同步
+      injectContentScriptsToExistingTabs();
+      // 并在当前活动标签页上显示一次引导
+      triggerOnboardingOnActiveTab();
     });
   }
 });

@@ -2,6 +2,11 @@
 (function () {
   'use strict';
   
+  console.log('[Tab Cleaner Pet] 🚀 pet.js script loaded!', {
+    timestamp: new Date().toISOString(),
+    url: window.location.href
+  });
+  
   // ✅ v2.3: 检查是否已经加载（避免重复加载）
   // 使用更可靠的标志检查
   if (window.__TAB_CLEANER_PET_LOADED) {
@@ -34,219 +39,46 @@
   let isButtonsVisible = false;
   let petMainEl = null;
   let choiceOverlayEl = null;
-  let cleaningOverlay = null; // 全屏加载动画覆盖层
   
   // ✅ 初始化状态标志：标记容器是否真正添加到 DOM
   let petInitialized = false;
   
-  // ✅ 全局状态同步：从 Chrome Storage 读取宠物状态
-  let petStateLoaded = false;
+  // ✅ 全局状态同步：从 Chrome Storage 读取宠物状态（已移至模块）
+
+  // 🧠 状态机实例（仅大象使用）
+  let petFsm = null;
+  let petStates = null;
   
-  /**
-   * 显示全屏加载动画（飘泡泡效果）
-   * ✅ 改进：泡泡充满整个页面，水蓝色渐变背景，呼吸感
-   */
+  // 使用模块：清理动画
   function showFullscreenCleaningAnimation() {
-    // 如果已经存在，先移除
-    if (cleaningOverlay) {
-      cleaningOverlay.remove();
+    const module = window.TabCleanerPetCleaningAnimation;
+    if (module && module.show) {
+      module.show();
+    } else {
+      console.warn('[Tab Cleaner Pet] Cleaning animation module not loaded');
     }
-    
-    // ✅ 动画配置（从 uiConfig 读取，这里使用默认值）
-    const config = {
-      bubbles: {
-        count: 50,                    // 泡泡数量（充满整个页面）
-        minSize: 15,                  // 最小尺寸（px）
-        maxSize: 40,                  // 最大尺寸（px）
-        minDelay: 0,                  // 最小延迟（秒）
-        maxDelay: 2,                  // 最大延迟（秒）
-        animationDuration: 3,         // 动画持续时间（秒）
-        spreadRadius: 120,            // 扩散半径（%，相对于视口）
-      },
-      background: {
-        startColor: 'rgba(135, 206, 250, 0.85)',  // 水蓝色（边缘）
-        endColor: 'rgba(255, 255, 255, 0.6)',     // 白色（中心）
-        gradientRadius: '150%',                   // 渐变半径
-        breatheDuration: 4,                       // 呼吸动画持续时间（秒）
-        breatheIntensity: 0.15,                   // 呼吸强度
-      },
-      text: {
-        fontSize: 24,
-        color: 'rgba(255, 255, 255, 0.95)',
-        pulseDuration: 2,
-        fontFamily: "'FZLanTingHei-R-GBK', '方正兰亭', 'Microsoft YaHei', '微软雅黑', sans-serif",
-      },
-    };
-    
-    // 生成泡泡（充满整个页面）
-    const bubbles = Array.from({ length: config.bubbles.count }, (_, i) => {
-      const size = Math.random() * (config.bubbles.maxSize - config.bubbles.minSize) + config.bubbles.minSize;
-      const left = Math.random() * 100; // 0-100%
-      const bottom = Math.random() * 20; // 从底部 0-20% 开始
-      const delay = Math.random() * (config.bubbles.maxDelay - config.bubbles.minDelay) + config.bubbles.minDelay;
-      return `<span style="left: ${left}%; bottom: ${bottom}%; width: ${size}px; height: ${size}px; animation-delay: ${delay}s;"></span>`;
-    }).join('');
-    
-    // 创建全屏覆盖层
-    cleaningOverlay = document.createElement('div');
-    cleaningOverlay.id = 'tab-cleaner-cleaning-overlay';
-    cleaningOverlay.innerHTML = `
-      <div class="cleaning-content">
-        <div class="cleaning-text">正在清理标签页...</div>
-        <div class="cleaning-bubbles">
-          ${bubbles}
-        </div>
-      </div>
-    `;
-    
-    // 添加样式
-    const style = document.createElement('style');
-    style.id = 'tab-cleaner-cleaning-overlay-style';
-    style.textContent = `
-      #tab-cleaner-cleaning-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        /* ✅ 水蓝色到白色的径向渐变背景，有呼吸感 */
-        background: radial-gradient(circle at center, ${config.background.endColor} 0%, ${config.background.startColor} ${config.background.gradientRadius});
-        backdrop-filter: blur(8px);
-        z-index: 999999;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        pointer-events: all;
-        animation: fadeIn 0.3s ease-in, breathe ${config.background.breatheDuration}s ease-in-out infinite;
-      }
-      
-      @keyframes fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-      
-      /* ✅ 呼吸动画：渐变背景的透明度变化 */
-      @keyframes breathe {
-        0%, 100% {
-          background: radial-gradient(circle at center, ${config.background.endColor} 0%, ${config.background.startColor} ${config.background.gradientRadius});
-        }
-        50% {
-          background: radial-gradient(circle at center, 
-            rgba(255, 255, 255, ${0.6 + config.background.breatheIntensity}) 0%, 
-            rgba(135, 206, 250, ${0.85 + config.background.breatheIntensity}) ${config.background.gradientRadius});
-        }
-      }
-      
-      #tab-cleaner-cleaning-overlay .cleaning-content {
-        position: relative;
-        text-align: center;
-        z-index: 1;
-      }
-      
-      #tab-cleaner-cleaning-overlay .cleaning-text {
-        color: ${config.text.color};
-        font-size: ${config.text.fontSize}px;
-        font-weight: 500;
-        font-family: ${config.text.fontFamily};
-        margin-bottom: 60px;
-        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        animation: pulse ${config.text.pulseDuration}s ease-in-out infinite;
-      }
-      
-      @keyframes pulse {
-        0%, 100% { opacity: 0.8; }
-        50% { opacity: 1; }
-      }
-      
-      #tab-cleaner-cleaning-overlay .cleaning-bubbles {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        pointer-events: none;
-        overflow: hidden;
-      }
-      
-      #tab-cleaner-cleaning-overlay .cleaning-bubbles span {
-        position: absolute;
-        border-radius: 50%;
-        /* ✅ 泡泡：从白色到水蓝色的径向渐变 */
-        background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(135,206,250,0.4) 50%, rgba(255,255,255,0) 100%);
-        opacity: 0;
-        animation: bubble-rise ${config.bubbles.animationDuration}s infinite ease-out;
-      }
-      
-      @keyframes bubble-rise {
-        0% {
-          transform: translateY(0) scale(0.3);
-          opacity: 0.6;
-        }
-        50% {
-          opacity: 0.8;
-        }
-        100% {
-          transform: translateY(-${config.bubbles.spreadRadius}vh) scale(1.2);
-          opacity: 0;
-        }
-      }
-      
-      @keyframes fadeOut {
-        from { opacity: 1; }
-        to { opacity: 0; }
-      }
-    `;
-    
-    // 移除旧的样式（如果存在）
-    const oldStyle = document.getElementById('tab-cleaner-cleaning-overlay-style');
-    if (oldStyle) {
-      oldStyle.remove();
-    }
-    document.head.appendChild(style);
-    document.body.appendChild(cleaningOverlay);
-    
-    // ✅ 调试：检查样式是否正确应用
-    const computedStyle = window.getComputedStyle(cleaningOverlay);
-    console.log('[Tab Cleaner Pet] Fullscreen cleaning animation shown', {
-      background: computedStyle.background,
-      backgroundColor: computedStyle.backgroundColor,
-      config: {
-        startColor: config.background.startColor,
-        endColor: config.background.endColor,
-      }
-    });
   }
   
-  /**
-   * 隐藏全屏加载动画
-   */
   function hideFullscreenCleaningAnimation() {
-    if (cleaningOverlay) {
-      cleaningOverlay.style.animation = 'fadeOut 0.3s ease-out';
-      cleaningOverlay.style.opacity = '0';
-      setTimeout(() => {
-        if (cleaningOverlay && cleaningOverlay.parentNode) {
-          cleaningOverlay.remove();
-        }
-        cleaningOverlay = null;
-      }, 300);
-      console.log('[Tab Cleaner Pet] Fullscreen cleaning animation hidden');
+    const module = window.TabCleanerPetCleaningAnimation;
+    if (module && module.hide) {
+      module.hide();
     }
-  }
-  
-  // 监听消息，隐藏动画
-  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-    chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
-      if (req && req.action === 'hide-cleaning-animation') {
-        hideFullscreenCleaningAnimation();
-        sendResponse?.({ ok: true });
-        return true;
-      }
-      return false;
-    });
   }
 
+  // 使用模块：从 pet_ui.js 获取
   function getPetAsset(petId) {
+    const petUI = window.TabCleanerPetUI;
+    if (petUI && petUI.PET_IMAGE_MAP) {
+      return petUI.PET_IMAGE_MAP[petId] || petUI.PET_IMAGE_MAP[petUI.DEFAULT_PET_ID];
+    }
+    // 降级
+    const PET_IMAGE_MAP = {
+      turtle: 'static/img/turtle.svg',
+      elephant: 'static/img/elephant.svg',
+      squirrel: 'static/img/squrrial.svg',
+    };
+    const DEFAULT_PET_ID = 'elephant';
     return PET_IMAGE_MAP[petId] || PET_IMAGE_MAP[DEFAULT_PET_ID];
   }
 
@@ -275,17 +107,31 @@
     if (!petContainer) return;
     const shadow = petContainer.shadowRoot;
     if (!shadow) return;
+    
+    const isElephant = currentPetId === 'elephant';
     const avatar = shadow.querySelector('.avatar');
-    if (avatar) {
-      // 添加淡出效果
+    const avatarVideo = shadow.querySelector('.avatar-video');
+    
+    if (isElephant && avatarVideo) {
+      // 大象使用视频
+      avatarVideo.style.opacity = '0';
+      avatarVideo.style.transition = 'opacity 0.3s ease';
+      setTimeout(() => {
+        const source = avatarVideo.querySelector('source');
+        if (source) {
+          source.src = asset('static/video/idle-elephant.webm');
+          avatarVideo.load(); // 重新加载视频
+        }
+        avatarVideo.style.opacity = '1';
+      }, 150);
+    } else if (avatar) {
+      // 其他宠物使用静态图片
       avatar.style.opacity = '0';
       avatar.style.transition = 'opacity 0.3s ease';
-      
-      // 延迟后切换图片并淡入
       setTimeout(() => {
         avatar.style.backgroundImage = `url("${asset(getPetAsset(currentPetId))}")`;
         avatar.style.opacity = '1';
-      }, 150); // 150ms 后切换，形成淡出-切换-淡入的效果
+      }, 150);
     }
   }
 
@@ -296,7 +142,13 @@
     }
   }
 
+  // 使用模块：动作处理
   function triggerCleaningEffect(duration = 2200) {
+    const module = window.TabCleanerPetActions;
+    if (module && module.triggerCleaningEffect) {
+      return module.triggerCleaningEffect(duration, petMainEl);
+    }
+    // 降级
     if (!petMainEl) return () => {};
     petMainEl.classList.add('pet-cleaning');
     let cleared = false;
@@ -314,6 +166,16 @@
   }
 
   function handlePetAction(action) {
+    const module = window.TabCleanerPetActions;
+    if (module && module.handlePetAction) {
+      module.handlePetAction(action, {
+        showFullscreenCleaningAnimation,
+        hideFullscreenCleaningAnimation,
+        triggerCleaningEffect,
+        petMainEl,
+      });
+    } else {
+      // 降级
     if (!action) return;
     if (action === 'pet-setting') {
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
@@ -321,221 +183,81 @@
       }
       return;
     }
-
     const actionMap = {
       'clean-current': 'clean-current-tab',
       'clean-all': 'clean-all',
     };
     const runtimeAction = actionMap[action];
     if (!runtimeAction) return;
-
-    // 显示全屏加载动画
     showFullscreenCleaningAnimation();
-    
     const stopEffect = triggerCleaningEffect(2500);
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       try {
         chrome.runtime.sendMessage({ action: runtimeAction }, () => {
           stopEffect();
-          // 注意：动画会在 background.js 处理完成后通过消息隐藏
         });
         setTimeout(stopEffect, 5000);
       } catch (err) {
         console.warn('[Tab Cleaner Pet] Failed to send action message:', err);
         stopEffect();
-        // 出错时隐藏动画
         hideFullscreenCleaningAnimation();
       }
     } else {
       setTimeout(stopEffect, 1500);
       hideFullscreenCleaningAnimation();
+      }
     }
   }
 
-  const DEFAULT_PET_ID = 'elephant';
-  const PET_IMAGE_MAP = {
+  // 使用模块：从 pet_ui.js 获取配置
+  const petUI = window.TabCleanerPetUI;
+  const DEFAULT_PET_ID = petUI?.DEFAULT_PET_ID || 'elephant';
+  const PET_IMAGE_MAP = petUI?.PET_IMAGE_MAP || {
     turtle: 'static/img/turtle.svg',
     elephant: 'static/img/elephant.svg',
     squirrel: 'static/img/squrrial.svg',
   };
   let currentPetId = DEFAULT_PET_ID;
 
-  // ========== 按钮组配置 ==========
-  // 可以在这里调整按钮组的大小和位置
-  const BUTTON_GROUP_CONFIG = {
-    // 按钮组位置（相对于宠物头像）
-    overlayRight: 80,     // 按钮组距离右边的距离（px，负值表示在右侧，值越大越靠左）
-    overlayTop: 60,         // 按钮组距离顶部的距离（px）
-    
-    // 按钮尺寸
-    buttonWidth: 88/2,        // 单个按钮的宽度（px）
-    buttonHeight: 74/2,       // 单个按钮的高度（px）
-    
-    // 按钮间距
-    buttonGap: 8,          // 按钮之间的间距（px）
-    
-    // Tooltip 提示框样式
-    tooltipOffset: 6,       // Tooltip 距离按钮的间距（px）
-    tooltipPaddingX: 8,     // Tooltip 水平内边距（px）
-    tooltipPaddingY: 3,     // Tooltip 垂直内边距（px）
-    tooltipFontSize: 10,    // Tooltip 字体大小（px）
-    
-    // Hover 效果
-    hoverTranslateX: -2,    // Hover 时按钮向左移动的距离（px）
-    hoverScale: 1.02,       // Hover 时按钮的缩放比例
-  };
-  // ========== 配置结束 ==========
-  
-  /**
-   * 从 Chrome Storage 加载宠物状态
-   * ✅ v2.2: 模块加载时立即检查状态并显示/隐藏（不等待用户操作）
-   */
+  // 使用模块：存储同步
   async function loadPetState() {
-    if (petStateLoaded) return;
-    
-    try {
-      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        const result = await new Promise((resolve) => {
-          chrome.storage.local.get(['petVisible', 'petPosition'], (items) => {
-            resolve(items);
-          });
-        });
-        
-        const shouldBeVisible = result.petVisible === true;
-        petStateLoaded = true;
-        
-        console.log('[Tab Cleaner Pet] Loaded pet state from storage:', {
-          petVisible: shouldBeVisible,
-          petPosition: result.petPosition
-        });
-        
-        // ✅ v2.2: 根据存储状态立即显示或隐藏（模块已加载，响应更快）
-        if (shouldBeVisible) {
-          // 延迟一下确保页面已加载
-          const showAndRestorePosition = async () => {
-            await showPet();
-            // ✅ 恢复位置（在容器创建后）
-            if (result.petPosition && petContainer) {
-              petContainer.style.left = result.petPosition.left;
-              petContainer.style.top = result.petPosition.top;
-              console.log('[Tab Cleaner Pet] Position restored:', result.petPosition);
-            }
-          };
-          
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-              setTimeout(() => showAndRestorePosition(), 100);
-            }, { once: true });
-          } else {
-            setTimeout(() => showAndRestorePosition(), 100);
-          }
-        } else {
-          // ✅ v2.2: 如果应该隐藏，确保容器已创建但隐藏（为后续显示做准备）
-          console.log('[Tab Cleaner Pet] Pet should be hidden, ensuring container is ready but hidden');
-          if (!petContainer) {
-            // 创建容器但不显示（为后续快速显示做准备）
-            await createPet();
-          }
-          // 确保是隐藏状态
-          if (petContainer) {
-            petContainer.style.display = "none";
-            isPetVisible = false;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('[Tab Cleaner Pet] Failed to load pet state:', e);
-      petStateLoaded = true; // 标记为已加载，避免重复尝试
+    const module = window.TabCleanerPetStorage;
+    if (module && module.loadPetState) {
+      return await module.loadPetState({
+        petContainer,
+        isPetVisible,
+        setPetVisible: (v) => { isPetVisible = v; },
+        showPet,
+        createPet,
+      });
     }
+    return null;
   }
   
-  /**
-   * 保存宠物状态到 Chrome Storage
-   */
   async function savePetState() {
-    try {
-      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        const position = petContainer ? {
-          left: petContainer.style.left,
-          top: petContainer.style.top
-        } : null;
-        
-        await new Promise((resolve) => {
-          chrome.storage.local.set({
-            petVisible: isPetVisible,
-            petPosition: position
-          }, () => {
-            if (chrome.runtime.lastError) {
-              console.warn('[Tab Cleaner Pet] Failed to save pet state:', chrome.runtime.lastError);
-            } else {
-              console.log('[Tab Cleaner Pet] Pet state saved:', { petVisible: isPetVisible, position });
-            }
-            resolve();
-          });
-        });
-        
-        // 通知所有标签页更新（通过 storage.onChanged 事件）
-        // 这个事件会自动触发所有标签页的 chrome.storage.onChanged 监听器
-      }
-    } catch (e) {
-      console.warn('[Tab Cleaner Pet] Failed to save pet state:', e);
+    const module = window.TabCleanerPetStorage;
+    if (module && module.savePetState) {
+      await module.savePetState({
+        petContainer,
+        isPetVisible,
+      });
     }
   }
   
-  /**
-   * 监听存储变化，同步宠物状态到所有标签页
-   * ✅ v2.3: 确保监听器只设置一次，避免重复监听
-   */
   function setupStorageSync() {
-    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.onChanged) {
-      console.warn('[Tab Cleaner Pet] chrome.storage.onChanged not available');
-      return;
+    const module = window.TabCleanerPetStorage;
+    if (module && module.setupStorageSync) {
+      module.setupStorageSync({
+        showPet,
+        hidePet,
+        petContainer,
+        setPetVisible: (v) => { isPetVisible = v; },
+      });
     }
-    
-    // ✅ v2.3: 避免重复设置监听器
-    if (window.__TAB_CLEANER_PET_STORAGE_SYNC_SETUP) {
-      console.log('[Tab Cleaner Pet] Storage sync listener already setup');
-      return;
-    }
-    window.__TAB_CLEANER_PET_STORAGE_SYNC_SETUP = true;
-    
-    chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'local') return;
-      
-      if (changes.petVisible) {
-        const newVisible = changes.petVisible.newValue === true;
-        console.log('[Tab Cleaner Pet] Pet visibility changed via storage:', newVisible, {
-          currentIsVisible: isPetVisible,
-          containerExists: !!petContainer
-        });
-        
-        // ✅ v2.3: 无论当前状态如何，都执行显示/隐藏操作（确保同步）
-        if (newVisible) {
-          console.log('[Tab Cleaner Pet] Storage says visible=true, calling showPet()...');
-          showPet();
-        } else {
-          console.log('[Tab Cleaner Pet] Storage says visible=false, calling hidePet()...');
-          hidePet();
-        }
-      }
-      
-      if (changes.petPosition && petContainer) {
-        const newPosition = changes.petPosition.newValue;
-        if (newPosition && newPosition.left && newPosition.top) {
-          petContainer.style.left = newPosition.left;
-          petContainer.style.top = newPosition.top;
-          console.log('[Tab Cleaner Pet] Position updated from storage:', newPosition);
-        }
-      }
-
-      if (changes.selectedPet) {
-        const newPet = changes.selectedPet.newValue || DEFAULT_PET_ID;
-        console.log('[Tab Cleaner Pet] Selected pet changed via storage:', newPet);
-        applyPetSkin(newPet);
-      }
-    });
-    
-    console.log('[Tab Cleaner Pet] Storage sync listener setup complete');
+  }
+  
+  function setPetVisible(visible) {
+    isPetVisible = visible;
   }
 
   // 获取扩展资源 URL
@@ -543,13 +265,20 @@
     let url = null;
     let method = '';
     
-    // 方式 1: 使用 chrome.runtime.getURL（如果可用）
+    // 方式 1: 使用 chrome.runtime.getURL（如果可用且上下文有效）
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
+      // ✅ 先检查扩展上下文是否有效（避免 "Extension context invalidated" 错误）
+      if (chrome.runtime.id) {
       try {
         url = chrome.runtime.getURL(path);
         method = 'chrome.runtime.getURL';
       } catch (e) {
-        console.warn("[Tab Cleaner Pet] chrome.runtime.getURL failed:", e);
+          // 静默处理，不输出警告（扩展上下文失效是正常情况，会在重新加载时发生）
+          // console.warn("[Tab Cleaner Pet] chrome.runtime.getURL failed:", e);
+        }
+      } else {
+        // 扩展上下文已失效，跳过此方式
+        // console.log("[Tab Cleaner Pet] Extension context invalidated, skipping chrome.runtime.getURL");
       }
     }
     
@@ -605,19 +334,35 @@
     return url;
   }
 
-  // 加载 CSS
+  // 降级函数：如果模块未加载，使用本地实现（保留作为后备）
   async function loadPetCss() {
+    const petUI = window.TabCleanerPetUI;
+    if (petUI && petUI.loadPetCss) {
+      return petUI.loadPetCss(asset, currentPetId);
+    }
+    // 降级实现（简化版，使用默认配置）
+    const BUTTON_GROUP_CONFIG = {
+      overlayRight: 80,
+      overlayTop: 60,
+      buttonWidth: 44,
+      buttonHeight: 37,
+      buttonGap: 8,
+      tooltipOffset: 6,
+      tooltipPaddingX: 8,
+      tooltipPaddingY: 3,
+      tooltipFontSize: 10,
+      hoverTranslateX: -2,
+      hoverScale: 1.02,
+    };
     return `
       <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400&display=swap');
-        @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
         .desktop-pet-main {
           min-height: 246px;
           min-width: 315px;
           position: relative;
           width: 100%;
         }
-
         .desktop-pet-main .pet-main {
           height: 190px;
           left: 0;
@@ -625,101 +370,23 @@
           top: 0;
           width: 269px;
         }
-
-        .desktop-pet-main .props {
-          height: 113px;
-          left: 0;
-          position: absolute;
-          top: 78px;
-          width: 84px;
-        }
-
         .desktop-pet-main .avatar {
-          background-image: url("${asset(getPetAsset(DEFAULT_PET_ID))}");
-          background-size: contain;
-          background-repeat: no-repeat;
           height: 130px;
           left: 70px;
           position: absolute;
           top: 64px;
           width: 140px;
           cursor: pointer;
-          border-radius: 60px;
-          transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.3s ease;
-          box-shadow: 0 0 0 rgba(98, 179, 255, 0);
         }
-
-        .desktop-pet-main .avatar::after {
-          content: "";
+        .desktop-pet-main .avatar-video {
+          height: 130px;
+          left: 70px;
           position: absolute;
-          inset: -20px;
-          border-radius: 50%;
-          background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(130,199,255,0.2) 60%, rgba(255,255,255,0) 100%);
-          opacity: 0;
-          transition: opacity 0.25s ease;
-          filter: blur(4px);
-          pointer-events: none;
+          top: 64px;
+          width: 140px;
+          cursor: pointer;
+          object-fit: contain;
         }
-
-        .desktop-pet-main .avatar:hover {
-          transform: translateY(-6px) scale(1.03);
-          box-shadow: 0 10px 18px rgba(82, 160, 255, 0.35);
-        }
-
-        .desktop-pet-main .avatar:hover::after {
-          opacity: 0.9;
-        }
-
-        .desktop-pet-main .chat-bubble {
-          display: none;
-          height: 89px;
-          left: 160px;
-          position: absolute;
-          top: 0;
-          width: 109px;
-        }
-
-        .desktop-pet-main .div {
-          flex: 1;
-          position: relative;
-          width: 111px;
-        }
-
-        .desktop-pet-main .chatbubble-bg {
-          height: 100.00%;
-          left: 0;
-          position: absolute;
-          top: 0;
-          width: 98.16%;
-        }
-
-        .desktop-pet-main .rectangle {
-          background-color: #fdfdfd;
-          height: 19.07%;
-          left: 38.74%;
-          position: absolute;
-          top: 20.19%;
-          width: 20.72%;
-        }
-
-        .desktop-pet-main .emoji-status {
-          align-items: center;
-          color: #000000;
-          display: flex;
-          font-family: "Inter", Helvetica;
-          font-size: 10px;
-          font-weight: 400;
-          height: 33.66%;
-          justify-content: center;
-          left: 0;
-          letter-spacing: 0;
-          line-height: normal;
-          position: absolute;
-          text-align: center;
-          top: 26.92%;
-          width: 98.20%;
-        }
-
         .desktop-pet-main .choice-overlay {
           position: absolute;
           right: ${BUTTON_GROUP_CONFIG.overlayRight}px;
@@ -729,16 +396,11 @@
           gap: ${BUTTON_GROUP_CONFIG.buttonGap}px;
           opacity: 0;
           pointer-events: none;
-          transition: opacity 0.25s ease, transform 0.25s ease;
-          transform: translateX(20px);
         }
-
         .desktop-pet-main .choice-overlay.visible {
           opacity: 1;
           pointer-events: auto;
-          transform: translateX(0);
         }
-
         .desktop-pet-main .action-button {
           width: ${BUTTON_GROUP_CONFIG.buttonWidth}px;
           height: ${BUTTON_GROUP_CONFIG.buttonHeight}px;
@@ -746,145 +408,31 @@
           background: none;
           padding: 0;
           cursor: pointer;
-          position: relative;
-          transition: transform 0.2s ease, filter 0.2s ease;
-        }
-
-        .desktop-pet-main .action-button .label {
-          position: absolute;
-          width: 1px;
-          height: 1px;
-          margin: -1px;
-          padding: 0;
-          overflow: hidden;
-          clip: rect(0 0 0 0);
-          border: 0;
-        }
-
-        .desktop-pet-main .action-button img.icon {
-          width: 100%;
-          height: 100%;
-          display: block;
-          filter: grayscale(1) brightness(0.9);
-          transition: filter 0.25s ease, transform 0.25s ease;
-        }
-
-        .desktop-pet-main .action-button .tooltip {
-          position: absolute;
-          right: calc(100% + ${BUTTON_GROUP_CONFIG.tooltipOffset}px);
-          top: 50%;
-          transform: translateY(-50%);
-          background: rgba(0, 0, 0, 0.85);
-          color: #ffffff;
-          border-radius: 999px;
-          padding: ${BUTTON_GROUP_CONFIG.tooltipPaddingY}px ${BUTTON_GROUP_CONFIG.tooltipPaddingX}px;
-          font-size: ${BUTTON_GROUP_CONFIG.tooltipFontSize}px;
-          opacity: 0;
-          pointer-events: none;
-          transition: opacity 0.2s ease;
-          white-space: nowrap;
-        }
-
-        .desktop-pet-main .action-button:hover img.icon {
-          filter: none;
-        }
-
-        .desktop-pet-main .action-button:hover {
-          transform: translateX(${BUTTON_GROUP_CONFIG.hoverTranslateX}px) scale(${BUTTON_GROUP_CONFIG.hoverScale});
-        }
-
-        .desktop-pet-main .action-button:hover .tooltip {
-          opacity: 1;
-        }
-
-        .desktop-pet-main.pet-cleaning .avatar::after {
-          opacity: 1;
-          animation: pet-bubble 1.6s infinite ease-out;
-        }
-
-        .desktop-pet-main .cleaning-bubbles {
-          position: absolute;
-          inset: 0;
-          pointer-events: none;
-          opacity: 0;
-        }
-
-        .desktop-pet-main.pet-cleaning .cleaning-bubbles {
-          opacity: 1;
-        }
-
-        .desktop-pet-main .cleaning-bubbles span {
-          position: absolute;
-          border-radius: 50%;
-          background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(130,199,255,0.2) 60%, rgba(255,255,255,0) 100%);
-          width: 24px;
-          height: 24px;
-          opacity: 0;
-          animation: bubble-rise 1.6s infinite ease-out;
-        }
-
-        .desktop-pet-main .cleaning-bubbles span:nth-child(1) {
-          left: 30%;
-          top: 60%;
-          animation-delay: 0s;
-        }
-
-        .desktop-pet-main .cleaning-bubbles span:nth-child(2) {
-          left: 50%;
-          top: 55%;
-          animation-delay: 0.2s;
-        }
-
-        .desktop-pet-main .cleaning-bubbles span:nth-child(3) {
-          left: 65%;
-          top: 62%;
-          animation-delay: 0.4s;
-        }
-
-        .desktop-pet-main .cleaning-bubbles span:nth-child(4) {
-          left: 40%;
-          top: 45%;
-          animation-delay: 0.6s;
-        }
-
-        @keyframes pet-bubble {
-          0% {
-            transform: scale(1);
-            opacity: 0.9;
-          }
-          100% {
-            transform: scale(1.6);
-            opacity: 0;
-          }
-        }
-
-        @keyframes bubble-rise {
-          0% {
-            transform: translateY(0) scale(0.6);
-            opacity: 0.6;
-          }
-          100% {
-            transform: translateY(-50px) scale(1.2);
-            opacity: 0;
-          }
         }
       </style>
     `;
   }
 
-  // 生成宠物 HTML
   function generatePetHTML() {
+    const petUI = window.TabCleanerPetUI;
+    if (petUI && petUI.generatePetHTML) {
+      return petUI.generatePetHTML(asset, currentPetId);
+    }
+    // 降级实现（简化版）- 必须包含 chat-bubble
+    const isElephant = currentPetId === 'elephant';
+    const avatarContent = isElephant 
+      ? `<video class="avatar-video" autoplay loop muted playsinline>
+           <source src="${asset('static/video/idle-elephant.webm')}" type="video/webm">
+         </video>`
+      : `<div class="avatar"></div>`;
     return `
       <div class="desktop-pet-main">
         <div class="pet-main">
-          <img class="props" alt="Props" src="${asset('static/img/props.svg')}" />
-          <div class="avatar"></div>
+          ${avatarContent}
           <div class="chat-bubble">
-            <div class="div">
-              <img class="chatbubble-bg" alt="Chatbubble bg" src="${asset('static/img/chatbubble-bg.png')}" />
-              <div class="rectangle"></div>
-              <div class="emoji-status">💦</div>
-            </div>
+            <img class="chatbubble-bg" alt="Chatbubble bg" src="${asset('static/img/chatbubble/text-bubble-bg.svg')}" />
+            <img class="chat-bubble-vector" alt="Vector" src="${asset('static/img/chatbubble/text-bubble-vector.svg')}" />
+            <div class="chat-bubble-text"></div>
           </div>
         </div>
         <div class="cleaning-bubbles" aria-hidden="true">
@@ -986,95 +534,162 @@
       });
 
       const shadow = petContainer.attachShadow({ mode: "open" });
-      const css = await loadPetCss();
-      const html = generatePetHTML();
+      // 使用 pet_ui.js 模块
+      const petUIModule = window.TabCleanerPetUI;
+      let css, html;
+      if (petUIModule && petUIModule.loadPetCss && petUIModule.generatePetHTML) {
+        css = petUIModule.loadPetCss(asset, currentPetId);
+        html = petUIModule.generatePetHTML(asset, currentPetId);
+      } else {
+        // 降级：使用本地函数（如果存在）
+        css = await loadPetCss();
+        html = generatePetHTML();
+      }
       shadow.innerHTML = `${css}${html}`;
 
-      // 绑定事件
-      const avatar = shadow.querySelector('.avatar');
+      // 绑定事件（支持图片 avatar 和视频 avatar-video）
+      const avatar = shadow.querySelector('.avatar') || shadow.querySelector('.avatar-video');
+      const avatarVideo = shadow.querySelector('.avatar-video');
       const choiceOverlay = shadow.querySelector('.choice-overlay');
       const actionButtons = shadow.querySelectorAll('.action-button');
       petMainEl = shadow.querySelector('.desktop-pet-main');
       choiceOverlayEl = choiceOverlay;
-      applyPetSkin(currentPetId);
 
-      // ✅ 添加拖动功能 - 让整个 petContainer 可以拖动
-      let isDragging = false;
-      let startX = 0;
-      let startY = 0;
-      let initialLeft = 0;
-      let initialTop = 0;
-
-      // 拖动处理函数
-      const handleMouseDown = (e) => {
-        // 只允许通过 avatar 或 petContainer 拖动，避免按钮点击时触发
-        const target = e.target;
-        if (target.closest('.action-button') || 
-            target.closest('.choice-overlay')) {
-          return; // 按钮区域不拖动
+      // 🧠 先初始化大象状态机（仅当存在视频元素且状态机脚本已加载时）
+      // 这样 petFsm 和 petStates 可以在 setupDragHandlers 中使用
+      // 使用一个可变引用来解决循环依赖
+      let isDraggingRef = { value: false };
+      let getIsDragging = () => isDraggingRef.value;
+      
+      if (avatarVideo && window.TabCleanerPetFSM) {
+        try {
+          const { createPetStateMachine, PET_STATES } = window.TabCleanerPetFSM;
+          petStates = PET_STATES;
+          petFsm = createPetStateMachine({
+            assetFn: asset,
+            petContainerRef: () => petContainer,
+            videoElRef: () => avatarVideo,
+            getPetId: () => currentPetId,
+            getIsDragging: getIsDragging, // 使用函数引用
+            openPersonalSpace: () => {
+              try {
+                if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+                  chrome.runtime.sendMessage({ action: "open-personalspace" });
+                }
+              } catch (_) {}
+            },
+            config: {},
+          });
+          // 默认进入闲置并允许漫步
+          if (petFsm && petFsm.setState) {
+            petFsm.setState(PET_STATES.IDLE, { loop: true });
+          }
+          console.log('[Tab Cleaner Pet] ✅ State machine initialized:', {
+            hasPetFsm: !!petFsm,
+            hasPetStates: !!petStates,
+            hasQUESTION: !!(petStates && petStates.QUESTION)
+          });
+        } catch (e) {
+          console.warn('[Tab Cleaner Pet] Failed to init FSM:', e);
         }
-        
-        isDragging = true;
-        const rect = petContainer.getBoundingClientRect();
-        initialLeft = rect.left;
-        initialTop = rect.top;
-        startX = e.clientX;
-        startY = e.clientY;
-        
-        petContainer.style.cursor = 'grabbing';
-        e.preventDefault();
-      };
+      }
 
-      const handleMouseMove = (e) => {
-        if (!isDragging) return;
-        
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-        
-        const newLeft = initialLeft + dx;
-        const newTop = initialTop + dy;
-        
-        // 限制在可视区域内
-        const maxLeft = window.innerWidth - petContainer.offsetWidth;
-        const maxTop = window.innerHeight - petContainer.offsetHeight;
-        
-        petContainer.style.left = `${Math.max(0, Math.min(newLeft, maxLeft))}px`;
-        petContainer.style.top = `${Math.max(0, Math.min(newTop, maxTop))}px`;
-        petContainer.style.right = 'auto';
-        petContainer.style.bottom = 'auto';
-      };
-
-      const handleMouseUp = () => {
-        if (isDragging) {
-          isDragging = false;
-          petContainer.style.cursor = '';
-        }
-      };
-
-      // 在 petContainer 上添加拖动事件
-      petContainer.addEventListener('mousedown', handleMouseDown);
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', () => {
-        handleMouseUp();
-        // ✅ v2.3: 拖动结束后保存位置（无论是否可见，都保存位置）
-        if (petContainer) {
-          savePetState();
-        }
+      // ✅ 使用模块：拖拽功能（在状态机初始化之后）
+      console.log('[Tab Cleaner Pet] Setting up drag handlers:', {
+        hasDragModule: !!window.TabCleanerPetDrag,
+        hasSetupDragHandlers: !!(window.TabCleanerPetDrag && window.TabCleanerPetDrag.setupDragHandlers),
+        hasPetFsm: !!petFsm,
+        hasPetStates: !!petStates,
+        hasAvatar: !!avatar,
+        hasAvatarVideo: !!avatarVideo
       });
       
-      // 设置可拖动样式
-      petContainer.style.cursor = 'grab';
-      petContainer.style.userSelect = 'none';
-
-      // 点击 avatar 显示/隐藏按钮
-      if (avatar) {
-        avatar.addEventListener('click', (e) => {
-          // 如果正在拖动，不触发点击
-          if (isDragging) {
-            return;
-          }
-          setButtonsVisible(!isButtonsVisible);
+      const dragModule = window.TabCleanerPetDrag;
+      let dragHandlers = null;
+      if (dragModule && dragModule.setupDragHandlers) {
+        console.log('[Tab Cleaner Pet] ✅ Calling setupDragHandlers');
+        dragHandlers = dragModule.setupDragHandlers({
+          petContainer,
+          shadow,
+          avatar,
+          avatarVideo,
+          petMainEl,
+          setButtonsVisible,
+          petFsm,
+          petStates,
+          savePetState,
         });
+        console.log('[Tab Cleaner Pet] ✅ Drag handlers setup complete:', {
+          hasHandlers: !!dragHandlers,
+          hasIsDragging: !!(dragHandlers && dragHandlers.isDragging)
+        });
+        // 更新 isDragging 引用，让状态机可以访问
+        if (dragHandlers?.isDragging) {
+          const originalIsDragging = dragHandlers.isDragging;
+          getIsDragging = () => {
+            const result = originalIsDragging();
+            isDraggingRef.value = result;
+            return result;
+          };
+        }
+      } else {
+        // 降级：基本拖拽功能（简化版）
+        petContainer.style.cursor = 'grab';
+        petContainer.style.userSelect = 'none';
+        petContainer.style.contain = 'layout style';
+        petContainer.style.willChange = 'transform';
+        
+        // 降级：添加基本的点击处理（确保 chat bubble 和 QUESTION 动画能触发）
+        const handleAvatarClickFallback = (e) => {
+          e.stopPropagation();
+          console.log('[Tab Cleaner Pet] Fallback click handler called');
+          
+          // 优先使用状态机的统一处理
+          if (window.TabCleanerPetFSM && typeof window.TabCleanerPetFSM.handleAvatarClick === 'function') {
+            try {
+              console.log('[Tab Cleaner Pet] Using state machine handleAvatarClick (fallback)');
+              window.TabCleanerPetFSM.handleAvatarClick(petFsm, petStates);
+            } catch (err) {
+              console.error('[Tab Cleaner Pet] Error in state machine handleAvatarClick (fallback):', err);
+            }
+          } else {
+            // 如果状态机不可用，使用降级逻辑
+            console.warn('[Tab Cleaner Pet] State machine not available, using direct fallback');
+            
+            // 💬 触发互动对话（点击小象时显示 id:26 的对话）
+            if (window.__TAB_CLEANER_PET_CHAT_BUBBLE && window.__TAB_CLEANER_PET_CHAT_BUBBLE.trigger) {
+              try {
+                console.log('[Tab Cleaner Pet] 💬 Triggering chat bubble with dialogue ID: 26 (fallback)');
+                window.__TAB_CLEANER_PET_CHAT_BUBBLE.trigger(null, 26);
+              } catch (err) {
+                console.error('[Tab Cleaner Pet] Failed to trigger chat bubble on click (fallback):', err);
+              }
+            }
+            
+            // 🎬 播放 question 动画（单击时）
+            if (petFsm && petStates && petStates.QUESTION) {
+              try {
+                console.log('[Tab Cleaner Pet] 🎬 Setting QUESTION state (fallback)...');
+                petFsm.setState(petStates.QUESTION, {
+                  loop: false,
+                  nextState: petStates.IDLE,
+                });
+              } catch (err) {
+                console.error('[Tab Cleaner Pet] Failed to set QUESTION state on click (fallback):', err);
+              }
+            }
+          }
+          
+          // 切换按钮显示
+          if (setButtonsVisible) {
+            const choiceOverlay = shadow.querySelector('.choice-overlay');
+            const isCurrentlyVisible = choiceOverlay && choiceOverlay.classList.contains('visible');
+            setButtonsVisible(!isCurrentlyVisible);
+          }
+        };
+        
+        if (avatar) avatar.addEventListener('click', handleAvatarClickFallback);
+        if (avatarVideo) avatarVideo.addEventListener('click', handleAvatarClickFallback);
       }
 
       if (actionButtons && actionButtons.length > 0) {
@@ -1087,6 +702,66 @@
           });
         });
       }
+
+      // 💬 初始化聊天气泡状态机
+      console.log('[Tab Cleaner Pet] Checking chat bubble module:', {
+        exists: !!window.TabCleanerPetChatBubble,
+        hasCreate: !!(window.TabCleanerPetChatBubble && window.TabCleanerPetChatBubble.createChatBubbleStateMachine)
+      });
+      
+      if (window.TabCleanerPetChatBubble) {
+        try {
+          const chatBubbleEl = shadow.querySelector('.chat-bubble');
+          const textContentEl = shadow.querySelector('.chat-bubble-text');
+          
+          console.log('[Tab Cleaner Pet] Chat bubble elements:', {
+            chatBubbleEl: !!chatBubbleEl,
+            textContentEl: !!textContentEl,
+            shadowHTML: shadow.innerHTML.substring(0, 200)
+          });
+          
+          if (chatBubbleEl && textContentEl) {
+            const chatBubbleCfg = (window.__TAB_CLEANER_PET_CONFIG || {}).chatBubble || {};
+            
+            // 根据配置调整位置（基于新的默认位置：left: 180px, top: -20px）
+            // 始终设置位置，确保覆盖 CSS 默认值
+            const offsetX = chatBubbleCfg.positionOffsetX !== undefined ? chatBubbleCfg.positionOffsetX : 0;
+            const offsetY = chatBubbleCfg.positionOffsetY !== undefined ? chatBubbleCfg.positionOffsetY : 0;
+            chatBubbleEl.style.left = `${180 + offsetX}px`;
+            chatBubbleEl.style.top = `${-20 + offsetY}px`;
+            
+            const chatBubbleFsm = window.TabCleanerPetChatBubble.createChatBubbleStateMachine({
+              assetFn: asset,
+              chatBubbleEl: chatBubbleEl,
+              textContentEl: textContentEl,
+              config: chatBubbleCfg,
+            });
+            
+            // 启动自动显示循环
+            if (chatBubbleFsm && chatBubbleFsm.scheduleNext) {
+              chatBubbleFsm.scheduleNext();
+            }
+            
+            // 暴露到全局，方便其他功能触发
+            window.__TAB_CLEANER_PET_CHAT_BUBBLE = chatBubbleFsm;
+            
+            console.log('[Tab Cleaner Pet] ✅ Chat bubble initialized:', {
+              hasTrigger: !!chatBubbleFsm.trigger,
+              hasShow: !!chatBubbleFsm.show,
+              hasHide: !!chatBubbleFsm.hide
+            });
+          } else {
+            console.error('[Tab Cleaner Pet] ❌ Chat bubble elements not found in shadow DOM!');
+          }
+        } catch (e) {
+          console.error('[Tab Cleaner Pet] Failed to init chat bubble:', e);
+        }
+      } else {
+        console.error('[Tab Cleaner Pet] ❌ TabCleanerPetChatBubble module not loaded!');
+      }
+
+      // 初始皮肤同步（非大象或后备）
+      applyPetSkin(currentPetId);
 
       // ✅ 确保 body 存在后再添加，只有真正添加到 DOM 后才标记为初始化完成
       const addToDOM = () => {
@@ -1232,6 +907,14 @@
     isVisible: () => isPetVisible,
     ensureInitialized: ensureInitialized, // ✅ 新增：等待初始化完成的方法
     forceShow: forceShow, // ✅ v2.1: 强制显示方法
+    // 🧠 状态机接口：允许外部触发 raise-attention / clean-success / dizzy 等状态
+    setState: (state, options) => {
+      if (petFsm && typeof petFsm.setState === 'function') {
+        petFsm.setState(state, options || {});
+      } else {
+        console.warn('[Tab Cleaner Pet] setState called but FSM not initialized');
+      }
+    },
   };
   
   try {
