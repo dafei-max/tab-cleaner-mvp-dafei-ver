@@ -91,6 +91,10 @@
   let cardContainer = null;
   let isVisible = false;
   let cleaningOverlay = null; // 全屏加载动画覆盖层
+  let cardBubble = null;      // 卡片右侧提示 chatbubble（全局引用，方便多次控制）
+  // 🐘 卡片窗口视频：入口 & 清理时 dizzy
+  let windowElephantVideo = null;       // 打开卡片时播放 window-elephant.webm
+  let dizzyVideo = null;                // 一键清理期间循环播放 window-dizzy-elephant_1.webm
 
   // 确保 asset() 可用（将相对路径转为扩展 URL）
   if (typeof asset !== 'function') {
@@ -139,7 +143,8 @@
       const map = {
         DRAGGABLE: asset('static/img/draggable-2.svg'),
         VECTOR6: asset('static/img/vector-6.svg'),
-        WINDOW: asset('static/img/window.png'),
+        // 使用新的桌宠入口 SVG，保持按钮大小不变
+        WINDOW: asset('static/img/window-pet-entry.svg'),
         HOME: asset('static/img/home-button-2.png'),
         CLEAN: asset('static/img/clean-button.png'),
         DETAILS: asset('static/img/details-button.svg'),
@@ -159,7 +164,7 @@
     
     return `
       <style>
-        :host { all: initial; display:block; --tc-radius: 28px; background: transparent !important; }
+        :host { all: initial; display:block; position: relative; --tc-radius: 28px; background: transparent !important; }
         :host { --tc-card-scale: ${cardScale}; } /* ✅ 动态设置卡片缩放比例 */
         *, *::before, *::after { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
         ${guideCss}
@@ -259,6 +264,62 @@
           width: 88px;
           height: 99px;
         }
+
+        /* 🗨️ 卡片右侧提示聊天气泡，复用桌宠 chat-bubble 视觉风格 + 出场动效 */
+        .card-chat-bubble {
+          position: absolute;
+          right: -25px; /* 再往左收回 30px */
+          top: 0px;     /* 保持纵向不变 */
+          width: 214px;
+          height: 146px;
+          display: block;
+          opacity: 0;
+          /* 初始状态：稍微下移 + 缩放，整体略小于宠物气泡 */
+          transform: translateY(6px) scale(0.55);
+          transition: opacity 300ms ease-out, transform 300ms ease-out;
+          pointer-events: auto; /* 允许用户点击关闭 */
+          z-index: 200;
+        }
+        .card-chat-bubble.card-chat-bubble-visible {
+          opacity: 1;
+          transform: translateY(0) scale(0.6); /* 比刚才略大一丢丢 */
+        }
+        .card-chat-bubble .chatbubble-bg {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 214px;
+          height: 146px;
+          opacity: 0.9;
+        }
+        .card-chat-bubble .chat-bubble-vector {
+          position: absolute;
+          left: 95.55px;
+          top: 15.6px;
+          width: 18.81px;
+          height: 18.79px;
+          stroke: #231815;
+          stroke-width: 0.99px;
+        }
+        .card-chat-bubble .chat-bubble-text {
+          position: absolute;
+          left: 37.7px;
+          top: 26.65px;
+          width: 146.9px;
+          height: 86.45px;
+          font-family: 'FZLanTingYuanS-R-GB', '方正兰亭', 'Microsoft YaHei', '微软雅黑', sans-serif;
+          font-weight: 400;
+          font-size: 11.7px;
+          line-height: 1.15625em;
+          letter-spacing: 5.56%;
+          color: #000000;
+          text-align: left;
+          display: flex;
+          align-items: center;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          white-space: pre-line;
+        }
         /* 调整 wrapper 位置以匹配原按钮位置 */
         .buttons .home-wrapper {
           left: 160px;
@@ -296,6 +357,25 @@
           top: 65px; /* 调高一点：减小 top 值 */
           left: calc(50% + 43px); /* 往右调：向右偏移 43px */
           transform: translateX(-50%);
+        }
+        /* 🌀 一键清理时整张卡片洗衣机式晃动 */
+        #tc-card.tc-card-shake {
+          animation: tc-card-shake 0.9s ease-in-out infinite;
+          transform-origin: center;
+        }
+
+        @keyframes tc-card-shake {
+          0% { transform: translateX(0) rotate(0deg); }
+          10% { transform: translateX(-2px) rotate(-0.7deg); }
+          20% { transform: translateX(2px) rotate(0.7deg); }
+          30% { transform: translateX(-3px) rotate(-1deg); }
+          40% { transform: translateX(3px) rotate(1deg); }
+          50% { transform: translateX(-2px) rotate(-0.7deg); }
+          60% { transform: translateX(2px) rotate(0.7deg); }
+          70% { transform: translateX(-1px) rotate(-0.4deg); }
+          80% { transform: translateX(1px) rotate(0.4deg); }
+          90% { transform: translateX(-0.5px) rotate(-0.2deg); }
+          100% { transform: translateX(0) rotate(0deg); }
         }
         /* window-button-wrapper 定位，完全不影响原有 window-button 的定位 */
         .window-button-wrapper {
@@ -489,6 +569,16 @@
       cleanBtn.addEventListener("click", () => {
         // 显示全屏加载动画
         showCleaningAnimation();
+        // 🎬 同步开始播放窗口 dizzy 动画（循环）
+        playDizzyVideo();
+
+        // 🌀 让整张卡片像洗衣机一样开始震动
+        try {
+          const card = shadow.getElementById('tc-card');
+          if (card) {
+            card.classList.add('tc-card-shake');
+          }
+        } catch (_) {}
         
         try {
           chrome.runtime.sendMessage({ action: "clean" }, (response) => {
@@ -498,8 +588,15 @@
               } else {
                 console.error("[Tab Cleaner] Failed to clean tabs:", chrome.runtime.lastError);
               }
-              // 出错时隐藏动画
+              // 出错时隐藏动画、dizzy 视频和卡片震动
               hideCleaningAnimation();
+              stopDizzyVideo();
+              try {
+                const card = shadow.getElementById('tc-card');
+                if (card) {
+                  card.classList.remove('tc-card-shake');
+                }
+              } catch (_) {}
             } else {
               console.log("[Tab Cleaner] Clean action sent:", response);
               // 注意：动画会在 background.js 处理完成后通过消息隐藏
@@ -507,8 +604,15 @@
           });
         } catch (error) {
           console.error("[Tab Cleaner] Error sending clean message:", error);
-          // 出错时隐藏动画
+          // 出错时隐藏动画、dizzy 视频和卡片震动
           hideCleaningAnimation();
+          stopDizzyVideo();
+          try {
+            const card = shadow.getElementById('tc-card');
+            if (card) {
+              card.classList.remove('tc-card-shake');
+            }
+          } catch (_) {}
         }
       });
     }
@@ -528,6 +632,13 @@
       windowButton.addEventListener("click", (e) => {
         e.stopPropagation();
         console.log("[Tab Cleaner] Window button clicked, toggling pet visibility...");
+        
+        // 用户点击召唤宠物按钮时，自动隐藏引导气泡
+        try {
+          if (cardBubble) {
+            cardBubble.classList.remove('card-chat-bubble-visible');
+          }
+        } catch (_) {}
         
         if (!chrome.storage || !chrome.storage.local) {
           console.error("[Tab Cleaner] chrome.storage.local not available");
@@ -549,9 +660,44 @@
       });
     }
 
+    // 在卡片右侧添加提示聊天气泡，复用桌宠 chat-bubble 的 DOM 结构和贴图
+    if (shadow && !cardBubble) {
+      cardBubble = document.createElement('div');
+      cardBubble.className = 'card-chat-bubble';
+      cardBubble.innerHTML = `
+        <img class="chatbubble-bg" alt="Chatbubble bg" src="${asset('static/img/chatbubble/text-bubble-bg.svg')}" />
+        <img class="chat-bubble-vector" alt="Vector" src="${asset('static/img/chatbubble/text-bubble-vector.svg')}" />
+        <div class="chat-bubble-text">
+HiHi我在这里！！
+请敲敲（点击）洗衣机窗户
+召唤我出来～🩵
+        </div>
+      `;
+      // ⚠️ 不再放到 card 内部，避免被 card 的 overflow/clip-path 裁剪；直接挂在 shadow root 下，让它悬浮在卡片上方
+      shadow.appendChild(cardBubble);
+
+      // 允许用户点击气泡手动关闭
+      try {
+        cardBubble.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          cardBubble.classList.remove('card-chat-bubble-visible');
+        });
+      } catch (_) {}
+    }
+
     document.body.appendChild(cardContainer);
     if (card) {
-      requestAnimationFrame(() => card.classList.add("visible"));
+      requestAnimationFrame(() => {
+        card.classList.add("visible");
+        // 复用之前那套淡入 + 轻微缩放动画：先用初始 transform/opacity，下一帧加 visible class
+        if (cardBubble) {
+          // 确保每次创建卡片时，气泡都重新可见
+          cardBubble.classList.remove('card-chat-bubble-visible');
+          requestAnimationFrame(() => {
+            cardBubble.classList.add('card-chat-bubble-visible');
+          });
+        }
+      });
     }
   }
 
@@ -561,6 +707,8 @@
     const card = cardContainer.shadowRoot.getElementById("tc-card");
     card && card.classList.add("visible");
     isVisible = true;
+    // 🎬 每次打开卡片都播放 window-elephant.webm
+    playWindowElephantVideo();
   }
 
   function hideCard() {
@@ -886,6 +1034,113 @@
       console.log('[Tab Cleaner] Cleaning animation hidden');
     }
   }
+
+  // ============ 🐘 卡片窗口视频：window-elephant & window-dizzy-elephant_1 ============
+
+  // 打开卡片时播放 window-elephant.webm
+  function playWindowElephantVideo() {
+    if (!cardContainer || !cardContainer.shadowRoot) return;
+    
+    const windowButton = cardContainer.shadowRoot.querySelector('.window-button');
+    if (!windowButton) return;
+    
+    const imageContainer = windowButton.querySelector('.image');
+    if (!imageContainer) return;
+    
+    if (!windowElephantVideo) {
+      windowElephantVideo = document.createElement('video');
+      windowElephantVideo.src = asset('static/video/window-elephant.webm');
+      windowElephantVideo.autoplay = true;
+      windowElephantVideo.loop = false;
+      windowElephantVideo.muted = true;
+      windowElephantVideo.playsInline = true;
+      windowElephantVideo.preload = 'auto';
+      windowElephantVideo.style.cssText = `
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        z-index: 3;
+        pointer-events: none;
+      `;
+      
+      // 播放结束后移除视频，并恢复静态内容
+      windowElephantVideo.addEventListener('ended', () => {
+        if (windowElephantVideo && windowElephantVideo.parentNode) {
+          windowElephantVideo.parentNode.removeChild(windowElephantVideo);
+        }
+        windowElephantVideo = null;
+      });
+      
+      imageContainer.appendChild(windowElephantVideo);
+    }
+
+    // 每次调用都从头播放一遍
+    if (windowElephantVideo) {
+      try {
+        windowElephantVideo.currentTime = 0;
+        const playPromise = windowElephantVideo.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch(() => {});
+        }
+      } catch (_) {}
+    }
+  }
+
+  // 一键清理期间循环播放 window-dizzy-elephant_1.webm
+  function playDizzyVideo() {
+    if (!cardContainer || !cardContainer.shadowRoot) return;
+    
+    const windowButton = cardContainer.shadowRoot.querySelector('.window-button');
+    if (!windowButton) return;
+    
+    const imageContainer = windowButton.querySelector('.image');
+    if (!imageContainer) return;
+    
+    // 如已有，先停掉
+    if (dizzyVideo) {
+      stopDizzyVideo();
+    }
+    
+    dizzyVideo = document.createElement('video');
+    dizzyVideo.src = asset('static/video/window-dizzy-elephant_1.webm');
+    dizzyVideo.autoplay = true;
+    dizzyVideo.loop = true;
+    dizzyVideo.muted = true;
+    dizzyVideo.playsInline = true;
+    dizzyVideo.preload = 'auto';
+    dizzyVideo.style.cssText = `
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      z-index: 3;
+      pointer-events: none;
+    `;
+    
+    imageContainer.appendChild(dizzyVideo);
+    const playPromise = dizzyVideo.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {});
+    }
+  }
+
+  // 停止清理时的循环 dizzy 视频
+  function stopDizzyVideo() {
+    if (!dizzyVideo) return;
+    try {
+      dizzyVideo.pause();
+      dizzyVideo.currentTime = 0;
+      if (dizzyVideo.parentNode) {
+        dizzyVideo.parentNode.removeChild(dizzyVideo);
+      }
+    } catch (_) {}
+    dizzyVideo = null;
+  }
   
   // 添加 fadeOut 动画样式
   if (!document.getElementById('tab-cleaner-fadeout-style')) {
@@ -1127,7 +1382,21 @@
     if (req.action === "show") { showCard(); sendResponse?.({ ok: true }); return true; }
     if (req.action === "hide") { hideCard(); sendResponse?.({ ok: true }); return true; }
     if (req.action === "show-cleaning-animation") { showCleaningAnimation(); sendResponse?.({ ok: true }); return true; }
-    if (req.action === "hide-cleaning-animation") { hideCleaningAnimation(); sendResponse?.({ ok: true }); return true; }
+    if (req.action === "hide-cleaning-animation") {
+      hideCleaningAnimation();
+      stopDizzyVideo();
+      // ⏹ 清理结束时停止卡片震动
+      try {
+        if (cardContainer && cardContainer.shadowRoot) {
+          const card = cardContainer.shadowRoot.getElementById('tc-card');
+          if (card) {
+            card.classList.remove('tc-card-shake');
+          }
+        }
+      } catch (_) {}
+      sendResponse?.({ ok: true });
+      return true;
+    }
     if (req.action === "cache-opengraph") {
       // 处理来自 opengraph_local.js 的缓存请求
       // opengraph_local.js 运行在页面上下文中，无法直接访问 chrome.storage

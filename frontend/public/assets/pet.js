@@ -1514,7 +1514,7 @@
       petContainer.style.cursor = 'grab';
       petContainer.style.userSelect = 'none';
 
-      // 点击 avatar 显示/隐藏按钮（支持图片和视频两种模式）
+      // 点击 avatar 显示/隐藏按钮 + 触发 QUESTION & chat bubble
       const handleAvatarClick = (e) => {
         // 如果正在拖动，不触发点击
         if (isDragging) {
@@ -1535,7 +1535,7 @@
         }
         lastClickTime = now;
         
-        // 如果连续点击达到阈值，触发 DIZZY 状态
+        // 如果连续点击达到阈值，触发 DIZZY 状态（优先级最高）
         if (clickCount >= DIZZY_CLICK_THRESHOLD) {
           console.log('[Pet] 连续点击触发 DIZZY，点击次数:', clickCount);
           try {
@@ -1545,13 +1545,35 @@
                 nextState: petStates.IDLE,
               });
               clickCount = 0; // 重置计数
-              return; // 不切换按钮，直接返回
+              return; // 不继续执行 QUESTION / 按钮逻辑
             }
           } catch (err) {
             console.warn('[Tab Cleaner Pet] Failed to set DIZZY state on click:', err);
           }
         }
         
+        // 🐘 单击：触发 QUESTION 动画（播放完回到 IDLE）
+        if (petFsm && petStates && petStates.QUESTION) {
+          try {
+            petFsm.setState(petStates.QUESTION, {
+              loop: false,
+              nextState: petStates.IDLE,
+            });
+          } catch (err) {
+            console.warn('[Tab Cleaner Pet] Failed to set QUESTION state on click:', err);
+          }
+        }
+        
+        // 💬 单击：触发对话 id=26
+        if (window.__TAB_CLEANER_PET_CHAT_BUBBLE && window.__TAB_CLEANER_PET_CHAT_BUBBLE.trigger) {
+          try {
+            window.__TAB_CLEANER_PET_CHAT_BUBBLE.trigger(null, 26);
+          } catch (err) {
+            console.warn('[Tab Cleaner Pet] Failed to trigger chat bubble on click:', err);
+          }
+        }
+        
+        // 切换按钮显隐
         setButtonsVisible(!isButtonsVisible);
         console.log('[Tab Cleaner Pet] Avatar clicked, buttons visible:', !isButtonsVisible, 'clickCount:', clickCount);
       };

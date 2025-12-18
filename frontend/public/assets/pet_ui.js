@@ -61,7 +61,8 @@
           top: 64px;
           width: 140px;
           cursor: pointer;
-          border-radius: 60px;
+          /* ⚠️ 不再裁剪成圆角，避免遮住视频/动画的边缘 */
+          border-radius: 0;
           transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.3s ease;
           box-shadow: 0 0 0 rgba(98, 179, 255, 0);
         }
@@ -73,7 +74,8 @@
           top: 64px;
           width: 140px;
           cursor: pointer;
-          border-radius: 60px;
+          /* ⚠️ 不再裁剪成圆角，避免 QUESTION 等动画被切掉一角 */
+          border-radius: 0;
           transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.3s ease;
           box-shadow: 0 0 0 rgba(98, 179, 255, 0);
           object-fit: contain;
