@@ -27,6 +27,7 @@
       "matches": ["<all_urls>"],
       "js": [
         "assets/opengraph_local_v2.js",
+        "assets/combo_system.js",
         "assets/image_capture_enhanced.js",
         "assets/screenshot_capture.js",
         "assets/pet_config.js",

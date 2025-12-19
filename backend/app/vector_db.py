@@ -73,16 +73,37 @@ async def get_pool() -> asyncpg.Pool:
     if _pool is None:
         if not DB_HOST:
             raise ValueError("ADBPG_HOST environment variable not set")
-        _pool = await asyncpg.create_pool(
-            host=DB_HOST,
-            port=DB_PORT,
-            database=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            min_size=2,
-            max_size=10,
-            ssl="disable",  # 根据用户提供的连接字符串
-        )
+        try:
+            _pool = await asyncpg.create_pool(
+                host=DB_HOST,
+                port=DB_PORT,
+                database=DB_NAME,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                min_size=2,
+                max_size=10,
+                ssl="disable",  # 根据用户提供的连接字符串
+                command_timeout=30,  # 30秒超时
+            )
+            print(f"[VectorDB] ✅ Connection pool created: {DB_HOST}:{DB_PORT}/{DB_NAME}")
+        except Exception as e:
+            print(f"[VectorDB] ❌ Failed to create connection pool: {e}")
+            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}, user={DB_USER}")
+            raise
+    else:
+        # 检查连接池是否仍然有效
+        try:
+            async with _pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+        except Exception as e:
+            print(f"[VectorDB] ⚠️ Connection pool is invalid, recreating... Error: {e}")
+            try:
+                await _pool.close()
+            except:
+                pass
+            _pool = None
+            # 递归重试一次
+            return await get_pool()
     return _pool
 
 
@@ -179,9 +200,16 @@ async def check_table_constraints(conn, table_name: str = ACTIVE_TABLE_NAME) -> 
 async def init_schema():
     """初始化数据库表结构"""
     try:
-        pool = await get_pool()
+        try:
+            pool = await get_pool()
+        except Exception as e:
+            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
+            # 返回空列表而不是抛出异常，避免影响前端
+            return []
         
-        async with pool.acquire() as conn:
+        try:
+            async with pool.acquire() as conn:
             # 注意：在阿里云 ADB PostgreSQL 中，Namespace 应该通过 API 创建
             # 如果 Namespace 已通过 API 创建，对应的 Schema 会自动存在于当前连接的数据库中
             # 实际数据库由 ADBPG_DBNAME 环境变量决定（可能是 postgres 或 knowledgebase）
@@ -492,9 +520,16 @@ async def upsert_opengraph_item(
                 tab_id = None
         
         user_id = _normalize_user_id(user_id)
-        pool = await get_pool()
+        try:
+            pool = await get_pool()
+        except Exception as e:
+            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
+            # 返回空列表而不是抛出异常，避免影响前端
+            return []
         
-        async with pool.acquire() as conn:
+        try:
+            async with pool.acquire() as conn:
             # 准备 metadata
             metadata_json = json.dumps(metadata or {})
             
@@ -595,9 +630,16 @@ async def update_opengraph_item_screenshot(user_id: Optional[str], url: str, scr
         user_id = _normalize_user_id(user_id)
         # ✅ 规范化 URL（与存储时保持一致）
         normalized_url = _normalize_url_for_storage(url)
-        pool = await get_pool()
+        try:
+            pool = await get_pool()
+        except Exception as e:
+            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
+            # 返回空列表而不是抛出异常，避免影响前端
+            return []
         
-        async with pool.acquire() as conn:
+        try:
+            async with pool.acquire() as conn:
             await conn.execute(f"""
                 UPDATE {ACTIVE_TABLE}
                 SET screenshot_image = $1,
@@ -627,9 +669,16 @@ async def get_opengraph_item(user_id: Optional[str], url: str) -> Optional[Dict]
         user_id = _normalize_user_id(user_id)
         # ✅ 规范化 URL（与存储时保持一致）
         normalized_url = _normalize_url_for_storage(url)
-        pool = await get_pool()
+        try:
+            pool = await get_pool()
+        except Exception as e:
+            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
+            # 返回空列表而不是抛出异常，避免影响前端
+            return []
         
-        async with pool.acquire() as conn:
+        try:
+            async with pool.acquire() as conn:
             row = await conn.fetchrow(f"""
                 SELECT user_id, url, title, description, image, screenshot_image, site_name,
                        tab_id, tab_title, text_embedding, image_embedding, metadata
@@ -669,66 +718,73 @@ async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dic
         if not normalized_urls:
             return []
         
-        pool = await get_pool()
+        try:
+            pool = await get_pool()
+        except Exception as e:
+            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
+            # 返回空列表而不是抛出异常，避免影响前端
+            return []
         
-        async with pool.acquire() as conn:
-            # ✅ 检查是否有 caption 相关字段
-            has_caption_fields = await conn.fetchval(f"""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.columns 
-                    WHERE table_schema = '{NAMESPACE}'
-                      AND table_name = '{ACTIVE_TABLE_NAME}'
-                      AND column_name = 'image_caption'
-                );
-            """)
-            
-            # ✅ 关键兼容：同时匹配 url、image，以及 metadata 中常见的网页/图片 URL 字段
-            # （解决“只有页面 URL 的卡片”无法匹配的问题）
-            url_array = normalized_urls
-            metadata_match = """
-                  OR metadata->>'url' = ANY($2::text[])
-                  OR metadata->>'page_url' = ANY($2::text[])
-                  OR metadata->>'pageUrl' = ANY($2::text[])
-                  OR metadata->>'original_url' = ANY($2::text[])
-                  OR metadata->>'originalImageUrl' = ANY($2::text[])
-                  OR metadata->>'image' = ANY($2::text[])
-            """
-            
-            if has_caption_fields:
-                # ✅ 包含 caption 相关字段
-                rows = await conn.fetch(f"""
-                    SELECT user_id, url, title, description, image, screenshot_image, site_name,
-                           tab_id, tab_title, text_embedding, image_embedding, metadata,
-                           image_caption, caption_embedding, dominant_colors, style_tags, object_tags
-                    FROM {ACTIVE_TABLE}
-                    WHERE user_id = $1
-                      AND status = 'active'
-                      AND (
-                           url = ANY($2::text[])
-                        OR image = ANY($2::text[])
-                        {metadata_match}
-                      );
-                """, user_id, url_array)
-            else:
-                # 降级：不包含 caption 字段（向后兼容）
-                rows = await conn.fetch(f"""
-                    SELECT user_id, url, title, description, image, screenshot_image, site_name,
-                           tab_id, tab_title, text_embedding, image_embedding, metadata
-                    FROM {ACTIVE_TABLE}
-                    WHERE user_id = $1
-                      AND status = 'active'
-                      AND (
-                           url = ANY($2::text[])
-                        OR image = ANY($2::text[])
-                        {metadata_match}
-                      );
-                """, user_id, url_array)
-            
-            results = []
-            for row in rows:
-                results.append(_row_to_dict(row))
-            
-            return results
+        try:
+            async with pool.acquire() as conn:
+                # ✅ 检查是否有 caption 相关字段
+                has_caption_fields = await conn.fetchval(f"""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.columns 
+                        WHERE table_schema = '{NAMESPACE}'
+                          AND table_name = '{ACTIVE_TABLE_NAME}'
+                          AND column_name = 'image_caption'
+                    );
+                """)
+                
+                # ✅ 关键兼容：同时匹配 url、image，以及 metadata 中常见的网页/图片 URL 字段
+                # （解决"只有页面 URL 的卡片"无法匹配的问题）
+                url_array = normalized_urls
+                metadata_match = """
+                      OR metadata->>'url' = ANY($2::text[])
+                      OR metadata->>'page_url' = ANY($2::text[])
+                      OR metadata->>'pageUrl' = ANY($2::text[])
+                      OR metadata->>'original_url' = ANY($2::text[])
+                      OR metadata->>'originalImageUrl' = ANY($2::text[])
+                      OR metadata->>'image' = ANY($2::text[])
+                """
+                
+                if has_caption_fields:
+                    # ✅ 包含 caption 相关字段
+                    rows = await conn.fetch(f"""
+                        SELECT user_id, url, title, description, image, screenshot_image, site_name,
+                               tab_id, tab_title, text_embedding, image_embedding, metadata,
+                               image_caption, caption_embedding, dominant_colors, style_tags, object_tags
+                        FROM {ACTIVE_TABLE}
+                        WHERE user_id = $1
+                          AND status = 'active'
+                          AND (
+                               url = ANY($2::text[])
+                            OR image = ANY($2::text[])
+                            {metadata_match}
+                          );
+                    """, user_id, url_array)
+                else:
+                    # 降级：不包含 caption 字段（向后兼容）
+                    rows = await conn.fetch(f"""
+                        SELECT user_id, url, title, description, image, screenshot_image, site_name,
+                               tab_id, tab_title, text_embedding, image_embedding, metadata
+                        FROM {ACTIVE_TABLE}
+                        WHERE user_id = $1
+                          AND status = 'active'
+                          AND (
+                               url = ANY($2::text[])
+                            OR image = ANY($2::text[])
+                            {metadata_match}
+                          );
+                    """, user_id, url_array)
+                
+                results = []
+                for row in rows:
+                    results.append(_row_to_dict(row))
+                
+                return results
     except Exception as e:
         print(f"[VectorDB] Error getting items by URLs: {e}")
         import traceback
@@ -756,9 +812,16 @@ async def search_by_text_embedding(
     """
     try:
         normalized_user = _normalize_user_id(user_id)
-        pool = await get_pool()
+        try:
+            pool = await get_pool()
+        except Exception as e:
+            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
+            # 返回空列表而不是抛出异常，避免影响前端
+            return []
         
-        async with pool.acquire() as conn:
+        try:
+            async with pool.acquire() as conn:
             query_vec = to_vector_str(query_embedding)
             
             rows = await conn.fetch(f"""
@@ -807,9 +870,16 @@ async def search_by_image_embedding(
     """
     try:
         normalized_user = _normalize_user_id(user_id)
-        pool = await get_pool()
+        try:
+            pool = await get_pool()
+        except Exception as e:
+            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
+            # 返回空列表而不是抛出异常，避免影响前端
+            return []
         
-        async with pool.acquire() as conn:
+        try:
+            async with pool.acquire() as conn:
             query_vec = to_vector_str(query_embedding)
             
             rows = await conn.fetch(f"""
@@ -858,9 +928,16 @@ async def search_by_caption_embedding(
     """
     try:
         normalized_user = _normalize_user_id(user_id)
-        pool = await get_pool()
+        try:
+            pool = await get_pool()
+        except Exception as e:
+            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
+            # 返回空列表而不是抛出异常，避免影响前端
+            return []
         
-        async with pool.acquire() as conn:
+        try:
+            async with pool.acquire() as conn:
             # 检查 caption_embedding 字段是否存在
             has_caption_embedding = await conn.fetchval(f"""
                 SELECT EXISTS (
@@ -1345,9 +1422,16 @@ async def soft_delete_tab(user_id: Optional[str], url: str) -> bool:
     """
     try:
         user_id = _normalize_user_id(user_id)
-        pool = await get_pool()
+        try:
+            pool = await get_pool()
+        except Exception as e:
+            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
+            # 返回空列表而不是抛出异常，避免影响前端
+            return []
         
-        async with pool.acquire() as conn:
+        try:
+            async with pool.acquire() as conn:
             result = await conn.execute(f"""
                 UPDATE {ACTIVE_TABLE}
                 SET status = 'deleted',
@@ -1377,9 +1461,16 @@ async def soft_delete_session_tabs(user_id: Optional[str], session_id: str) -> i
     """
     try:
         user_id = _normalize_user_id(user_id)
-        pool = await get_pool()
+        try:
+            pool = await get_pool()
+        except Exception as e:
+            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
+            # 返回空列表而不是抛出异常，避免影响前端
+            return []
         
-        async with pool.acquire() as conn:
+        try:
+            async with pool.acquire() as conn:
             # 查找该 session 的所有 tabs（通过 metadata 中的 session_id）
             result = await conn.execute(f"""
                 UPDATE {ACTIVE_TABLE}
@@ -1415,9 +1506,16 @@ async def get_user_active_tabs(user_id: Optional[str]) -> List[Dict]:
     """
     try:
         user_id = _normalize_user_id(user_id)
-        pool = await get_pool()
+        try:
+            pool = await get_pool()
+        except Exception as e:
+            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
+            # 返回空列表而不是抛出异常，避免影响前端
+            return []
         
-        async with pool.acquire() as conn:
+        try:
+            async with pool.acquire() as conn:
             rows = await conn.fetch(f"""
                 SELECT user_id, url, title, description, image, screenshot_image, site_name,
                        tab_id, tab_title, text_embedding, image_embedding, metadata

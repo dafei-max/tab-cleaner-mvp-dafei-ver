@@ -545,6 +545,39 @@
 
     if (closeBtn) closeBtn.addEventListener("click", hideCard);
     if (homeBtn) {
+      // 🗨️ 鼠标悬浮时显示 chatbubble 提示（个人空间）
+      let homeHoverBubbleTimer = null;
+      homeBtn.addEventListener("mouseenter", () => {
+        // 延迟显示，避免鼠标快速划过时闪烁
+        homeHoverBubbleTimer = setTimeout(() => {
+          if (window.__TAB_CLEANER_PET_CHAT_BUBBLE && window.__TAB_CLEANER_PET_CHAT_BUBBLE.showCustomText) {
+            const customContent = `
+              <div style="font-family: 'FZLanTingYuanS-R-GB', sans-serif; color: #000000; width: 140px; height: 50px; padding: 0; margin: 0;">
+                <div style="font-size: 12px; line-height: 14px; letter-spacing: 1px; margin-bottom: 6px; font-weight: 400; color: #000000;">
+                  个人空间
+                </div>
+                <div style="font-size: 8px; line-height: 9px; letter-spacing: 1px; font-weight: 400; color: #000000;">
+                  您可以随时查看之前清洗收藏的tab
+                </div>
+              </div>
+            `;
+            window.__TAB_CLEANER_PET_CHAT_BUBBLE.showCustomText(customContent, 5000); // 显示 5 秒
+          }
+        }, 300); // 300ms 延迟
+      });
+      
+      homeBtn.addEventListener("mouseleave", () => {
+        // 取消延迟显示
+        if (homeHoverBubbleTimer) {
+          clearTimeout(homeHoverBubbleTimer);
+          homeHoverBubbleTimer = null;
+        }
+        // 隐藏 chatbubble
+        if (window.__TAB_CLEANER_PET_CHAT_BUBBLE && window.__TAB_CLEANER_PET_CHAT_BUBBLE.hide) {
+          window.__TAB_CLEANER_PET_CHAT_BUBBLE.hide();
+        }
+      });
+      
       homeBtn.addEventListener("click", () => {
         // 打开个人空间页面
         try {
@@ -566,6 +599,77 @@
       });
     }
     if (cleanBtn) {
+      // 🗨️ 鼠标悬浮时显示 chatbubble 提示
+      let hoverBubbleTimer = null;
+      cleanBtn.addEventListener("mouseenter", () => {
+        console.log('[Tab Cleaner] 🗨️ Clean button hover - checking chatbubble...', {
+          chatBubbleExists: !!window.__TAB_CLEANER_PET_CHAT_BUBBLE,
+          hasShowCustomText: !!(window.__TAB_CLEANER_PET_CHAT_BUBBLE && window.__TAB_CLEANER_PET_CHAT_BUBBLE.showCustomText)
+        });
+        
+        // 延迟显示，避免鼠标快速划过时闪烁
+        hoverBubbleTimer = setTimeout(() => {
+          // 如果 chatbubble 还没初始化，尝试等待一下
+          if (!window.__TAB_CLEANER_PET_CHAT_BUBBLE || !window.__TAB_CLEANER_PET_CHAT_BUBBLE.showCustomText) {
+            console.warn('[Tab Cleaner] ⚠️ Chat bubble not ready, retrying...');
+            // 等待最多 1 秒，每 100ms 检查一次
+            let retryCount = 0;
+            const maxRetries = 10;
+            const checkInterval = setInterval(() => {
+              retryCount++;
+              if (window.__TAB_CLEANER_PET_CHAT_BUBBLE && window.__TAB_CLEANER_PET_CHAT_BUBBLE.showCustomText) {
+                clearInterval(checkInterval);
+                console.log('[Tab Cleaner] ✅ Chat bubble ready after', retryCount * 100, 'ms');
+                showCleanButtonTooltip();
+              } else if (retryCount >= maxRetries) {
+                clearInterval(checkInterval);
+                console.warn('[Tab Cleaner] ❌ Chat bubble not available after', maxRetries * 100, 'ms');
+              }
+            }, 100);
+            return;
+          }
+          
+          showCleanButtonTooltip();
+        }, 300); // 300ms 延迟
+        
+        function showCleanButtonTooltip() {
+          if (window.__TAB_CLEANER_PET_CHAT_BUBBLE && window.__TAB_CLEANER_PET_CHAT_BUBBLE.showCustomText) {
+            const customContent = `
+              <div style="font-family: 'FZLanTingYuanS-R-GB', sans-serif; color: #000000; width: 140px; height: 50px; padding: 0; margin: 0;">
+                <div style="font-size: 12px; line-height: 14px; letter-spacing: 1px; margin-bottom: 6px; font-weight: 400; color: #000000;">
+                  批量洗涤
+                </div>
+                <div style="font-size: 8px; line-height: 9px; letter-spacing: 1px; font-weight: 400; color: #000000;">
+                  结束工作，想要彻底清空吗？点击插件按钮。我会立即将所有开着的 Tab 批量挂起晾晒，瞬间清空工作台。
+                </div>
+              </div>
+            `;
+            try {
+              window.__TAB_CLEANER_PET_CHAT_BUBBLE.showCustomText(customContent, 5000); // 显示 5 秒
+              console.log('[Tab Cleaner] ✅ Clean button tooltip shown');
+            } catch (err) {
+              console.error('[Tab Cleaner] ❌ Failed to show clean button tooltip:', err);
+            }
+          }
+        }
+      });
+      
+      cleanBtn.addEventListener("mouseleave", () => {
+        // 取消延迟显示
+        if (hoverBubbleTimer) {
+          clearTimeout(hoverBubbleTimer);
+          hoverBubbleTimer = null;
+        }
+        // 隐藏 chatbubble
+        if (window.__TAB_CLEANER_PET_CHAT_BUBBLE && window.__TAB_CLEANER_PET_CHAT_BUBBLE.hide) {
+          try {
+            window.__TAB_CLEANER_PET_CHAT_BUBBLE.hide();
+          } catch (err) {
+            console.error('[Tab Cleaner] ❌ Failed to hide chat bubble:', err);
+          }
+        }
+      });
+      
       cleanBtn.addEventListener("click", () => {
         // 显示全屏加载动画
         showCleaningAnimation();
@@ -617,6 +721,69 @@
       });
     }
     if (detailsBtn) {
+      // 🗨️ 鼠标悬浮时显示 chatbubble 提示（工作时间和收藏tab个数）
+      let detailsHoverBubbleTimer = null;
+      detailsBtn.addEventListener("mouseenter", async () => {
+        // 延迟显示，避免鼠标快速划过时闪烁
+        detailsHoverBubbleTimer = setTimeout(async () => {
+          if (window.__TAB_CLEANER_PET_CHAT_BUBBLE && window.__TAB_CLEANER_PET_CHAT_BUBBLE.showCustomText) {
+            // 获取工作时间和收藏tab个数
+            let workTime = '0小时';
+            let savedTabCount = 0;
+            
+            try {
+              // 从 IndexedDB 获取所有 sessions
+              if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.getAllSessions) {
+                const sessions = await window.__TAB_CLEANER_EAGLE_STORAGE.getAllSessions();
+                if (sessions && sessions.length > 0) {
+                  savedTabCount = sessions.reduce((total, session) => {
+                    return total + (session.items?.length || 0);
+                  }, 0);
+                  
+                  // 计算工作时间（从最早session到现在的总时长，简化处理）
+                  const now = Date.now();
+                  const earliestSession = sessions.reduce((earliest, session) => {
+                    const sessionTime = session.created_at || session.timestamp || 0;
+                    return !earliest || sessionTime < earliest ? sessionTime : earliest;
+                  }, null);
+                  
+                  if (earliestSession) {
+                    const hours = Math.floor((now - earliestSession) / (1000 * 60 * 60));
+                    workTime = `${hours}小时`;
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn('[Tab Cleaner] Failed to get work time and saved tab count:', err);
+            }
+            
+            const customContent = `
+              <div style="font-family: 'FZLanTingYuanS-R-GB', sans-serif; color: #000000; width: 140px; height: 50px; padding: 0; margin: 0;">
+                <div style="font-size: 12px; line-height: 14px; letter-spacing: 1px; margin-bottom: 6px; font-weight: 400; color: #000000;">
+                  洗衣机详情
+                </div>
+                <div style="font-size: 8px; line-height: 9px; letter-spacing: 1px; font-weight: 400; color: #000000;">
+                  工作时间：${workTime}<br/>已收藏：${savedTabCount}个tab
+                </div>
+              </div>
+            `;
+            window.__TAB_CLEANER_PET_CHAT_BUBBLE.showCustomText(customContent, 5000); // 显示 5 秒
+          }
+        }, 300); // 300ms 延迟
+      });
+      
+      detailsBtn.addEventListener("mouseleave", () => {
+        // 取消延迟显示
+        if (detailsHoverBubbleTimer) {
+          clearTimeout(detailsHoverBubbleTimer);
+          detailsHoverBubbleTimer = null;
+        }
+        // 隐藏 chatbubble
+        if (window.__TAB_CLEANER_PET_CHAT_BUBBLE && window.__TAB_CLEANER_PET_CHAT_BUBBLE.hide) {
+          window.__TAB_CLEANER_PET_CHAT_BUBBLE.hide();
+        }
+      });
+      
       detailsBtn.addEventListener("click", () => {
         // 切换详情图片显示/隐藏
         detailsVisible = !detailsVisible;

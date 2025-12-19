@@ -155,6 +155,42 @@
       }, cfg.displayDuration);
     }
 
+    // 显示自定义 HTML 内容（用于按钮悬浮提示等）
+    function showCustomText(htmlContent, duration = 5000) {
+      // 检查元素是否存在
+      if (!chatBubbleEl || !textContentEl) {
+        console.warn('[Pet Chat Bubble] Elements not found for custom text');
+        return;
+      }
+      
+      // 取消之前的隐藏定时器
+      if (hideTimer) {
+        clearTimeout(hideTimer);
+        hideTimer = null;
+      }
+      
+      // 设置自定义 HTML 内容
+      textContentEl.innerHTML = htmlContent;
+      
+      // 显示动画
+      chatBubbleEl.style.display = 'block';
+      chatBubbleEl.style.opacity = '0';
+      chatBubbleEl.style.transform = 'translateY(10px) scale(0.9)';
+      chatBubbleEl.style.transition = `opacity ${cfg.fadeInDuration}ms ease-out, transform ${cfg.fadeInDuration}ms ease-out`;
+      
+      requestAnimationFrame(() => {
+        chatBubbleEl.style.opacity = '1';
+        chatBubbleEl.style.transform = 'translateY(0) scale(1)';
+      });
+      
+      isVisible = true;
+      
+      // 自动隐藏
+      hideTimer = setTimeout(() => {
+        hideBubble();
+      }, duration);
+    }
+
     // 隐藏聊天气泡
     function hideBubble() {
       if (!isVisible || !chatBubbleEl) return;
@@ -245,6 +281,7 @@
       show: showBubble,
       hide: hideBubble,
       trigger: triggerShow,
+      showCustomText: showCustomText,
       scheduleNext: scheduleNextShow,
       clearTimers,
     };

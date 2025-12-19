@@ -23,7 +23,7 @@
     chatBubble: {
       showIntervalMin: 8000,     // 最小显示间隔（ms，默认 8 秒）
       showIntervalMax: 15000,    // 最大显示间隔（ms，默认 15 秒）
-      displayDuration: 4000,     // 显示持续时间（ms，默认 4 秒）
+      displayDuration: 100000,     // 显示持续时间（ms，默认 4 秒）
       fadeInDuration: 300,       // 淡入动画时长（ms）
       fadeOutDuration: 300,       // 淡出动画时长（ms）
       positionOffsetX: 0,        // 相对默认位置的 X 偏移（px，默认位置 left: 180px）

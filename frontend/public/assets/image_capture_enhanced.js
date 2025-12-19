@@ -49,14 +49,14 @@
       zIndex: 999999, // V3: 提高 z-index，避免被遮挡
     },
     
-    // 拖拽高亮样式 - V3 增强
+    // 拖拽高亮样式 - V3 增强（已禁用虚线框）
     dragHighlight: {
-      borderColor: '#4A90E2',
-      borderWidth: 4, // V3: 从 3 增加到 4，更明显
-      borderStyle: 'dashed',
-      backgroundColor: 'rgba(74, 144, 226, 0.15)', // V3: 从 0.1 增加到 0.15
-      boxShadow: '0 0 20px rgba(74, 144, 226, 0.5)', // V3: 新增发光效果
-      animation: 'tc-pulse 1s ease-in-out infinite', // V3: 新增脉冲动画
+      borderColor: 'transparent', // 移除边框
+      borderWidth: 0,
+      borderStyle: 'none',
+      backgroundColor: 'transparent', // 移除背景
+      boxShadow: 'none', // 移除阴影
+      animation: 'none', // 移除动画
     },
     
     // 平台检测 - V3 新增
@@ -97,6 +97,8 @@
   let dragTrailPoints = [];
   let savedCount = 0; // 保存计数
   let saveHistory = []; // 保存历史（用于撤销）
+  
+  let addButtonElement = null; // Add-Button.svg 元素
 
   // ==================== 工具函数 ====================
   
@@ -636,7 +638,8 @@
     // ✅ 优先：尝试从 DOM 查找（用于高亮等操作）
     if (petElement && document.contains(petElement)) {
       const style = window.getComputedStyle(petElement);
-      if (style.display !== 'none' && petElement.offsetParent !== null) {
+      // ✅ 修改：即使 display 是 none，只要元素存在就返回（因为拖拽检测需要知道位置）
+      if (petElement.offsetParent !== null || style.display !== 'none') {
         return petElement;
       } else {
         petElement = null;
@@ -662,10 +665,17 @@
         const element = document.querySelector(selector);
         if (element) {
           const style = window.getComputedStyle(element);
-          const isVisible = style.display !== 'none' && element.offsetParent !== null;
+          // ✅ 修改：即使 display 是 none，只要元素存在就返回（因为拖拽检测需要知道位置）
+          const isVisible = element.offsetParent !== null || style.display !== 'none';
           
-          if (isVisible) {
+          if (isVisible || selector === '#tab-cleaner-pet-container') {
+            // 对于主要选择器，即使不可见也返回（用于位置检测）
             petElement = element;
+            console.log('[Image Capture] 🔍 Found pet element:', selector, {
+              display: style.display,
+              offsetParent: element.offsetParent !== null,
+              rect: element.getBoundingClientRect(),
+            });
             return element;
           }
         }
@@ -674,23 +684,78 @@
       }
     }
     
+    console.warn('[Image Capture] ⚠️ Pet element not found with any selector');
     return null;
   }
   
   /**
-   * 检查是否拖到桌宠区域 - 增强版：从 storage 读取位置
+   * 检查是否拖到桌宠区域 - 增强版：优先使用实时 DOM 位置，扩大检测区域
    */
   function isOverPet(x, y) {
-    // ✅ 优先：从 storage 读取位置（更可靠）
-    const petRect = getPetRectFromStorage();
-    if (petRect) {
-      const isOver = x >= petRect.left && x <= petRect.right &&
-                     y >= petRect.top && y <= petRect.bottom;
+    // ✅ 优先：从 DOM 实时获取位置（最准确，宠物移动后立即生效）
+    const pet = findPetElement();
+    if (pet) {
+      const rect = pet.getBoundingClientRect();
+      
+      // ✅ 扩大检测区域（增加 50px 的缓冲区，让用户更容易触发）
+      const buffer = 50;
+      const expandedLeft = rect.left - buffer;
+      const expandedRight = rect.right + buffer;
+      const expandedTop = rect.top - buffer;
+      const expandedBottom = rect.bottom + buffer;
+      
+      const isOver = x >= expandedLeft && x <= expandedRight &&
+                     y >= expandedTop && y <= expandedBottom;
       
       if (draggedImage) {
-        console.log('[Image Capture] 🔍 isOverPet (from storage):', {
+        console.log('[Image Capture] 🔍 isOverPet (from DOM - realtime):', {
+          mousePos: { x, y },
+          petRect: {
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+          },
+          expandedRect: {
+            left: expandedLeft,
+            right: expandedRight,
+            top: expandedTop,
+            bottom: expandedBottom,
+          },
+          isOver,
+          petVisible: pet.offsetParent !== null,
+          petDisplay: window.getComputedStyle(pet).display,
+        });
+      }
+      
+      return isOver;
+    }
+    
+    // ✅ 备用：从 storage 读取位置（当 DOM 找不到时）
+    const petRect = getPetRectFromStorage();
+    if (petRect) {
+      // 同样扩大检测区域
+      const buffer = 50;
+      const expandedLeft = petRect.left - buffer;
+      const expandedRight = petRect.right + buffer;
+      const expandedTop = petRect.top - buffer;
+      const expandedBottom = petRect.bottom + buffer;
+      
+      const isOver = x >= expandedLeft && x <= expandedRight &&
+                     y >= expandedTop && y <= expandedBottom;
+      
+      if (draggedImage) {
+        console.log('[Image Capture] 🔍 isOverPet (from storage - fallback):', {
           mousePos: { x, y },
           petRect,
+          expandedRect: {
+            left: expandedLeft,
+            right: expandedRight,
+            top: expandedTop,
+            bottom: expandedBottom,
+          },
           isOver,
           petVisible: petVisibleCache,
         });
@@ -699,45 +764,18 @@
       return isOver;
     }
     
-    // ✅ 备用：从 DOM 查找（用于高亮等操作）
-    const pet = findPetElement();
-    if (!pet) {
-      // 如果 DOM 也找不到，尝试刷新 storage 缓存
+    // 如果都找不到，尝试刷新 storage 缓存
+    if (draggedImage) {
+      console.log('[Image Capture] ⚠️ isOverPet: Pet not found in DOM or storage');
       loadPetPositionFromStorage().then(() => {
         const refreshedRect = getPetRectFromStorage();
         if (refreshedRect) {
           console.log('[Image Capture] 🔄 Refreshed pet position from storage');
         }
       });
-      
-      if (draggedImage) {
-        console.log('[Image Capture] ⚠️ isOverPet: Pet not found in DOM or storage');
-      }
-      return false;
     }
     
-    const rect = pet.getBoundingClientRect();
-    const isOver = x >= rect.left && x <= rect.right &&
-                   y >= rect.top && y <= rect.bottom;
-    
-    if (draggedImage) {
-      console.log('[Image Capture] 🔍 isOverPet (from DOM):', {
-        mousePos: { x, y },
-        petRect: {
-          left: rect.left,
-          right: rect.right,
-          top: rect.top,
-          bottom: rect.bottom,
-          width: rect.width,
-          height: rect.height,
-        },
-        isOver,
-        petVisible: pet.offsetParent !== null,
-        petDisplay: window.getComputedStyle(pet).display,
-      });
-    }
-    
-    return isOver;
+    return false;
   }
   
   /**
@@ -809,6 +847,7 @@
             opacity: 0;
           }
         }
+        /* 🎮 Combo 系统动画 */
       `;
       document.head.appendChild(styleSheet);
     }
@@ -827,6 +866,74 @@
     pet.style.backgroundColor = '';
     pet.style.boxShadow = '';
     pet.style.animation = '';
+  }
+  
+  /**
+   * ✨ 新增：显示 Add-Button.svg 在鼠标附近（不是宠物附近）
+   */
+  function showAddButton(x, y) {
+    // 确保按钮元素存在
+    if (!addButtonElement) {
+      addButtonElement = document.createElement('img');
+      const svgUrl = chrome.runtime.getURL('static/img/Add-Button.svg');
+      console.log('[Image Capture] 🎯 Creating Add-Button element, URL:', svgUrl);
+      addButtonElement.src = svgUrl;
+      addButtonElement.alt = 'Add to pet';
+      addButtonElement.style.cssText = `
+        position: fixed;
+        width: 72px;
+        height: 70px;
+        pointer-events: none;
+        z-index: 999999;
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.5);
+        transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        display: block;
+        visibility: visible;
+      `;
+      document.body.appendChild(addButtonElement);
+      
+      // 监听加载错误
+      addButtonElement.addEventListener('error', (e) => {
+        console.error('[Image Capture] ❌ Failed to load Add-Button.svg:', e, 'URL:', svgUrl);
+      });
+      
+      // 监听加载成功
+      addButtonElement.addEventListener('load', () => {
+        console.log('[Image Capture] ✅ Add-Button.svg loaded successfully');
+      });
+    }
+    
+    // ✅ 定位到鼠标附近（不是宠物附近）
+    addButtonElement.style.left = `${x + 40}px`; // 鼠标右侧 40px
+    addButtonElement.style.top = `${y - 35}px`; // 鼠标上方 35px
+    addButtonElement.style.opacity = '1';
+    addButtonElement.style.transform = 'translate(-50%, -50%) scale(1)';
+    addButtonElement.style.display = 'block';
+    addButtonElement.style.visibility = 'visible';
+    
+    console.log('[Image Capture] 🎯 Showing Add-Button near mouse:', { x, y });
+  }
+  
+  /**
+   * ✨ 新增：隐藏 Add-Button.svg
+   */
+  function hideAddButton() {
+    if (addButtonElement) {
+      addButtonElement.style.opacity = '0';
+      addButtonElement.style.transform = 'translate(-50%, -50%) scale(0.5)';
+    }
+  }
+  
+  /**
+   * 🎮 触发 Combo 系统（调用解耦后的模块）
+   */
+  function triggerCombo(x, y) {
+    if (window.TabCleanerComboSystem && typeof window.TabCleanerComboSystem.trigger === 'function') {
+      window.TabCleanerComboSystem.trigger(x, y, findPetElement);
+    } else {
+      console.warn('[Image Capture] Combo system not loaded');
+    }
   }
   
   /**
@@ -874,8 +981,8 @@
         counter.style.cssText = `
           position: absolute;
           top: 10px;
-          right: 10px;
-          background: #4CAF50;
+          left: 10px;
+          background: #87CEEB;
           color: white;
           border-radius: 50%;
           width: 24px;
@@ -885,6 +992,7 @@
           justify-content: center;
           font-size: 12px;
           font-weight: bold;
+          font-family: 'FZLanTingYuanS-R-GB', '方正兰亭', 'Microsoft YaHei', '微软雅黑', sans-serif;
           z-index: 1000;
         `;
         pet.shadowRoot.appendChild(counter);
@@ -898,8 +1006,8 @@
         counter.style.cssText = `
           position: absolute;
           top: 10px;
-          right: 10px;
-          background: #4CAF50;
+          left: 10px;
+          background: #87CEEB;
           color: white;
           border-radius: 50%;
           width: 24px;
@@ -909,6 +1017,7 @@
           justify-content: center;
           font-size: 12px;
           font-weight: bold;
+          font-family: 'FZLanTingYuanS-R-GB', '方正兰亭', 'Microsoft YaHei', '微软雅黑', sans-serif;
           z-index: 1000;
         `;
         pet.appendChild(counter);
@@ -1346,6 +1455,11 @@
         if (draggedImage.element) {
           draggedImage.element.style.opacity = '0.5';
           draggedImage.element.style.transition = 'opacity 0.2s ease';
+          // ✨ 新增：外边缘发光效果（增强版）
+          draggedImage.element.style.filter = 'drop-shadow(0 0 20px rgba(74, 144, 226, 0.8)) drop-shadow(0 0 40px rgba(74, 144, 226, 0.5)) drop-shadow(0 0 60px rgba(74, 144, 226, 0.3))';
+          draggedImage.element.style.outline = '3px solid rgba(74, 144, 226, 0.6)';
+          draggedImage.element.style.outlineOffset = '4px';
+          draggedImage.element.style.boxShadow = '0 0 30px rgba(74, 144, 226, 0.4)';
         }
 
         // ✅ 通知桌宠进入「注意力」状态（raise-attention）
@@ -1365,7 +1479,7 @@
               e.dataTransfer.setData('text/uri-list', dragUrl);
               e.dataTransfer.setData('text/plain', dragUrl);
             }
-            // 使用真实图片作为拖拽时的"幽灵图像"，提高视觉一致性
+            // ✅ 使用真实图片作为拖拽时的"幽灵图像"，提高视觉一致性
             if (draggedImage.element) {
               e.dataTransfer.setDragImage(draggedImage.element, rect.width / 2, rect.height / 2);
             } else {
@@ -1418,7 +1532,7 @@
       }
     }, true);
     
-    // ✅ V3: 拖拽过程 - 实时检测桌宠位置 + 轨迹 + 磁吸
+    // ✅ V3: 拖拽过程 - 实时检测桌宠位置 + 轨迹 + 磁吸 + Add-Button 提示 + 图片缩小动画
     document.addEventListener('dragover', (e) => {
       if (draggedImage) {
         const x = e.clientX;
@@ -1430,12 +1544,30 @@
         // ✅ 新增：磁吸效果
         applyMagnetEffect(x, y);
         
-        if (isOverPet(x, y)) {
+        // ✅ 确保图片发光效果一直保持
+        if (draggedImage.element) {
+          draggedImage.element.style.filter = 'drop-shadow(0 0 20px rgba(74, 144, 226, 0.8)) drop-shadow(0 0 40px rgba(74, 144, 226, 0.5)) drop-shadow(0 0 60px rgba(74, 144, 226, 0.3))';
+          draggedImage.element.style.outline = '3px solid rgba(74, 144, 226, 0.6)';
+          draggedImage.element.style.outlineOffset = '4px';
+        }
+        
+        const overPet = isOverPet(x, y);
+        console.log('[Image Capture] 🎯 dragover:', { x, y, overPet, draggedImage: !!draggedImage });
+        
+        if (overPet) {
           e.preventDefault(); // 允许放置
           e.stopPropagation(); // 阻止事件冒泡
           highlightPet(); // 确保高亮
+          // ✨ 新增：显示 Add-Button.svg
+          console.log('[Image Capture] 🎯 Showing Add-Button (overPet=true)');
+          showAddButton(x, y);
+          
+          // ✨ Add-Button 只作为提示显示在鼠标附近，拖拽图标仍然是原图片
         } else {
           unhighlightPet(); // 移除高亮
+          // ✨ 新增：隐藏 Add-Button.svg
+          console.log('[Image Capture] 🎯 Hiding Add-Button (overPet=false)');
+          hideAddButton();
         }
       }
     }, true);
@@ -1450,6 +1582,8 @@
       }
       // ✅ 新增：隐藏底部提示
       hideDragHint();
+      // ✨ 新增：隐藏 Add-Button
+      hideAddButton();
       
       if (draggedImage) {
         const target = draggedImage.element;
@@ -1461,9 +1595,24 @@
         
         console.log('[Image Capture] 🎯 Drag ended at:', { x, y });
         
-        // 恢复图片透明度
+        // 恢复图片透明度和发光效果
         if (target) {
           target.style.opacity = '1';
+          target.style.filter = '';
+          target.style.outline = '';
+          target.style.outlineOffset = '';
+        }
+        
+        // 清理缩小的拖拽图片
+        if (draggedImage._scaledDragImage) {
+          draggedImage._scaledDragImage.remove();
+          draggedImage._scaledDragImage = null;
+        }
+        
+        // 清理临时拖拽图片
+        if (draggedImage._tempDragImage) {
+          draggedImage._tempDragImage.remove();
+          draggedImage._tempDragImage = null;
         }
         
         // 恢复悬停按钮
@@ -1479,6 +1628,9 @@
           if (draggedImage.sourceRect) {
             await playFlyInAnimation(draggedImage.url, draggedImage.sourceRect);
           }
+          
+          // 🎮 新增：触发 Combo 系统
+          triggerCombo(x, y);
           
           // ✅ V3: 显示成功反馈
           showSuccessFeedback();
@@ -1539,15 +1691,11 @@
    * 创建标记图标 - V3 增强版：只显示"+"，添加发光效果
    */
   function createMarkerIcon() {
-    const icon = document.createElement('div');
+    const icon = document.createElement('img');
     icon.className = 'tc-image-marker';
     icon.title = '保存到个人空间 · Click to save to Personal Space';
-    icon.innerHTML = `
-      <svg width="${CONFIG.imageMarker.iconSize}" height="${CONFIG.imageMarker.iconSize}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="12" cy="12" r="11" fill="${CONFIG.imageMarker.iconColor}" fill-opacity="0.95"/>
-        <path d="M12 6v12M6 12h12" stroke="white" stroke-width="3" stroke-linecap="round"/>
-      </svg>
-    `;
+    icon.src = chrome.runtime.getURL('static/img/Add-Button.svg');
+    icon.alt = 'Add to pet';
     icon.style.cssText = `
       position: fixed;
       width: ${CONFIG.imageMarker.iconSize}px;
@@ -1557,10 +1705,6 @@
       opacity: 0;
       transition: opacity 0.2s ease, transform 0.2s ease, filter 0.2s ease;
       pointer-events: auto;
-      background: rgba(255, 255, 255, 0.95);
-      border-radius: 50%;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.25);
-      isolation: isolate;
       transform: scale(1);
       filter: drop-shadow(0 0 0px rgba(74, 144, 226, 0));
     `;
@@ -1568,13 +1712,11 @@
     // ✅ V3: 悬停时放大 + 发光效果
     icon.addEventListener('mouseenter', () => {
       icon.style.transform = 'scale(1.1)';
-      icon.style.boxShadow = '0 4px 20px rgba(74, 144, 226, 0.6)';
       icon.style.filter = 'drop-shadow(0 0 8px rgba(74, 144, 226, 0.8))';
     });
     
     icon.addEventListener('mouseleave', () => {
       icon.style.transform = 'scale(1)';
-      icon.style.boxShadow = '0 2px 12px rgba(0,0,0,0.25)';
       icon.style.filter = 'drop-shadow(0 0 0px rgba(74, 144, 226, 0))';
     });
     
