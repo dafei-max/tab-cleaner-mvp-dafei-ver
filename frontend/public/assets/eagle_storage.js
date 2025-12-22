@@ -242,46 +242,6 @@
     }
   });
 
-  // ==================== 并发 caption 生成队列 ====================
-  
-  // 🆕 并发控制：最多同时处理 5 个 caption 生成请求
-  const CAPTION_CONCURRENCY = 5;
-  const captionQueue = [];
-  let activeCaptionTasks = 0;
-  
-  /**
-   * 🆕 通过 content.js 转发给 background（page→content→background），避免 page 世界缺少 extensionId
-   */
-  function requestCaptionViaContent(dataUrl, imageUrl = '') {
-    return new Promise((resolve, reject) => {
-      const messageId = `caption_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const timeout = setTimeout(() => {
-        window.removeEventListener('message', onMessage);
-        resolve(null); // 静默处理，避免刷屏
-      }, 60000); // 60 秒，避免后台响应较慢时过早超时
-
-      function onMessage(event) {
-        if (event.source !== window) return;
-        const data = event.data || {};
-        if (data.type !== 'TAB_CLEANER_CAPTION_RESPONSE' || data.messageId !== messageId) return;
-        window.removeEventListener('message', onMessage);
-        clearTimeout(timeout);
-        if (data.success && data.quickCaption) {
-          resolve({ quickCaption: data.quickCaption || '', tags: data.tags || [] });
-        } else {
-          resolve(null); // 后端失败或无 caption，静默返回 null
-        }
-      }
-
-      window.addEventListener('message', onMessage);
-      window.postMessage({
-        type: 'TAB_CLEANER_CAPTION_REQUEST',
-        messageId,
-        dataUrl,
-        imageUrl,
-      }, '*');
-    });
-  }
 
   /**
    * 🆕 通过 content script 桥接请求 vectordb 搜索
@@ -398,32 +358,6 @@
     });
   }
 
-  /**
-   * 🆕 从视觉语言模型 API 生成快速 caption 和 tags
-   * @param {string} dataUrl - 图片 Data URL
-   * @param {string} imageUrl - 原始图片 URL（用于日志）
-   * @returns {Promise<{quickCaption: string, tags: string[]}>}
-   */
-  async function generateCaptionFromAPI(dataUrl, imageUrl = '') {
-    const startTime = Date.now();
-    const urlPreview = imageUrl ? imageUrl.substring(0, 60) : 'local-image';
-    console.log(`[Eagle Storage] 🚀 [CAPTION] Request via content bridge for: ${urlPreview}`);
-    try {
-      const bridged = await requestCaptionViaContent(dataUrl, imageUrl);
-      if (!bridged || !bridged.quickCaption) {
-        return null; // 无有效 caption，静默返回
-      }
-      const duration = Date.now() - startTime;
-      console.log(`[Eagle Storage] ✅ [CAPTION] SUCCESS! (${duration}ms)`);
-      console.log(`[Eagle Storage] 📝 [CAPTION] Caption: "${bridged.quickCaption}"`);
-      console.log(`[Eagle Storage] 🏷️ [CAPTION] Tags (${bridged.tags.length}):`, bridged.tags);
-      return bridged;
-    } catch (error) {
-      console.error('[Eagle Storage] ❌ [CAPTION] Bridge failed:', error);
-      // 不再回退 runtime.sendMessage，直接返回 null 触发本地占位
-      return null;
-    }
-  }
   
   /**
    * 🆕 检查是否是 Pinterest 页面
@@ -624,56 +558,6 @@
     }
   }
   
-  /**
-   * 🆕 处理 caption 生成队列
-   */
-  async function processCaptionQueue() {
-    if (activeCaptionTasks >= CAPTION_CONCURRENCY || captionQueue.length === 0) {
-      return;
-    }
-    
-    const task = captionQueue.shift();
-    if (!task) return;
-    
-    activeCaptionTasks++;
-    
-    const queueLength = captionQueue.length;
-    const activeCount = activeCaptionTasks;
-    
-    try {
-      const { hash, dataUrl, imageUrl } = task;
-      const result = await generateCaptionFromAPI(dataUrl, imageUrl);
-
-      if (result && result.quickCaption) {
-        // ✅ 更新 IndexedDB 中的 caption 和 tags（兼容旧格式）
-        // 注意：generateCaptionFromAPI 返回的是 quickCaption 和 tags，需要兼容处理
-        const image_caption = result.image_caption || result.quickCaption || '';
-        const style_tags = result.style_tags || [];
-        const object_tags = result.object_tags || [];
-        // 如果没有分离的 tags，尝试从 tags 中分离（不准确，但兼容）
-        const allTags = result.tags || [];
-        const finalStyleTags = style_tags.length > 0 ? style_tags : (allTags.length > 0 ? allTags : []);
-        const finalObjectTags = object_tags.length > 0 ? object_tags : [];
-        await updateImageCaption(hash, image_caption, finalStyleTags, finalObjectTags, []);
-
-        // 🆕 如果是 Pinterest 页面，更新卡片的 title
-        if (isPinterestPage(imageUrl)) {
-          await updatePinterestCardTitle(imageUrl, result.quickCaption);
-        }
-      } else {
-        // 静默失败，不再刷屏
-      }
-      
-      if (task.resolve) task.resolve(result);
-    } catch (error) {
-      console.warn('[Eagle Storage] ⚠️ Caption task failed (silent):', error?.message || error);
-      if (task.reject) task.reject(error);
-    } finally {
-      activeCaptionTasks--;
-      // 处理下一个任务
-      processCaptionQueue();
-    }
-  }
   
   /**
    * 🆕 更新图片的 caption 和 tags
@@ -719,7 +603,7 @@
 
   /**
    * 保存图片到 IndexedDB
-   * 🆕 添加快速 caption、tags 和时间戳（并发调用 API 生成）
+   * ✅ Caption 生成已移至后端，仅在「清理/收藏」后触发，避免浏览时浪费 tokens
    */
   async function saveImage(imageUrl, dataUrl, colors = [], metadata = {}) {
     try {
@@ -1661,7 +1545,7 @@
   
   /**
    * 🆕 为 session 中存在的图片补充 caption 和 tags
-   * 检查 IndexedDB 中缺少 caption/tags 的图片，并批量生成
+   * ✅ 改为从后端 vectordb 获取 caption（不再自动生成，避免浪费 tokens）
    */
   async function enrichSessionImages(options = {}) {
     try {
@@ -1875,30 +1759,28 @@
                     }
                     
                     console.log(`[Eagle Storage] 🎯 [ENRICH] Processing image ${i + 1}/${toProcess.length}: ${img.hash.substring(0, 12)}...`);
-                    const result = await generateCaptionFromAPI(img.dataUrl, img.originalUrl);
+                    // ✅ 改为从后端 vectordb 获取 caption（不再自动生成）
+                    const vectordbData = await requestVectordbCaptionViaContent(img.originalUrl);
                     
-                    if (result && result.quickCaption && result.quickCaption.trim()) {
-                      // ✅ 兼容处理：generateCaptionFromAPI 可能只返回 quickCaption 和 tags
-                      const image_caption = result.image_caption || result.quickCaption || '';
-                      const style_tags = result.style_tags || [];
-                      const object_tags = result.object_tags || [];
-                      const allTags = result.tags || [];
-                      const finalStyleTags = style_tags.length > 0 ? style_tags : (allTags.length > 0 ? allTags : []);
-                      const finalObjectTags = object_tags.length > 0 ? object_tags : [];
-                      await updateImageCaption(img.hash, image_caption, finalStyleTags, finalObjectTags, []);
+                    if (vectordbData && vectordbData.quickCaption && vectordbData.quickCaption.trim()) {
+                      const image_caption = vectordbData.image_caption || vectordbData.quickCaption || '';
+                      const style_tags = vectordbData.style_tags || [];
+                      const object_tags = vectordbData.object_tags || [];
+                      const dominant_colors = vectordbData.dominant_colors || [];
+                      await updateImageCaption(img.hash, image_caption, style_tags, object_tags, dominant_colors);
                       
                       if (isPinterestPage(img.originalUrl)) {
                         console.log(`[Eagle Storage] 🎨 [ENRICH] Pinterest detected, updating title...`);
-                        await updatePinterestCardTitle(img.originalUrl, result.quickCaption);
+                        await updatePinterestCardTitle(img.originalUrl, image_caption);
                       }
                       
                       enriched++;
                       console.log(`[Eagle Storage] ✅ [ENRICH] Success ${enriched}/${toProcess.length}: ${img.hash.substring(0, 12)}...`);
                       return { status: 'success', hash: img.hash };
                     } else {
-                      failed++;
-                      console.warn(`[Eagle Storage] ❌ [ENRICH] Failed ${failed}/${toProcess.length}: ${img.hash.substring(0, 12)}...`);
-                      return { status: 'failed', hash: img.hash };
+                      skipped++;
+                      console.log(`[Eagle Storage] ⏭️ [ENRICH] Skipped (no vectordb data) ${skipped}/${toProcess.length}: ${img.hash.substring(0, 12)}...`);
+                      return { status: 'skipped', hash: img.hash };
                     }
                   } catch (error) {
                     console.warn(`[Eagle Storage] ⚠️ Failed to enrich image ${img.hash}:`, error);
@@ -1962,29 +1844,26 @@
                 }
               }
               
-              // 调用 API 生成 caption
-              const result = await generateCaptionFromAPI(img.dataUrl, img.originalUrl);
+              // ✅ 改为从后端 vectordb 获取 caption（不再自动生成）
+              const vectordbData = await requestVectordbCaptionViaContent(img.originalUrl);
               
-              if (result && result.quickCaption && result.quickCaption.trim()) {
-                // ✅ 兼容处理：generateCaptionFromAPI 可能只返回 quickCaption 和 tags
-                const image_caption = result.image_caption || result.quickCaption || '';
-                const style_tags = result.style_tags || [];
-                const object_tags = result.object_tags || [];
-                const allTags = result.tags || [];
-                const finalStyleTags = style_tags.length > 0 ? style_tags : (allTags.length > 0 ? allTags : []);
-                const finalObjectTags = object_tags.length > 0 ? object_tags : [];
-                await updateImageCaption(img.hash, image_caption, finalStyleTags, finalObjectTags, []);
+              if (vectordbData && vectordbData.quickCaption && vectordbData.quickCaption.trim()) {
+                const image_caption = vectordbData.image_caption || vectordbData.quickCaption || '';
+                const style_tags = vectordbData.style_tags || [];
+                const object_tags = vectordbData.object_tags || [];
+                const dominant_colors = vectordbData.dominant_colors || [];
+                await updateImageCaption(img.hash, image_caption, style_tags, object_tags, dominant_colors);
                 
                 // 如果是 Pinterest 页面，更新卡片标题
                 if (isPinterestPage(img.originalUrl)) {
-                  await updatePinterestCardTitle(img.originalUrl, result.quickCaption);
+                  await updatePinterestCardTitle(img.originalUrl, image_caption);
                 }
                 
                 enriched++;
                 return { status: 'success', hash: img.hash };
               } else {
-                failed++;
-                return { status: 'failed', hash: img.hash };
+                skipped++;
+                return { status: 'skipped', hash: img.hash };
               }
             } catch (error) {
               console.warn(`[Eagle Storage] ⚠️ Failed to enrich image ${img.hash}:`, error);

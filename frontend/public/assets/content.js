@@ -1373,60 +1373,6 @@ HiHi我在这里！！
       return;
     }
 
-    // Caption 请求：页面 -> content -> background
-    if (event.data && event.data.type === 'TAB_CLEANER_CAPTION_REQUEST') {
-      const { messageId, dataUrl, imageUrl } = event.data;
-      console.log('[Tab Cleaner Content] 🎨 Received caption request:', messageId);
-      chrome.runtime.sendMessage({
-        // 改回后端代理调用，前端不再直连 Qwen
-        action: 'generate-caption',
-        dataUrl,
-        imageUrl,
-      }, (response) => {
-        // 错误检查
-        if (chrome.runtime.lastError) {
-          console.error('[Tab Cleaner Content] ❌ Runtime error:', chrome.runtime.lastError);
-          window.postMessage({
-            type: 'TAB_CLEANER_CAPTION_RESPONSE',
-            messageId,
-            success: false,
-            quickCaption: null,
-            tags: [],
-            error: chrome.runtime.lastError.message,
-          }, '*');
-          return;
-        }
-
-        if (!response) {
-          console.error('[Tab Cleaner Content] ❌ Empty response from background');
-          window.postMessage({
-            type: 'TAB_CLEANER_CAPTION_RESPONSE',
-            messageId,
-            success: false,
-            quickCaption: null,
-            tags: [],
-            error: 'Empty response from background',
-          }, '*');
-          return;
-        }
-
-        window.postMessage({
-          type: 'TAB_CLEANER_CAPTION_RESPONSE',
-          messageId,
-          success: response.success !== false && !!response.quickCaption,
-          quickCaption: response?.quickCaption || null,
-          tags: response?.tags || [],
-          error: response?.error || null,
-        }, '*');
-
-        console.log('[Tab Cleaner Content] ✅ Caption response sent:', {
-          messageId,
-          success: response.success !== false && !!response.quickCaption,
-          hasCaption: !!response.quickCaption,
-        });
-      });
-      return;
-    }
 
     // 🆕 Vectordb 搜索请求：页面 -> content -> background
     if (event.data && event.data.type === 'TAB_CLEANER_VECTORDB_SEARCH_REQUEST') {
