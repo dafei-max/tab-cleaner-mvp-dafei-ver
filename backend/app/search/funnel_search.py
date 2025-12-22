@@ -20,9 +20,6 @@ parent_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(parent_dir))
 
 from vector_db import (
-    search_by_text_embedding,
-    search_by_image_embedding,
-    search_by_caption_embedding,
     get_pool,
     ACTIVE_TABLE,
     NAMESPACE,
@@ -54,31 +51,9 @@ async def _coarse_recall_text_vector(
     Returns:
         搜索结果列表（包含 similarity 字段）
     """
-    try:
-        from .embed import embed_text
-        query_vec = await embed_text(query_text)
-        if not query_vec:
-            return []
-        
-        results = await search_by_text_embedding(
-            user_id=user_id,
-            query_embedding=query_vec,
-            top_k=top_k,
-            threshold=MIN_SIMILARITY_THRESHOLD,  # 使用配置的最小相似度阈值，过滤完全不相关的结果
-        )
-        
-        # 添加路径标识
-        for item in results:
-            item["recall_path"] = "text_vector"
-            item["text_similarity"] = item.get("similarity", 0.0)
-        
-        print(f"[Funnel] Text vector recall: found {len(results)} results for user_id={user_id}")
-        return results
-    except Exception as e:
-        print(f"[Funnel] Error in text vector recall: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
+    # ✅ 已禁用：AI 搜索功能已移除，向量搜索不再使用
+    print(f"[Funnel] Text vector recall: disabled (AI search removed)")
+    return []
 
 
 async def _coarse_recall_image_vector(
@@ -99,28 +74,9 @@ async def _coarse_recall_image_vector(
     Returns:
         搜索结果列表（包含 similarity 字段）
     """
-    try:
-        from .embed import embed_image
-        query_vec = await embed_image(query_image_url, query_image_base64)
-        if not query_vec:
-            return []
-        
-        results = await search_by_image_embedding(
-            user_id=user_id,
-            query_embedding=query_vec,
-            top_k=top_k,
-            threshold=IMAGE_EMBEDDING_THRESHOLD,  # Image embedding 使用更宽松的阈值（15%），因为结果质量好
-        )
-        
-        # 添加路径标识
-        for item in results:
-            item["recall_path"] = "image_vector"
-            item["image_similarity"] = item.get("similarity", 0.0)
-        
-        return results
-    except Exception as e:
-        print(f"[Funnel] Error in image vector recall: {e}")
-        return []
+    # ✅ 已禁用：AI 搜索功能已移除，向量搜索不再使用
+    print(f"[Funnel] Image vector recall: disabled (AI search removed)")
+    return []
 
 
 async def _coarse_recall_text_to_image_vector(
@@ -140,31 +96,9 @@ async def _coarse_recall_text_to_image_vector(
         query_text: 文本查询
         top_k: 召回数量
     """
-    try:
-        from .embed import embed_text
-        query_vec = await embed_text(query_text)
-        if not query_vec:
-            return []
-        
-        results = await search_by_image_embedding(
-            user_id=user_id,
-            query_embedding=query_vec,
-            top_k=top_k,
-            threshold=IMAGE_EMBEDDING_THRESHOLD,  # Text→Image 也使用 image embedding 阈值（15%），更宽松
-        )
-        
-        for item in results:
-            item["recall_path"] = "text_to_image_vector"
-            # 这一路本质上是 image 相似度，只是 query 来自文本
-            item["image_similarity"] = item.get("similarity", 0.0)
-        
-        print(f"[Funnel] Text→Image vector recall: found {len(results)} results for user_id={user_id}")
-        return results
-    except Exception as e:
-        print(f"[Funnel] Error in text-to-image vector recall: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
+    # ✅ 已禁用：AI 搜索功能已移除，向量搜索不再使用
+    print(f"[Funnel] Text→Image vector recall: disabled (AI search removed)")
+    return []
 
 
 async def _coarse_recall_caption_embedding(
@@ -189,31 +123,9 @@ async def _coarse_recall_caption_embedding(
     Returns:
         搜索结果列表（包含 similarity 字段）
     """
-    try:
-        from .embed import embed_text
-        query_vec = await embed_text(query_text)
-        if not query_vec:
-            return []
-        
-        results = await search_by_caption_embedding(
-            user_id=user_id,
-            query_embedding=query_vec,
-            top_k=top_k,
-            threshold=IMAGE_EMBEDDING_THRESHOLD,  # 使用 image embedding 阈值（24%），更宽松
-        )
-        
-        # 添加路径标识
-        for item in results:
-            item["recall_path"] = "caption_embedding"
-            item["caption_similarity"] = item.get("similarity", 0.0)
-        
-        print(f"[Funnel] Caption embedding recall: found {len(results)} results for user_id={user_id}")
-        return results
-    except Exception as e:
-        print(f"[Funnel] Error in caption embedding recall: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
+    # ✅ 已禁用：AI 搜索功能已移除，向量搜索不再使用
+    print(f"[Funnel] Caption embedding recall: disabled (AI search removed)")
+    return []
 
 
 async def _coarse_recall_caption_keyword(

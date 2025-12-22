@@ -553,13 +553,35 @@ export const PersonalSpace = () => {
             urls.push(normPage);
           }
         }
-        // 如果有 original_image_url 单独再带一次
+        // ✅ 如果有 original_image_url 单独再带一次
         if (c.originalImageUrl && c.originalImageUrl !== rawUrl) {
           const normImg = normalizeUrl(c.originalImageUrl);
           if (normImg) {
             const key2 = normImg.toLowerCase();
             if (!dedupUrlSet.has(key2)) {
               dedupUrlSet.add(key2);
+              urls.push(normImg);
+            }
+          }
+        }
+        // 🆕 同时发送 image 字段（如果存在且不同）
+        if (c.image && c.image !== rawUrl && c.image !== c.originalImageUrl && !c.image.startsWith('data:image')) {
+          const normImg = normalizeUrl(c.image);
+          if (normImg) {
+            const key3 = normImg.toLowerCase();
+            if (!dedupUrlSet.has(key3)) {
+              dedupUrlSet.add(key3);
+              urls.push(normImg);
+            }
+          }
+        }
+        // 🆕 同时发送 screenshot_image 字段（如果存在且不同）
+        if (c.screenshot_image && c.screenshot_image !== rawUrl && c.screenshot_image !== c.originalImageUrl && c.screenshot_image !== c.image && !c.screenshot_image.startsWith('data:image')) {
+          const normImg = normalizeUrl(c.screenshot_image);
+          if (normImg) {
+            const key4 = normImg.toLowerCase();
+            if (!dedupUrlSet.has(key4)) {
+              dedupUrlSet.add(key4);
               urls.push(normImg);
             }
           }
@@ -1488,9 +1510,21 @@ export const PersonalSpace = () => {
   const analyzeColorsInBackground = useCallback(async () => {
     if (isSessionsLoading || !sessions || sessions.length === 0) return;
     
-    const analyzer = window.__TAB_CLEANER_PS_COLOR_ANALYZER;
+    // 🆕 延迟检查，给脚本加载时间
+    let analyzer = window.__TAB_CLEANER_PS_COLOR_ANALYZER;
     if (!analyzer) {
-      console.warn('[PS Color Analyzer] ⚠️ Color analyzer not loaded, skipping background analysis');
+      // 等待 500ms 后重试（脚本可能还在加载）
+      await new Promise(resolve => setTimeout(resolve, 500));
+      analyzer = window.__TAB_CLEANER_PS_COLOR_ANALYZER;
+    }
+    
+    if (!analyzer) {
+      console.error('[PS Color Analyzer] ❌ Color analyzer not loaded after retry. Check if ps_color_analyzer.js is properly loaded.');
+      console.error('[PS Color Analyzer] 💡 Debug info:', {
+        hasWindow: typeof window !== 'undefined',
+        analyzerExists: typeof window.__TAB_CLEANER_PS_COLOR_ANALYZER !== 'undefined',
+        scripts: Array.from(document.scripts || []).map(s => s.src).filter(Boolean)
+      });
       return;
     }
 

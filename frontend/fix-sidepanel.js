@@ -4,8 +4,8 @@
  * 但输出到根目录时，路径应该是 ./assets/
  */
 
-import { readFileSync, writeFileSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { readFileSync, writeFileSync, copyFileSync, mkdirSync, existsSync } from 'fs';
+import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -28,5 +28,31 @@ try {
 } catch (error) {
   console.error('❌ Failed to fix sidepanel.html:', error);
   process.exit(1);
+}
+
+// 🆕 确保 ps_color_analyzer.js 和 eagle_storage.js 被正确复制到 dist/assets/
+try {
+  const scripts = ['ps_color_analyzer.js', 'eagle_storage.js'];
+  const publicDir = join(__dirname, 'public', 'assets');
+  const distDir = join(__dirname, 'dist', 'assets');
+  
+  if (!existsSync(distDir)) {
+    mkdirSync(distDir, { recursive: true });
+  }
+  
+  scripts.forEach(script => {
+    const src = join(publicDir, script);
+    const dest = join(distDir, script);
+    
+    if (existsSync(src)) {
+      copyFileSync(src, dest);
+      console.log(`✅ Copied ${script} to dist/assets/`);
+    } else {
+      console.warn(`⚠️  ${script} not found in public/assets/`);
+    }
+  });
+} catch (error) {
+  console.error('❌ Failed to copy non-bundled scripts:', error);
+  // 不退出，因为这不是致命错误
 }
 

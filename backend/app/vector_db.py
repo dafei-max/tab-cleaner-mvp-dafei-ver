@@ -726,6 +726,7 @@ async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dic
             
             # ✅ 关键兼容：同时匹配 url、image，以及 metadata 中常见的网页/图片 URL 字段
             # （解决"只有页面 URL 的卡片"无法匹配的问题）
+            # 🆕 增强：同时匹配 screenshot_image 字段（Pinterest 等网站可能将图片 URL 存储在这里）
             url_array = normalized_urls
             metadata_match = """
                   OR metadata->>'url' = ANY($2::text[])
@@ -733,7 +734,9 @@ async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dic
                   OR metadata->>'pageUrl' = ANY($2::text[])
                   OR metadata->>'original_url' = ANY($2::text[])
                   OR metadata->>'originalImageUrl' = ANY($2::text[])
+                  OR metadata->>'original_image_url' = ANY($2::text[])
                   OR metadata->>'image' = ANY($2::text[])
+                  OR metadata->>'image_url' = ANY($2::text[])
             """
             
             if has_caption_fields:
@@ -748,6 +751,7 @@ async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dic
                       AND (
                            url = ANY($2::text[])
                         OR image = ANY($2::text[])
+                        OR screenshot_image = ANY($2::text[])
                         {metadata_match}
                       );
                 """, user_id, url_array)
@@ -762,6 +766,7 @@ async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dic
                       AND (
                            url = ANY($2::text[])
                         OR image = ANY($2::text[])
+                        OR screenshot_image = ANY($2::text[])
                         {metadata_match}
                       );
                 """, user_id, url_array)
@@ -773,192 +778,6 @@ async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dic
             return results
     except Exception as e:
         print(f"[VectorDB] Error getting items by URLs: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
-
-
-async def search_by_text_embedding(
-    user_id: Optional[str],
-    query_embedding: List[float],
-    top_k: int = 20,
-    threshold: float = 0.0
-) -> List[Dict]:
-    """
-    根据文本 embedding 进行相似度搜索（严格按用户隔离）
-    
-    Args:
-        user_id: 用户ID
-        query_embedding: 查询文本的 embedding 向量（1024维）
-        top_k: 返回前 K 个结果
-        threshold: 相似度阈值（0-1）
-    
-    Returns:
-        相似度排序的结果列表
-    """
-    try:
-        normalized_user = _normalize_user_id(user_id)
-        try:
-            pool = await get_pool()
-        except Exception as e:
-            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
-            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
-            # 返回空列表而不是抛出异常，避免影响前端
-            return []
-        
-        async with pool.acquire() as conn:
-            query_vec = to_vector_str(query_embedding)
-            
-            rows = await conn.fetch(f"""
-                SELECT user_id, url, title, description, image, site_name,
-                       tab_id, tab_title, text_embedding, image_embedding, metadata,
-                       1 - (text_embedding <=> $1::vector(1024)) AS similarity
-                FROM {ACTIVE_TABLE}
-                WHERE status = 'active'
-                  AND user_id = $2
-                  AND text_embedding IS NOT NULL
-                  AND (1 - (text_embedding <=> $1::vector(1024))) >= $3
-                ORDER BY text_embedding <=> $1::vector(1024)
-                LIMIT $4;
-            """, query_vec, normalized_user, threshold, top_k)
-        
-        results = []
-        for row in rows:
-            item = _row_to_dict(row)
-            results.append(item)
-        
-        return results
-    except Exception as e:
-        print(f"[VectorDB] Error searching by text embedding: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
-
-
-async def search_by_image_embedding(
-    user_id: Optional[str],
-    query_embedding: List[float],
-    top_k: int = 20,
-    threshold: float = 0.0
-) -> List[Dict]:
-    """
-    根据图像 embedding 进行相似度搜索（严格按用户隔离）
-    
-    Args:
-        user_id: 用户ID
-        query_embedding: 查询图像的 embedding 向量（1024维）
-        top_k: 返回前 K 个结果
-        threshold: 相似度阈值（0-1）
-    
-    Returns:
-        相似度排序的结果列表
-    """
-    try:
-        normalized_user = _normalize_user_id(user_id)
-        try:
-            pool = await get_pool()
-        except Exception as e:
-            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
-            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
-            # 返回空列表而不是抛出异常，避免影响前端
-            return []
-        
-        async with pool.acquire() as conn:
-            query_vec = to_vector_str(query_embedding)
-            
-            rows = await conn.fetch(f"""
-                SELECT user_id, url, title, description, image, site_name,
-                       tab_id, tab_title, text_embedding, image_embedding, metadata,
-                       1 - (image_embedding <=> $1::vector(1024)) AS similarity
-                FROM {ACTIVE_TABLE}
-                WHERE status = 'active'
-                  AND user_id = $2
-                  AND image_embedding IS NOT NULL
-                  AND (1 - (image_embedding <=> $1::vector(1024))) >= $3
-                ORDER BY image_embedding <=> $1::vector(1024)
-                LIMIT $4;
-            """, query_vec, normalized_user, threshold, top_k)
-            
-            results = []
-            for row in rows:
-                item = _row_to_dict(row)
-                results.append(item)
-        
-        return results
-    except Exception as e:
-        print(f"[VectorDB] Error searching by image embedding: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
-
-
-async def search_by_caption_embedding(
-    user_id: Optional[str],
-    query_embedding: List[float],
-    top_k: int = 20,
-    threshold: float = 0.0
-) -> List[Dict]:
-    """
-    根据 Caption embedding 进行相似度搜索（严格按用户隔离）
-    
-    Args:
-        user_id: 用户ID
-        query_embedding: 查询文本的 embedding 向量（1024维）
-        top_k: 返回前 K 个结果
-        threshold: 相似度阈值（0-1）
-    
-    Returns:
-        相似度排序的结果列表
-    """
-    try:
-        normalized_user = _normalize_user_id(user_id)
-        try:
-            pool = await get_pool()
-        except Exception as e:
-            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
-            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
-            # 返回空列表而不是抛出异常，避免影响前端
-            return []
-        
-        async with pool.acquire() as conn:
-            # 检查 caption_embedding 字段是否存在
-            has_caption_embedding = await conn.fetchval(f"""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.columns 
-                    WHERE table_schema = '{NAMESPACE}'
-                      AND table_name = '{ACTIVE_TABLE_NAME}'
-                      AND column_name = 'caption_embedding'
-                );
-            """)
-            
-            if not has_caption_embedding:
-                print(f"[VectorDB] caption_embedding column not found, skipping caption embedding search")
-                return []
-            
-            query_vec = to_vector_str(query_embedding)
-            
-            rows = await conn.fetch(f"""
-                SELECT user_id, url, title, description, image, site_name,
-                       tab_id, tab_title, text_embedding, image_embedding, metadata,
-                       image_caption, caption_embedding, dominant_colors, style_tags, object_tags,
-                       1 - (caption_embedding <=> $1::vector(1024)) AS similarity
-                FROM {ACTIVE_TABLE}
-                WHERE status = 'active'
-                  AND user_id = $2
-                  AND caption_embedding IS NOT NULL
-                  AND (1 - (caption_embedding <=> $1::vector(1024))) >= $3
-                ORDER BY caption_embedding <=> $1::vector(1024)
-                LIMIT $4;
-            """, query_vec, normalized_user, threshold, top_k)
-            
-            results = []
-            for row in rows:
-                item = _row_to_dict(row)
-                results.append(item)
-            
-            return results
-    except Exception as e:
-        print(f"[VectorDB] Error searching by caption embedding: {e}")
         import traceback
         traceback.print_exc()
         return []
