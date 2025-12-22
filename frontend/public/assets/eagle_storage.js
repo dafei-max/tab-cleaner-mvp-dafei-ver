@@ -772,28 +772,8 @@
         
         request.onsuccess = () => {
           console.log('[Eagle Storage] 💾 Image saved:', hash, { quickCaption, tags: tags.length });
-          
-          // 🆕 异步调用 API 生成更好的 caption（并发控制）
-          if (dataUrl && dataUrl.startsWith('data:image')) {
-            captionQueue.push({
-              hash,
-              dataUrl,
-              imageUrl,
-              colors,
-              resolve: (result) => {
-                if (result) {
-                  console.log('[Eagle Storage] ✅ API caption generated for:', hash);
-                }
-              },
-              reject: (error) => {
-                console.warn('[Eagle Storage] ⚠️ API caption generation failed for:', hash, error);
-              },
-            });
-            
-            // 触发队列处理
-            processCaptionQueue();
-          }
-          
+          // 🧊 重要优化：不在页面自动触发 caption API，改由「清理/收藏」之后的后端流程统一生成
+          // 这样可以显著降低 Qwen token 消耗，只有真正进入 PersonalSpace 的卡片才会生成 caption
           resolve(imageData);
         };
         
