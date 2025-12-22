@@ -119,7 +119,7 @@ async def startup_event():
         # 启动 Caption 自动生成工作线程
         try:
             from search.auto_caption import start_caption_worker
-            start_caption_worker()
+            await start_caption_worker()  # ✅ 修复：await async 函数
             print("[Startup] ✓ Caption worker started")
         except Exception as caption_error:
             print(f"[Startup] ⚠ Failed to start caption worker: {caption_error}")

@@ -306,16 +306,19 @@ async def _caption_worker(worker_id: int = 0):
             await asyncio.sleep(1)  # 出错后等待 1 秒再继续
 
 
-def start_caption_worker():
+async def start_caption_worker():
     """
     启动 Caption 生成工作线程（在应用启动时调用）
     """
     global _caption_worker_running
     
     if not _caption_worker_running:
+        # ✅ 修复：在事件循环中创建任务
+        loop = asyncio.get_event_loop()
         for i in range(_caption_worker_count):
-            asyncio.create_task(_caption_worker(i + 1))
-        print(f"[AutoCaption] Worker tasks created: {_caption_worker_count}")
+            loop.create_task(_caption_worker(i + 1))
+        _caption_worker_running = True
+        print(f"[AutoCaption] ✅ Worker tasks created: {_caption_worker_count} workers started")
 
 
 async def enqueue_caption_task(user_id: str, item: Dict):

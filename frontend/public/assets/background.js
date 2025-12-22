@@ -1164,6 +1164,22 @@ async function collectTabWithGuaranteedImage(tab) {
     // 等待 tab 激活（浏览器需要时间切换）
     await new Promise(resolve => setTimeout(resolve, 300));
     
+    // 🆕 验证 tab 是否真正激活（通过检查 tab 状态）
+    let activationVerified = false;
+    for (let i = 0; i < 10; i++) {
+      const tabInfo = await chrome.tabs.get(tab.id);
+      if (tabInfo.active) {
+        activationVerified = true;
+        console.log(`[Collect] ✅ Tab activation verified: ${tab.id}`);
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    if (!activationVerified) {
+      console.warn(`[Collect] ⚠️ Tab activation verification failed, but continuing...`);
+    }
+    
     // 等待页面渲染稳定（SPA 网站需要更长时间）
     // 特别是小红书、Pinterest 等需要等待图片加载
     await new Promise(resolve => setTimeout(resolve, 1200));
@@ -1171,7 +1187,7 @@ async function collectTabWithGuaranteedImage(tab) {
     // 额外等待：确保图片已加载到 DOM
     await new Promise(resolve => setTimeout(resolve, 500));
     
-    console.log(`[Collect] ✅ Tab activated and rendered: ${tab.id} (total wait: 2000ms)`);
+    console.log(`[Collect] ✅ Tab activated and rendered: ${tab.id} (total wait: ~2000ms)`);
   } catch (e) {
     console.warn(`[Collect] Failed to activate tab ${tab.id}:`, e);
     // 即使失败也继续，但等待一段时间
@@ -2335,6 +2351,29 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
 
         console.log(`[Tab Cleaner Background] Found ${validTabs.length} valid tabs, ${uniqueTabs.length} unique tabs after deduplication`);
 
+        // 🆕 优化3：批量清理时先激活所有 tab，确保正确渲染
+        console.log(`[Tab Cleaner Background] 🔄 Pre-activating all ${uniqueTabs.length} tabs for proper rendering...`);
+        const activationPromises = uniqueTabs.map(async (tab, index) => {
+          try {
+            // 激活 tab（但不等待，快速切换）
+            await chrome.tabs.update(tab.id, { active: false }); // 先设为非激活
+            await new Promise(resolve => setTimeout(resolve, 50)); // 短暂延迟
+            await chrome.tabs.update(tab.id, { active: true }); // 激活
+            await new Promise(resolve => setTimeout(resolve, 100)); // 等待激活
+            console.log(`[Tab Cleaner Background] ✅ Tab ${index + 1}/${uniqueTabs.length} activated: ${tab.url.substring(0, 50)}...`);
+          } catch (e) {
+            console.warn(`[Tab Cleaner Background] ⚠️ Failed to activate tab ${index + 1}:`, e);
+          }
+        });
+        
+        // 等待所有 tab 激活完成（并行激活，但每个都有延迟避免冲突）
+        await Promise.all(activationPromises);
+        console.log(`[Tab Cleaner Background] ✅ All tabs pre-activated, waiting for rendering...`);
+        
+        // 等待所有 tab 渲染完成（SPA 网站需要时间）
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        console.log(`[Tab Cleaner Background] ✅ Rendering wait complete, starting collection...`);
+
         // ✅ 步骤 1: 串行收集 OpenGraph（每个 tab 需要激活后才能准确取图）
         // 🆕 改为串行处理，确保每个 tab 都被正确激活，避免并发冲突
         console.log(`[Tab Cleaner Background] Collecting OpenGraph SEQUENTIALLY for ${uniqueTabs.length} tabs...`);
@@ -2449,6 +2488,15 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                 id: `og_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
               }
             });
+          }
+          
+          // 🆕 处理完当前 tab 后立即切回来源 tab，保证动画可见
+          if (sourceTabId && tab.id !== sourceTabId) {
+            try {
+              await chrome.tabs.update(sourceTabId, { active: true });
+            } catch (e) {
+              console.warn('[Tab Cleaner Background] ⚠️ Failed to reactivate source tab:', e);
+            }
           }
           
           // 每个 tab 之间稍作延迟，避免过快切换

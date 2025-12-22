@@ -501,9 +501,8 @@
       }
     }
     
-    // 等待前几张图片加载（提高准确率）
-    const topImages = validImages.slice(0, Math.min(10, validImages.length));
-    await Promise.all(topImages.map(img => waitForImageLoad(img, 1500)));
+    // 🆕 优化2：不等待图片加载，直接选择（避免阻塞）
+    // 如果图片未加载，会在后续处理中处理
     
     // 计算所有图片的得分
     const scoredImages = validImages.map((img, index) => ({
@@ -550,6 +549,48 @@
     };
     
     try {
+      // 🆕 步骤 0：确保 tab 已激活（关键修复）
+      // 如果 tab 未激活，图片可能未加载或内容未完全渲染
+      if (document.hidden) {
+        console.log('[OG Local V2] ⏳ Tab is hidden, waiting for activation...');
+        
+        // 等待 tab 激活（最多等待 3 秒）
+        await new Promise((resolve) => {
+          let attempts = 0;
+          const maxAttempts = 30; // 30 * 100ms = 3 秒
+          
+          const checkVisibility = () => {
+            if (!document.hidden) {
+              console.log('[OG Local V2] ✅ Tab is now visible');
+              // 额外等待 500ms，确保内容已渲染
+              setTimeout(resolve, 500);
+              return;
+            }
+            
+            attempts++;
+            if (attempts >= maxAttempts) {
+              console.warn('[OG Local V2] ⚠️ Tab activation timeout, proceeding anyway');
+              resolve();
+              return;
+            }
+            
+            setTimeout(checkVisibility, 100);
+          };
+          
+          // 监听 visibilitychange 事件（更可靠）
+          const onVisibilityChange = () => {
+            if (!document.hidden) {
+              document.removeEventListener('visibilitychange', onVisibilityChange);
+              console.log('[OG Local V2] ✅ Tab activated via visibilitychange event');
+              setTimeout(resolve, 500);
+            }
+          };
+          
+          document.addEventListener('visibilitychange', onVisibilityChange);
+          checkVisibility();
+        });
+      }
+      
       const siteRule = getSiteRule();
       
       // 1. 如果是 SPA 网站，等待内容加载
@@ -661,7 +702,16 @@
               if (dataUrl) {
                 // 🆕 保存到 IndexedDB
                 try {
-                  if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.saveImage) {
+                  // 🆕 确保 IndexedDB 已初始化
+                  if (window.__TAB_CLEANER_EAGLE_STORAGE) {
+                    if (!window.__TAB_CLEANER_EAGLE_STORAGE._db && window.__TAB_CLEANER_EAGLE_STORAGE.initDB) {
+                      await window.__TAB_CLEANER_EAGLE_STORAGE.initDB();
+                    }
+                  }
+                  
+                  if (window.__TAB_CLEANER_EAGLE_STORAGE && 
+                      window.__TAB_CLEANER_EAGLE_STORAGE.saveImage &&
+                      window.__TAB_CLEANER_EAGLE_STORAGE._db) {
                     const imageHash = await window.__TAB_CLEANER_EAGLE_STORAGE.saveImage(absoluteUrl, dataUrl);
                     
                     const sizeKB = (dataUrl.length / 1024).toFixed(1);
@@ -711,8 +761,34 @@
             if (dataUrl) {
               // 🆕 关键：保存到 IndexedDB，不在 chrome.storage.local 中存储大 Data URL
               try {
-                // 检查是否有 Eagle Storage API
-                if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.saveImage) {
+                // 🆕 确保 IndexedDB 已初始化（如果还没初始化，等待或初始化）
+                if (window.__TAB_CLEANER_EAGLE_STORAGE) {
+                  // 如果 _db 不存在，尝试初始化并等待
+                  if (!window.__TAB_CLEANER_EAGLE_STORAGE._db && window.__TAB_CLEANER_EAGLE_STORAGE.initDB) {
+                    console.log('[OG Local V2] 🔄 Initializing IndexedDB before save...');
+                    await window.__TAB_CLEANER_EAGLE_STORAGE.initDB();
+                    // 🆕 等待 _db 引用更新
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                  }
+                } else {
+                  // 🆕 Eagle Storage 脚本可能还没加载，等待一段时间
+                  console.log('[OG Local V2] ⏳ Eagle Storage not loaded, waiting...');
+                  let waitAttempts = 0;
+                  while (waitAttempts < 20 && !window.__TAB_CLEANER_EAGLE_STORAGE) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    waitAttempts++;
+                  }
+                  
+                  if (window.__TAB_CLEANER_EAGLE_STORAGE && !window.__TAB_CLEANER_EAGLE_STORAGE._db && window.__TAB_CLEANER_EAGLE_STORAGE.initDB) {
+                    await window.__TAB_CLEANER_EAGLE_STORAGE.initDB();
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                  }
+                }
+                
+                // 检查是否有 Eagle Storage API 且 IndexedDB 已打开
+                if (window.__TAB_CLEANER_EAGLE_STORAGE && 
+                    window.__TAB_CLEANER_EAGLE_STORAGE.saveImage &&
+                    window.__TAB_CLEANER_EAGLE_STORAGE._db) {
                   const imageHash = await window.__TAB_CLEANER_EAGLE_STORAGE.saveImage(absoluteUrl, dataUrl);
                   
                   // ✅ 只保存引用，不保存完整 Data URL
@@ -944,8 +1020,40 @@
 
   // ==================== 初始化 ====================
   
-  function init() {
+  async function init() {
     console.log('[OG Local V2] 🚀 Initializing...');
+    
+    // 🆕 等待 Eagle Storage 初始化（如果还没准备好）
+    if (!window.__TAB_CLEANER_EAGLE_STORAGE || !window.__TAB_CLEANER_EAGLE_STORAGE._db) {
+      console.log('[OG Local V2] ⏳ Waiting for Eagle Storage initialization...');
+      
+      let attempts = 0;
+      while (attempts < 30) { // 最多等待 3 秒
+        if (window.__TAB_CLEANER_EAGLE_STORAGE) {
+          // 尝试初始化
+          if (window.__TAB_CLEANER_EAGLE_STORAGE.initDB && !window.__TAB_CLEANER_EAGLE_STORAGE._db) {
+            try {
+              await window.__TAB_CLEANER_EAGLE_STORAGE.initDB();
+              await new Promise(resolve => setTimeout(resolve, 100)); // 等待 _db 更新
+            } catch (e) {
+              // 继续等待
+            }
+          }
+          
+          if (window.__TAB_CLEANER_EAGLE_STORAGE._db) {
+            console.log('[OG Local V2] ✅ Eagle Storage ready');
+            break;
+          }
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+      }
+      
+      if (!window.__TAB_CLEANER_EAGLE_STORAGE || !window.__TAB_CLEANER_EAGLE_STORAGE._db) {
+        console.warn('[OG Local V2] ⚠️ Eagle Storage not ready after wait, will use fallback');
+      }
+    }
     
     // 监听 SPA 路由
     watchURLChanges();

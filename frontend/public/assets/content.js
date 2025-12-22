@@ -20,26 +20,54 @@
     }
       
       // 🆕 等待 Eagle Storage 完全初始化（包括 IndexedDB）
-      const checkEagleStorageReady = (attempts = 0) => {
-        if (attempts > 20) { // 最多等待 2 秒（20 * 100ms）
+      const checkEagleStorageReady = async (attempts = 0) => {
+        if (attempts > 50) { // 🆕 增加到 5 秒（50 * 100ms），给 IndexedDB 更多时间
           console.warn('[Tab Cleaner] ⚠️ Eagle Storage initialization timeout, proceeding anyway');
           loadOpenGraphLocalV2();
           return;
         }
         
+        // ✅ 检查 API 是否存在
         if (window.__TAB_CLEANER_EAGLE_STORAGE && 
             window.__TAB_CLEANER_EAGLE_STORAGE.saveImage && 
             window.__TAB_CLEANER_EAGLE_STORAGE.loadImage) {
-          console.log('[Tab Cleaner] ✅ Eagle Storage is fully ready');
-          loadOpenGraphLocalV2();
-        } else {
-          // 继续等待
-          setTimeout(() => checkEagleStorageReady(attempts + 1), 100);
+          
+          // 🆕 关键修复：确保 IndexedDB 真正打开（通过尝试访问 _db 或调用 initDB）
+          try {
+            // 如果 _db 已存在，说明已初始化
+            if (window.__TAB_CLEANER_EAGLE_STORAGE._db) {
+              console.log('[Tab Cleaner] ✅ Eagle Storage is fully ready (IndexedDB opened)');
+              loadOpenGraphLocalV2();
+              return;
+            }
+            
+            // 如果 _db 不存在，尝试调用 initDB 确保初始化
+            if (window.__TAB_CLEANER_EAGLE_STORAGE.initDB) {
+              try {
+                await window.__TAB_CLEANER_EAGLE_STORAGE.initDB();
+                // 🆕 等待一小段时间，确保 _db 引用已更新
+                await new Promise(resolve => setTimeout(resolve, 100));
+                if (window.__TAB_CLEANER_EAGLE_STORAGE._db) {
+                  console.log('[Tab Cleaner] ✅ Eagle Storage initialized and IndexedDB opened');
+                  loadOpenGraphLocalV2();
+                  return;
+                }
+              } catch (initError) {
+                console.warn('[Tab Cleaner] ⚠️ initDB() failed:', initError);
+                // 继续等待，可能还在初始化中
+              }
+            }
+          } catch (error) {
+            console.warn('[Tab Cleaner] ⚠️ Error checking IndexedDB:', error);
+          }
         }
+        
+        // 继续等待
+        setTimeout(() => checkEagleStorageReady(attempts + 1), 100);
       };
       
-      // 开始检查（给一点时间让脚本执行）
-      setTimeout(() => checkEagleStorageReady(), 100);
+      // 🆕 增加初始延迟，给脚本更多时间执行
+      setTimeout(() => checkEagleStorageReady(), 200);
     };
     eagleScript.onerror = (e) => {
       console.error('[Tab Cleaner] Failed to load eagle_storage.js:', e);
@@ -1055,7 +1083,7 @@ HiHi我在这里！！
         /* ✅ 水蓝色到白色的径向渐变背景，有呼吸感 */
         background: radial-gradient(circle at center, ${config.background.endColor} 0%, ${config.background.startColor} ${config.background.gradientRadius}) !important;
         backdrop-filter: blur(8px);
-        z-index: 2147483647 !important; /* 使用最大 z-index 值 */
+        z-index: 2147483646 !important; /* 🆕 在卡片和宠物下面（卡片和宠物是 2147483647） */
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;

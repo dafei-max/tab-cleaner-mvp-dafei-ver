@@ -1635,7 +1635,7 @@
           // ✅ V3: 显示成功反馈
           showSuccessFeedback();
           
-          // 保存图片
+          // 保存图片（不等待，直接保存）
           captureImage(draggedImage.url, draggedImage.element);
           
           // ✅ 新增：显示撤销按钮
@@ -1924,7 +1924,21 @@
         if (request.action === 'save-image-from-context-menu') {
           const imageUrl = request.imageUrl;
           if (imageUrl) {
-            captureImage(imageUrl, null);
+            // 尝试找到图片元素（不等待加载）
+            let imageElement = null;
+            try {
+              const imgElements = document.querySelectorAll('img');
+              for (const img of imgElements) {
+                if (img.src === imageUrl || img.currentSrc === imageUrl) {
+                  imageElement = img;
+                  break;
+                }
+              }
+            } catch (e) {
+              console.warn('[Image Capture] Failed to find image element:', e);
+            }
+            
+            captureImage(imageUrl, imageElement);
             sendResponse({ success: true });
           } else {
             sendResponse({ success: false, error: 'No image URL' });
