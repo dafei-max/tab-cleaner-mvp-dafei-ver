@@ -732,10 +732,25 @@
       const tags = generateTags(colors, imageUrl);
       const dateTime = new Date().toISOString(); // ISO 格式时间戳
       
+      // ✅ 生成 base64 缩略图（用于卡片渲染兜底）
+      let thumbnail = null;
+      try {
+        if (dataUrl && dataUrl.startsWith('data:image')) {
+          const thumbnailResult = await generateThumbnailAndColors(dataUrl, false); // 只生成缩略图，不提取颜色（颜色已提取）
+          thumbnail = thumbnailResult?.thumbnail || null;
+          if (thumbnail) {
+            console.log('[Eagle Storage] ✅ Generated thumbnail:', `${(thumbnail.length / 1024).toFixed(1)} KB`);
+          }
+        }
+      } catch (err) {
+        console.warn('[Eagle Storage] ⚠️ Failed to generate thumbnail:', err);
+      }
+      
       const imageData = {
         hash,
         originalUrl: imageUrl,
-        dataUrl,
+        dataUrl, // ✅ 完整的 dataUrl（用于 CDN 失效后的兜底）
+        thumbnail, // ✅ base64 缩略图（用于卡片渲染兜底）
         colors,
         timestamp: Date.now(),
         // ✅ 新字段（与数据库字段名一致）
@@ -900,8 +915,16 @@
     if (imageRef.startsWith('eagle://')) {
       const hash = imageRef.replace('eagle://', '');
       const imageData = await loadImageByHash(hash);
-      if (imageData && imageData.dataUrl) {
-        return imageData.dataUrl;
+      if (imageData) {
+        // ✅ 优先使用完整 dataUrl（用于 CDN 失效后的兜底）
+        if (imageData.dataUrl) {
+          return imageData.dataUrl;
+        }
+        // ✅ 如果没有 dataUrl，使用缩略图作为兜底（用于卡片渲染）
+        if (imageData.thumbnail) {
+          console.log('[Eagle Storage] ✅ Using thumbnail as fallback for eagle://', hash.substring(0, 10));
+          return imageData.thumbnail;
+        }
       }
       // 如果 IndexedDB 中没有，返回原始 URL（如果有）
       return imageData?.originalUrl || null;
@@ -914,8 +937,16 @@
     
     // 如果是普通 URL，尝试从 IndexedDB 加载（可能已经保存过）
     const imageData = await loadImage(imageRef);
-    if (imageData && imageData.dataUrl) {
-      return imageData.dataUrl;
+    if (imageData) {
+      // ✅ 优先使用完整 dataUrl
+      if (imageData.dataUrl) {
+        return imageData.dataUrl;
+      }
+      // ✅ 如果没有 dataUrl，使用缩略图作为兜底
+      if (imageData.thumbnail) {
+        console.log('[Eagle Storage] ✅ Using thumbnail as fallback for URL:', imageRef.substring(0, 30));
+        return imageData.thumbnail;
+      }
     }
     
     // 否则返回原始 URL

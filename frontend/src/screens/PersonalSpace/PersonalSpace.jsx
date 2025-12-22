@@ -18,7 +18,6 @@ import { createManualCluster } from "../../shared/api";
 import { useClusterSpringAnimation } from "../../hooks/useClusterSpringAnimation";
 import FlowingSkyBackground from "../../components/FlowingSkyBackground";
 import { GradualBlur } from "../../components/GradualBlur";
-import FluidGlassCursor from "../../components/FluidGlassCursor/FluidGlassCursor";
 import { UI_CONFIG } from "./uiConfig";
 import { PetSetting } from "./PetSetting";
 import { PetDisplay } from "../../components/PetDisplay/PetDisplay";
@@ -338,59 +337,123 @@ export const PersonalSpace = () => {
   //   // ColorEnrichFetch 逻辑已禁用
   // }, [sessions, isSessionsLoading, updateSession]);
 
-  // 🆕 使用 ps_color_analyzer.js 批量提取颜色（延迟执行，避免阻塞首次渲染）
+  // 🆕 使用 ps_color_analyzer.js 批量提取颜色（在浏览器空闲时执行）
   useEffect(() => {
-    // 延迟 2 秒，避免阻塞首次渲染
-    const timer = setTimeout(() => {
-      analyzeColorsInBackground();
-    }, 2000);
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
     
-    return () => clearTimeout(timer);
-  }, [sessions, isSessionsLoading, updateSession]);
-
-  // 🦅 Eagle Storage: 自动迁移远程图片到本地存储（延迟执行）
-  useEffect(() => {
-    // 延迟 3 秒，在颜色分析之后执行
-    const timer = setTimeout(() => {
-      migrateToEagleStorage();
-    }, 3000);
-    
-    return () => clearTimeout(timer);
-  }, [sessions, isSessionsLoading, updateSession]);
-
-  // 🆕 如果存在 data:URL 兜底数据，自动迁移到 IndexedDB
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
-      if (eagleStorage && eagleStorage.migrateDataUrlSessions) {
-        eagleStorage.migrateDataUrlSessions({
-          onProgress: (current, total, migrated, failed) => {
-            if (current % 5 === 0 || current === total) {
-              console.log(`[Eagle Storage] 🔄 DataURL migration progress: ${current}/${total} (migrated: ${migrated}, failed: ${failed})`);
-            }
-          },
-          batchSize: 2,
-        });
+    // 使用 requestIdleCallback 在浏览器空闲时执行，不阻塞渲染
+    const scheduleAnalysis = () => {
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+          analyzeColorsInBackground();
+        }, { timeout: 1000 }); // 最多等待 1 秒
+      } else {
+        // 降级：使用很短的延迟
+        setTimeout(() => {
+          analyzeColorsInBackground();
+        }, 100);
       }
-    }, 2000); // 稍微提前，尽快把 data:URL 迁回 IndexedDB
-
-    return () => clearTimeout(timer);
-  }, [sessions, isSessionsLoading]);
-
-  // 🆕 为 session 中的图片补充 caption 和 tags（延迟执行）
-  useEffect(() => {
-    // 延迟 5 秒，在迁移之后执行
-    const timer = setTimeout(() => {
-      enrichSessionImages();
-    }, 5000);
+    };
     
-    return () => clearTimeout(timer);
+    scheduleAnalysis();
+  }, [sessions, isSessionsLoading, updateSession]);
+
+  // 🦅 Eagle Storage: 自动迁移远程图片到本地存储（在浏览器空闲时执行）
+  useEffect(() => {
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+    
+    // 使用 requestIdleCallback 在浏览器空闲时执行，不阻塞渲染
+    const scheduleMigration = () => {
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+          migrateToEagleStorage();
+        }, { timeout: 1500 }); // 最多等待 1.5 秒
+      } else {
+        // 降级：使用很短的延迟
+        setTimeout(() => {
+          migrateToEagleStorage();
+        }, 150);
+      }
+    };
+    
+    scheduleMigration();
+  }, [sessions, isSessionsLoading, updateSession]);
+
+  // 🆕 如果存在 data:URL 兜底数据，自动迁移到 IndexedDB（在浏览器空闲时执行）
+  useEffect(() => {
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+    
+    const scheduleDataUrlMigration = () => {
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+          const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+          if (eagleStorage && eagleStorage.migrateDataUrlSessions) {
+            eagleStorage.migrateDataUrlSessions({
+              onProgress: (current, total, migrated, failed) => {
+                if (current % 5 === 0 || current === total) {
+                  console.log(`[Eagle Storage] 🔄 DataURL migration progress: ${current}/${total} (migrated: ${migrated}, failed: ${failed})`);
+                }
+              },
+              batchSize: 2,
+            });
+          }
+        }, { timeout: 1000 }); // 最多等待 1 秒
+      } else {
+        // 降级：使用很短的延迟
+        setTimeout(() => {
+          const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+          if (eagleStorage && eagleStorage.migrateDataUrlSessions) {
+            eagleStorage.migrateDataUrlSessions({
+              onProgress: (current, total, migrated, failed) => {
+                if (current % 5 === 0 || current === total) {
+                  console.log(`[Eagle Storage] 🔄 DataURL migration progress: ${current}/${total} (migrated: ${migrated}, failed: ${failed})`);
+                }
+              },
+              batchSize: 2,
+            });
+          }
+        }, 100);
+      }
+    };
+    
+    scheduleDataUrlMigration();
   }, [sessions, isSessionsLoading]);
 
+  // 🆕 为 session 中的图片补充 caption 和 tags（在浏览器空闲时执行）
+  useEffect(() => {
+    if (isSessionsLoading || !sessions || sessions.length === 0) return;
+    
+    // 使用 requestIdleCallback 在浏览器空闲时执行，不阻塞渲染
+    const scheduleEnrichment = () => {
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+          enrichSessionImages();
+        }, { timeout: 2000 }); // 最多等待 2 秒
+      } else {
+        // 降级：使用很短的延迟
+        setTimeout(() => {
+          enrichSessionImages();
+        }, 200);
+      }
+    };
+    
+    scheduleEnrichment();
+  }, [sessions, isSessionsLoading]);
+
+  // ✅ 全局锁：确保同一时间只有一个 caption 补充逻辑在执行
+  const captionSyncLockRef = useRef(false);
+  
   // ✅ 主动补齐现有卡片的 caption（方便本地查询）
   const syncExistingCardsCaptions = useCallback(async () => {
     if (isSessionsLoading || !sessions || sessions.length === 0) return;
     
+    // ✅ 检查锁，避免重复执行
+    if (captionSyncLockRef.current) {
+      console.log('[PersonalSpace] ⏸️ Caption sync already in progress, skipping...');
+      return;
+    }
+    
+    captionSyncLockRef.current = true;
     console.log('[PersonalSpace] 🔍 Checking existing cards for missing captions...');
     
     // ✅ URL 规范化函数（与后端保持一致）
@@ -467,15 +530,16 @@ export const PersonalSpace = () => {
     
     console.log(`[PersonalSpace] 📋 Found ${cardsNeedingCaption.length} cards needing captions`);
     
-    // 2. 批量拉取 caption（分批处理，避免一次性请求过多）
-    const batchSize = 20;
-    const apiUrl = window.__TAB_CLEANER_API_CONFIG?.getBaseUrlSync?.() || 'https://tab-cleaner-mvp-app-production.up.railway.app';
-    const userId = await chrome.storage.local.get(['user_id']).then(r => r.user_id || 'anonymous');
-    
-    let totalUpdated = 0;
-    const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
-    
-    for (let i = 0; i < cardsNeedingCaption.length; i += batchSize) {
+    try {
+      // 2. 批量拉取 caption（分批处理，避免一次性请求过多）
+      const batchSize = 20;
+      const apiUrl = window.__TAB_CLEANER_API_CONFIG?.getBaseUrlSync?.() || 'https://tab-cleaner-mvp-app-production.up.railway.app';
+      const userId = await chrome.storage.local.get(['user_id']).then(r => r.user_id || 'anonymous');
+      
+      let totalUpdated = 0;
+      const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+      
+      for (let i = 0; i < cardsNeedingCaption.length; i += batchSize) {
       const batch = cardsNeedingCaption.slice(i, i + batchSize);
       // ✅ 规范化 URL（与后端保持一致），并附带页面 URL + 图片 URL 去重发送
       const urls = [];
@@ -514,14 +578,49 @@ export const PersonalSpace = () => {
           hasTags: c.hasTags
         })));
         
-        const response = await fetch(`${apiUrl}/api/v1/search/batch-captions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-ID': userId,
-          },
-          body: JSON.stringify({ urls }),
-        });
+        // ✅ 添加重试机制和错误处理
+        let response;
+        let retries = 3;
+        let lastError = null;
+        
+        while (retries > 0) {
+          try {
+            response = await fetch(`${apiUrl}/api/v1/search/batch-captions`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': userId,
+              },
+              body: JSON.stringify({ urls }),
+            });
+            
+            // ✅ 如果请求被节流，等待后重试
+            if (response.status === 429 || response.status === 0) {
+              const waitTime = (4 - retries) * 2000; // 递增等待时间：2s, 4s, 6s
+              console.warn(`[PersonalSpace] ⚠️ Request throttled (${response.status}), retrying in ${waitTime}ms... (${retries} retries left)`);
+              await new Promise(resolve => setTimeout(resolve, waitTime));
+              retries--;
+              continue;
+            }
+            
+            // ✅ 请求成功，跳出重试循环
+            break;
+          } catch (fetchError) {
+            lastError = fetchError;
+            if (retries > 1) {
+              const waitTime = (4 - retries) * 2000;
+              console.warn(`[PersonalSpace] ⚠️ Fetch error, retrying in ${waitTime}ms... (${retries} retries left):`, fetchError.message);
+              await new Promise(resolve => setTimeout(resolve, waitTime));
+              retries--;
+            } else {
+              throw fetchError;
+            }
+          }
+        }
+        
+        if (!response) {
+          throw lastError || new Error('Failed to fetch after retries');
+        }
         
         if (response.ok) {
           const result = await response.json();
@@ -677,21 +776,27 @@ export const PersonalSpace = () => {
         console.error(`[PersonalSpace] ❌ Batch fetch error:`, error);
       }
       
-      // 避免请求过快，添加小延迟
+      // ✅ 避免请求过快，增加延迟（防止被浏览器节流）
       if (i + batchSize < cardsNeedingCaption.length) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 增加到 1 秒
       }
     }
     
-    console.log(`[PersonalSpace] ✅ Caption sync complete: ${totalUpdated} sessions updated`);
-    
-    // ✅ 如果有些卡片没有补齐，记录详细信息
-    if (totalUpdated === 0 && cardsNeedingCaption.length > 0) {
-      console.warn(`[PersonalSpace] ⚠️ No cards were updated. Possible reasons:`);
-      console.warn(`  1. Cards not saved to database yet (will be saved when page is opened)`);
-      console.warn(`  2. URL mismatch (check console logs above for details)`);
-      console.warn(`  3. Backend hasn't generated captions yet`);
-      console.warn(`  4. User ID mismatch`);
+      console.log(`[PersonalSpace] ✅ Caption sync complete: ${totalUpdated} sessions updated`);
+      
+      // ✅ 如果有些卡片没有补齐，记录详细信息
+      if (totalUpdated === 0 && cardsNeedingCaption.length > 0) {
+        console.warn(`[PersonalSpace] ⚠️ No cards were updated. Possible reasons:`);
+        console.warn(`  1. Cards not saved to database yet (will be saved when page is opened)`);
+        console.warn(`  2. URL mismatch (check console logs above for details)`);
+        console.warn(`  3. Backend hasn't generated captions yet`);
+        console.warn(`  4. User ID mismatch`);
+      }
+    } catch (error) {
+      console.error('[PersonalSpace] ❌ Caption sync failed:', error);
+    } finally {
+      // ✅ 释放锁
+      captionSyncLockRef.current = false;
     }
   }, [sessions, isSessionsLoading, updateSession]);
 
@@ -779,12 +884,19 @@ export const PersonalSpace = () => {
   const enrichSessionImages = useCallback(async () => {
     if (isSessionsLoading || !sessions || sessions.length === 0) return;
     
+    // ✅ 检查锁，避免与 syncExistingCardsCaptions 冲突
+    if (captionSyncLockRef.current) {
+      console.log('[Eagle Storage] ⏸️ Caption sync in progress, skipping enrichSessionImages...');
+      return;
+    }
+    
     const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
     if (!eagleStorage || !eagleStorage.enrichSessionImages) {
       console.warn('[Eagle Storage] ⚠️ enrichSessionImages not available');
       return;
     }
 
+    captionSyncLockRef.current = true;
     console.log('[Eagle Storage] 🔍 Starting session images caption/tags enrichment...');
     
     try {
@@ -805,40 +917,83 @@ export const PersonalSpace = () => {
       }
     } catch (error) {
       console.error('[Eagle Storage] ❌ Enrichment failed:', error);
+    } finally {
+      // ✅ 释放锁
+      captionSyncLockRef.current = false;
     }
   }, [sessions, isSessionsLoading]);
 
-  // 🆕 从 vectordb 补充 session 中卡片的 caption 和 tags（延迟执行）
+  // 🆕 从 vectordb 补充 session 中卡片的 caption 和 tags（在浏览器空闲时执行）
   useEffect(() => {
     if (isSessionsLoading || !sessions || sessions.length === 0) return;
     
-    // 延迟 8 秒执行，避免与 enrichSessionImages 冲突
-    const timer = setTimeout(() => {
-      const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
-      if (!eagleStorage || !eagleStorage.enrichSessionImagesFromVectordb) {
-        console.warn('[PersonalSpace] ⚠️ enrichSessionImagesFromVectordb not available');
-        return;
-      }
+    // 使用 requestIdleCallback 在浏览器空闲时执行，避免与 enrichSessionImages 冲突
+    const scheduleVectordbEnrichment = () => {
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+          const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+          if (!eagleStorage || !eagleStorage.enrichSessionImagesFromVectordb) {
+            console.warn('[PersonalSpace] ⚠️ enrichSessionImagesFromVectordb not available');
+            return;
+          }
 
-      (async () => {
-        try {
-          console.log('[PersonalSpace] 🚀 Starting vectordb enrichment...');
-          const result = await eagleStorage.enrichSessionImagesFromVectordb({
-            maxItems: 50,
-            onProgress: (processed, total, updated, skipped) => {
-              if (processed % 10 === 0 || processed === total) {
-                console.log(`[PersonalSpace] 📊 [VECTORDB ENRICH] Progress: ${processed}/${total} (${updated} updated, ${skipped} skipped)`);
+          (async () => {
+            try {
+              console.log('[PersonalSpace] 🚀 Starting vectordb enrichment...');
+              const result = await eagleStorage.enrichSessionImagesFromVectordb({
+                maxItems: 50,
+                onProgress: (processed, total, updated, skipped) => {
+                  if (processed % 10 === 0 || processed === total) {
+                    console.log(`[PersonalSpace] 📊 [VECTORDB ENRICH] Progress: ${processed}/${total} (${updated} updated, ${skipped} skipped)`);
+                  }
+                },
+              });
+              
+              if (result && !result.error) {
+                console.log('[PersonalSpace] ✅ Vectordb enrichment complete:', result);
+              } else if (result && result.error) {
+                console.warn('[PersonalSpace] ⚠️ Vectordb enrichment error:', result.error);
               }
-            },
-          });
-          console.log('[PersonalSpace] ✅ Vectordb enrichment complete:', result);
-        } catch (error) {
-          console.error('[PersonalSpace] ❌ Vectordb enrichment failed:', error);
-        }
-      })();
-    }, 8000);
+            } catch (error) {
+              console.error('[PersonalSpace] ❌ Vectordb enrichment failed:', error);
+            }
+          })();
+        }, { timeout: 3000 }); // 最多等待 3 秒
+      } else {
+        // 降级：使用很短的延迟
+        setTimeout(() => {
+          const eagleStorage = window.__TAB_CLEANER_EAGLE_STORAGE;
+          if (!eagleStorage || !eagleStorage.enrichSessionImagesFromVectordb) {
+            console.warn('[PersonalSpace] ⚠️ enrichSessionImagesFromVectordb not available');
+            return;
+          }
+
+          (async () => {
+            try {
+              console.log('[PersonalSpace] 🚀 Starting vectordb enrichment...');
+              const result = await eagleStorage.enrichSessionImagesFromVectordb({
+                maxItems: 50,
+                onProgress: (processed, total, updated, skipped) => {
+                  if (processed % 10 === 0 || processed === total) {
+                    console.log(`[PersonalSpace] 📊 [VECTORDB ENRICH] Progress: ${processed}/${total} (${updated} updated, ${skipped} skipped)`);
+                  }
+                },
+              });
+              
+              if (result && !result.error) {
+                console.log('[PersonalSpace] ✅ Vectordb enrichment complete:', result);
+              } else if (result && result.error) {
+                console.warn('[PersonalSpace] ⚠️ Vectordb enrichment error:', result.error);
+              }
+            } catch (error) {
+              console.error('[PersonalSpace] ❌ Vectordb enrichment failed:', error);
+            }
+          })();
+        }, 300);
+      }
+    };
     
-    return () => clearTimeout(timer);
+    scheduleVectordbEnrichment();
   }, [sessions, isSessionsLoading]);
 
   // 🆕 监听新卡片收录，批量更新老卡片
@@ -2809,7 +2964,6 @@ export const PersonalSpace = () => {
           )}
 
           {/* 静态天空背景 - 使用 background-space.png */}
-          {/* <FluidGlassCursor /> */} {/* ⚠️ 临时禁用：移除自定义cursor样式 */}
           <FlowingSkyBackground />
           {/* 右下角宠物显示 */}
           <PetDisplay />

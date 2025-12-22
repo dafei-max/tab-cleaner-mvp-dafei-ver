@@ -313,10 +313,12 @@ const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCar
     const img = e.target;
     const currentSrc = img.src;
     
-    console.warn('[ImageWithFallback] Image load failed:', {
+    console.warn('[ImageWithFallback] 🚨 Image load failed:', {
       url: og.url?.substring(0, 50),
       currentSrc: currentSrc.substring(0, 50),
-      retryCount
+      retryCount,
+      ogImage: og.image?.substring(0, 50),
+      originalImageUrl: og.original_image_url?.substring(0, 50),
     });
     
     // 如果已经是占位符，不再重试
@@ -356,13 +358,16 @@ const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCar
       }
       
       // 🆕 尝试从 IndexedDB 加载（作为兜底）
+      console.log('[ImageWithFallback] 🔍 Attempting IndexedDB fallback...');
       try {
         const indexedDbImage = await getImageFromIndexedDB(og);
         if (indexedDbImage) {
           setRetryCount(prev => prev + 1);
           setImageSrc(indexedDbImage);
-          console.log('[ImageWithFallback] ✅ Loaded from IndexedDB (fallback)');
+          console.log('[ImageWithFallback] ✅ Loaded from IndexedDB (fallback):', indexedDbImage.substring(0, 50));
           return;
+        } else {
+          console.log('[ImageWithFallback] ❌ IndexedDB fallback returned null - image not found in IndexedDB');
         }
       } catch (error) {
         console.warn('[ImageWithFallback] ⚠️ Failed to load from IndexedDB:', error);

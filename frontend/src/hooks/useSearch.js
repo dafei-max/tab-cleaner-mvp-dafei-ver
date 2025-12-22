@@ -216,31 +216,11 @@ export const useSearch = (opengraphData = []) => {
         console.log('[useSearch] ✅ Local results displayed immediately');
       }
       
-      // 🆕 步骤2：异步执行 AI 搜索，完成后更新结果（不阻塞 UI）
-      // 注意：不 await，让函数立即返回，但保持 isSearching = true
-      searchContent(query, 20, filterUrls, filterTabIds).then(result => {
-        let aiResults = [];
-        if (result && result.ok && Array.isArray(result.results) && result.results.length > 0) {
-          aiResults = result.results;
-          console.log('[useSearch] 🤖 AI search found', aiResults.length, 'results from database');
-        } else {
-          console.log('[useSearch] 🤖 AI search returned empty, keeping local results');
-          setIsSearching(false);
-          return; // AI 搜索无结果，保持本地搜索结果
-        }
-        
-        // 如果有 AI 结果，使用 AI 结果（通常更准确）
-        const queryColors = extractQueryColors(query);
-        const sortedResults = sortResultsByColorAndSimilarity(aiResults, queryColors);
-        const positioned = calculateLayoutForResults(sortedResults, calculateRadialLayout);
-        setSearchResults(positioned);
-        setIsSearching(false);
-        console.log('[useSearch] ✅ AI results displayed and updated');
-      }).catch(error => {
-        console.error('[useSearch] AI search failed:', error);
-        setIsSearching(false);
-        // AI 搜索失败，保持本地搜索结果
-      });
+      // ✅ 已禁用：AI 搜索流程
+      // 现在只使用本地搜索，基于 caption 做模糊搜索
+      // 但保留从数据库获取 caption 并返回给本地的功能（通过 batch-captions API）
+      setIsSearching(false);
+      console.log('[useSearch] ✅ Local search only (AI search disabled)');
       
       // 返回本地搜索结果（立即返回，不等待 AI）
       // 注意：isSearching 保持为 true，直到 AI 搜索完成
@@ -251,24 +231,11 @@ export const useSearch = (opengraphData = []) => {
         return finalResults;
       }
       
-      // 如果没有本地结果，等待 AI 搜索完成
-      const result = await searchContent(query, 20, filterUrls, filterTabIds);
-      let finalList = [];
-      if (result && result.ok && Array.isArray(result.results) && result.results.length > 0) {
-        finalList = result.results;
-        console.log('[useSearch] 🤖 AI search found', finalList.length, 'results');
-      } else {
-        console.log('[useSearch] No results found');
-        setIsSearching(false);
-        return [];
-      }
-      
-      const queryColors = extractQueryColors(query);
-      const sortedResults = sortResultsByColorAndSimilarity(finalList, queryColors);
-      const finalResults = calculateLayoutForResults(sortedResults, calculateRadialLayout);
-      setSearchResults(finalResults);
+      // ✅ 已禁用：AI 搜索流程
+      // 如果没有本地结果，返回空数组
+      console.log('[useSearch] ⚠️ No local results found (AI search disabled)');
       setIsSearching(false);
-      return finalResults;
+      return [];
     } catch (error) {
       console.error('[useSearch] Error searching:', error);
       setIsSearching(false);

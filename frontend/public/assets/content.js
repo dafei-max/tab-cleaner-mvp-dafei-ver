@@ -1633,6 +1633,16 @@ HiHi我在这里！！
       }
       return true;
     }
+    if (req.action === 'show-tips-bubble') {
+      try {
+        injectTipsBubble();
+        sendResponse?.({ ok: true });
+      } catch (e) {
+        console.error('[Tab Cleaner Content] Failed to show tips bubble:', e);
+        sendResponse?.({ ok: false, error: e?.message || String(e) });
+      }
+      return true;
+    }
     if (req.action === "fetch-opengraph") {
       console.log('[Tab Cleaner Content] fetch-opengraph requested');
 
@@ -1740,6 +1750,16 @@ HiHi我在这里！！
   });
 
   console.log("Tab Cleaner content (classic) loaded.");
+
+  // 🆕 页面加载时检查是否需要显示提示气泡
+  chrome.storage.local.get(['showTipsBubble', 'tipsBubbleDismissed'], (items) => {
+    if (items.showTipsBubble && !items.tipsBubbleDismissed) {
+      // 延迟一点显示，确保页面已加载
+      setTimeout(() => {
+        injectTipsBubble();
+      }, 1000);
+    }
+  });
 })();
 
 function injectOnboardingOverlay() {
@@ -2091,5 +2111,162 @@ function injectOnboardingOverlay() {
     }
   } catch (e) {
     console.error('[Tab Cleaner Content] injectOnboardingOverlay failed:', e);
+  }
+}
+
+/**
+ * 🆕 注入提示气泡到页面右上角（靠近扩展图标位置）
+ * 在用户首次安装或刷新插件时显示
+ */
+function injectTipsBubble() {
+  try {
+    // 检查是否已经显示过
+    if (window.__TAB_CLEANER_TIPS_BUBBLE_ROOT) {
+      return;
+    }
+
+    // 检查是否应该显示
+    chrome.storage.local.get(['showTipsBubble', 'tipsBubbleDismissed'], (items) => {
+      if (!items.showTipsBubble || items.tipsBubbleDismissed) {
+        return;
+      }
+
+      const root = document.createElement('div');
+      root.id = 'tab-cleaner-tips-bubble-root';
+      root.style.cssText = `
+        position: fixed;
+        top: 0;
+        right: 0;
+        z-index: 2147483647;
+        pointer-events: none;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      `;
+
+      const shadow = root.attachShadow({ mode: 'closed' });
+
+      const tipsBubbleUrl = chrome.runtime.getURL('static/img/tips-bubble.svg');
+
+      const style = document.createElement('style');
+      style.textContent = `
+        .tc-tips-bubble-container {
+          position: relative;
+          width: 336px;
+          height: 126px;
+          pointer-events: auto;
+          cursor: pointer;
+          transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        .tc-tips-bubble-container:hover {
+          transform: scale(1.02);
+        }
+        .tc-tips-bubble-svg {
+          width: 100%;
+          height: 100%;
+          display: block;
+        }
+        .tc-tips-bubble-close {
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          width: 20px;
+          height: 20px;
+          background: rgba(255, 255, 255, 0.8);
+          border: none;
+          border-radius: 50%;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 16px;
+          line-height: 1;
+          color: #666;
+          opacity: 0;
+          transition: opacity 0.2s ease;
+          pointer-events: auto;
+        }
+        .tc-tips-bubble-container:hover .tc-tips-bubble-close {
+          opacity: 1;
+        }
+        .tc-tips-bubble-close:hover {
+          background: rgba(255, 255, 255, 1);
+          color: #333;
+        }
+        @keyframes tc-tips-bubble-fade-in {
+          from {
+            opacity: 0;
+            transform: translateY(-10px) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+        .tc-tips-bubble-container {
+          animation: tc-tips-bubble-fade-in 0.4s ease-out;
+        }
+      `;
+
+      const container = document.createElement('div');
+      container.className = 'tc-tips-bubble-container';
+
+      const svgImg = document.createElement('img');
+      svgImg.src = tipsBubbleUrl;
+      svgImg.className = 'tc-tips-bubble-svg';
+      svgImg.alt = '提示气泡';
+
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'tc-tips-bubble-close';
+      closeBtn.innerHTML = '×';
+      closeBtn.setAttribute('aria-label', '关闭提示');
+      closeBtn.onclick = (e) => {
+        e.stopPropagation();
+        handleTipsBubbleDismiss();
+      };
+
+      container.appendChild(svgImg);
+      container.appendChild(closeBtn);
+
+      // 点击气泡本身也可以关闭
+      container.onclick = () => {
+        handleTipsBubbleDismiss();
+      };
+
+      shadow.appendChild(style);
+      shadow.appendChild(container);
+      document.documentElement.appendChild(root);
+      window.__TAB_CLEANER_TIPS_BUBBLE_ROOT = root;
+
+      // 自动关闭（5秒后）
+      setTimeout(() => {
+        if (window.__TAB_CLEANER_TIPS_BUBBLE_ROOT) {
+          handleTipsBubbleDismiss();
+        }
+      }, 5000);
+    });
+  } catch (e) {
+    console.error('[Tab Cleaner Content] injectTipsBubble failed:', e);
+  }
+}
+
+function handleTipsBubbleDismiss() {
+  try {
+    if (chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({
+        showTipsBubble: false,
+        tipsBubbleDismissed: true,
+      });
+    }
+  } catch (e) {
+    console.warn('[Tab Cleaner Content] Failed to persist tips bubble state:', e);
+  }
+  if (window.__TAB_CLEANER_TIPS_BUBBLE_ROOT) {
+    const root = window.__TAB_CLEANER_TIPS_BUBBLE_ROOT;
+    root.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+    root.style.opacity = '0';
+    root.style.transform = 'translateY(-10px) scale(0.95)';
+    setTimeout(() => {
+      root.remove();
+      window.__TAB_CLEANER_TIPS_BUBBLE_ROOT = null;
+    }, 300);
   }
 }

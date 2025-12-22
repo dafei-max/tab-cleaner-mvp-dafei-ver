@@ -948,38 +948,14 @@ async def search_with_funnel(
     """
     print(f"[Funnel] Starting funnel search for query: {query_text[:50]}...")
     
-    # ✅ 步骤 0: AI 增强查询（在搜索前就理解用户真实意图）
+    # ✅ 已禁用：AI 增强查询流程
+    # 现在只使用原始查询文本，不进行 AI 增强
+    # 但保留从数据库获取 caption 并返回给本地的功能
     enhanced_query = query_text
     ai_enhanced = False
     enhanced_intent = None
-    
-    try:
-        from .ai_intent_enhance import hybrid_intent_detection
-        # 使用混合意图检测（规则式 + AI，超时3秒，给AI更多时间）
-        enhanced_intent = await hybrid_intent_detection(
-            query_text,
-            use_ai=True,
-            ai_timeout=3.0,  # 增加到3秒，让AI有更多时间分析
-            cache={}  # 可以传入外部缓存
-        )
-        
-        if enhanced_intent and enhanced_intent.get("ai_enhanced"):
-            enhanced_query = enhanced_intent.get("enhanced_query", query_text)
-            ai_enhanced = True
-            print(f"[Funnel] ✅ AI enhanced query: '{query_text}' → '{enhanced_query}'")
-            print(f"[Funnel]    Query type: {enhanced_intent.get('query_type')}")
-            print(f"[Funnel]    Extracted: colors={enhanced_intent.get('extracted_info', {}).get('colors', [])}, "
-                  f"objects={enhanced_intent.get('extracted_info', {}).get('objects', [])}, "
-                  f"styles={enhanced_intent.get('extracted_info', {}).get('styles', [])}")
-        else:
-            print(f"[Funnel] ⚠️  AI enhancement not available, using original query")
-    except Exception as e:
-        print(f"[Funnel] ⚠️  AI enhancement failed: {e}, using original query")
-        import traceback
-        traceback.print_exc()
-    
-    # 使用增强后的查询进行搜索（如果AI增强成功，使用增强查询；否则使用原始查询）
-    search_query = enhanced_query if ai_enhanced else query_text
+    search_query = query_text
+    print(f"[Funnel] ⚠️  AI enhancement disabled, using original query: '{query_text}'")
     
     # ========== 阶段 1: 粗召回（Multi-Recall） ==========
     print("[Funnel] Stage 1: Coarse Recall (Multi-Recall)")

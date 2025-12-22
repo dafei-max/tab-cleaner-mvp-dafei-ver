@@ -1,1 +1,0 @@
-export { PetSetting } from "./PetSetting";

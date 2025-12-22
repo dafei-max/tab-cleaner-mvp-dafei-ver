@@ -446,9 +446,17 @@ const resolveImageFromIndexedDB = async (imageRef) => {
     try {
       if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.loadImage) {
         const imageData = await window.__TAB_CLEANER_EAGLE_STORAGE.loadImage(imageRef);
-        if (imageData && imageData.dataUrl) {
-          console.log('[getBestImageSource] ✅ Found in IndexedDB by URL (fallback)');
-          return imageData.dataUrl;
+        if (imageData) {
+          // ✅ 优先使用完整 dataUrl
+          if (imageData.dataUrl) {
+            console.log('[getBestImageSource] ✅ Found in IndexedDB by URL (fallback)');
+            return imageData.dataUrl;
+          }
+          // ✅ 如果没有 dataUrl，使用缩略图作为兜底
+          if (imageData.thumbnail) {
+            console.log('[getBestImageSource] ✅ Using thumbnail from IndexedDB by URL (fallback)');
+            return imageData.thumbnail;
+          }
         }
       }
     } catch (error) {
@@ -553,33 +561,87 @@ export const getBestImageSource = (og, style = 'text', width = 200, height = 150
  */
 export const getImageFromIndexedDB = async (og) => {
   if (!og) {
+    console.log('[getImageFromIndexedDB] ❌ No og object provided');
     return null;
   }
   
-  // 优先尝试通过 eagle://hash 加载
-  if (og.image && og.image.startsWith('eagle://')) {
-    const indexedDbImage = await resolveImageFromIndexedDB(og.image);
-    if (indexedDbImage) {
-      return indexedDbImage;
+  console.log('[getImageFromIndexedDB] 🔍 Attempting to load from IndexedDB:', {
+    url: og.url?.substring(0, 50),
+    image: og.image?.substring(0, 50),
+    original_image_url: og.original_image_url?.substring(0, 50),
+    hasEagleStorage: !!window.__TAB_CLEANER_EAGLE_STORAGE,
+  });
+  
+  try {
+    // ✅ 优先级1: 尝试通过 eagle://hash 加载（完整 dataUrl）
+    if (og.image && og.image.startsWith('eagle://')) {
+      console.log('[getImageFromIndexedDB] 🔍 Priority 1: Trying eagle://hash:', og.image.substring(0, 30));
+      const indexedDbImage = await resolveImageFromIndexedDB(og.image);
+      if (indexedDbImage) {
+        console.log('[getImageFromIndexedDB] ✅ Priority 1: Found via eagle://hash');
+        return indexedDbImage;
+      }
+      console.log('[getImageFromIndexedDB] ❌ Priority 1: Not found via eagle://hash');
     }
+    
+    // ✅ 优先级2: 尝试通过 original_image_url 从 IndexedDB 查找
+    if (og.original_image_url) {
+      console.log('[getImageFromIndexedDB] 🔍 Priority 2: Trying original_image_url:', og.original_image_url.substring(0, 50));
+      const indexedDbImage = await resolveImageFromIndexedDB(og.original_image_url);
+      if (indexedDbImage) {
+        console.log('[getImageFromIndexedDB] ✅ Priority 2: Found via original_image_url');
+        return indexedDbImage;
+      }
+      console.log('[getImageFromIndexedDB] ❌ Priority 2: Not found via original_image_url');
+    }
+    
+    // ✅ 优先级3: 尝试通过 og.image（如果是 URL）从 IndexedDB 查找
+    if (og.image && !og.image.startsWith('eagle://') && !og.image.startsWith('data:')) {
+      console.log('[getImageFromIndexedDB] 🔍 Priority 3: Trying og.image:', og.image.substring(0, 50));
+      const indexedDbImage = await resolveImageFromIndexedDB(og.image);
+      if (indexedDbImage) {
+        console.log('[getImageFromIndexedDB] ✅ Priority 3: Found via og.image');
+        return indexedDbImage;
+      }
+      console.log('[getImageFromIndexedDB] ❌ Priority 3: Not found via og.image');
+    }
+    
+    // ✅ 优先级4: 尝试从 IndexedDB 加载缩略图（作为最后兜底）
+    // 如果完整 dataUrl 加载失败，尝试使用缩略图
+    if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.loadImage) {
+      const imageUrl = og.original_image_url || og.image || og.url;
+      if (imageUrl && !imageUrl.startsWith('eagle://') && !imageUrl.startsWith('data:')) {
+        console.log('[getImageFromIndexedDB] 🔍 Priority 4: Trying loadImage with:', imageUrl.substring(0, 50));
+        const imageData = await window.__TAB_CLEANER_EAGLE_STORAGE.loadImage(imageUrl);
+        if (imageData) {
+          console.log('[getImageFromIndexedDB] 📦 ImageData found:', {
+            hasDataUrl: !!imageData.dataUrl,
+            hasThumbnail: !!imageData.thumbnail,
+            dataUrlSize: imageData.dataUrl ? `${(imageData.dataUrl.length / 1024).toFixed(1)} KB` : 'N/A',
+            thumbnailSize: imageData.thumbnail ? `${(imageData.thumbnail.length / 1024).toFixed(1)} KB` : 'N/A',
+          });
+          // 优先使用完整 dataUrl
+          if (imageData.dataUrl) {
+            console.log('[getImageFromIndexedDB] ✅ Priority 4: Using dataUrl');
+            return imageData.dataUrl;
+          }
+          // 如果没有 dataUrl，使用缩略图作为兜底
+          if (imageData.thumbnail) {
+            console.log('[getImageFromIndexedDB] ✅ Priority 4: Using thumbnail as fallback');
+            return imageData.thumbnail;
+          }
+        } else {
+          console.log('[getImageFromIndexedDB] ❌ Priority 4: ImageData not found in IndexedDB');
+        }
+      }
+    } else {
+      console.log('[getImageFromIndexedDB] ❌ Priority 4: Eagle Storage not available');
+    }
+  } catch (error) {
+    console.warn('[getImageFromIndexedDB] ⚠️ Error loading from IndexedDB:', error);
   }
   
-  // 尝试通过 original_image_url 从 IndexedDB 查找
-  if (og.original_image_url) {
-    const indexedDbImage = await resolveImageFromIndexedDB(og.original_image_url);
-    if (indexedDbImage) {
-      return indexedDbImage;
-    }
-  }
-  
-  // 尝试通过 og.image（如果是 URL）从 IndexedDB 查找
-  if (og.image && !og.image.startsWith('eagle://') && !og.image.startsWith('data:')) {
-    const indexedDbImage = await resolveImageFromIndexedDB(og.image);
-    if (indexedDbImage) {
-      return indexedDbImage;
-    }
-  }
-  
+  console.log('[getImageFromIndexedDB] ❌ All attempts failed, returning null');
   return null;
 };
 

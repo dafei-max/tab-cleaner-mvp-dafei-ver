@@ -203,14 +203,37 @@ chrome.runtime.onInstalled.addListener((details) => {
     console.log('[Background] 🎉 First install detected, setting onboarding flag');
     chrome.storage.local.set({ 
       showOnboarding: true,
-      onboardingDismissed: false 
+      onboardingDismissed: false,
+      showTipsBubble: true, // 🆕 显示提示气泡
+      tipsBubbleDismissed: false
+    });
+    
+    // 🆕 注入提示气泡到当前活动标签页
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'show-tips-bubble' }, () => {
+          // 忽略错误（可能 content script 还未加载）
+          chrome.runtime.lastError;
+        });
+      }
     });
   } else if (details.reason === 'update') {
     // 更新时也显示（可选，根据需求调整）
     console.log('[Background] 🔄 Extension updated, setting onboarding flag');
     chrome.storage.local.set({ 
       showOnboarding: true,
-      onboardingDismissed: false 
+      onboardingDismissed: false,
+      showTipsBubble: true, // 🆕 显示提示气泡
+      tipsBubbleDismissed: false
+    });
+    
+    // 🆕 注入提示气泡到当前活动标签页
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'show-tips-bubble' }, () => {
+          chrome.runtime.lastError;
+        });
+      }
     });
   }
 });
@@ -648,8 +671,41 @@ function cleanupAllSessions(sessions, maxSessions = 10, maxItemsPerSession = 120
 async function safeStorageSet(data, maxRetries = 2) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      await chrome.storage.local.set(data);
-      return { success: true };
+      // ✅ 使用 Promise 包装，确保正确处理错误
+      await new Promise((resolve, reject) => {
+        chrome.storage.local.set(data, () => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else {
+            resolve();
+          }
+        });
+      });
+      
+      // ✅ 验证数据是否真的保存成功
+      const verifyKeys = Object.keys(data);
+      const verifyResult = await new Promise((resolve) => {
+        chrome.storage.local.get(verifyKeys, (result) => {
+          resolve(result);
+        });
+      });
+      
+      // 检查关键字段是否保存成功
+      let allSaved = true;
+      for (const key of verifyKeys) {
+        if (JSON.stringify(verifyResult[key]) !== JSON.stringify(data[key])) {
+          console.warn(`[Background] ⚠️ Verification failed for key: ${key}`);
+          allSaved = false;
+          break;
+        }
+      }
+      
+      if (allSaved) {
+        console.log('[Background] ✅ Data saved and verified successfully');
+        return { success: true };
+      } else {
+        throw new Error('Data verification failed after save');
+      }
     } catch (error) {
       const isQuotaError = error.message && error.message.includes('quota');
       
@@ -665,7 +721,10 @@ async function safeStorageSet(data, maxRetries = 2) {
       }
       
       // 最后一次尝试失败，或非配额错误
-      throw error;
+      if (attempt === maxRetries) {
+        console.error('[Background] ❌ Failed to save after all retries:', error);
+        throw error;
+      }
     }
   }
 }
@@ -693,11 +752,19 @@ async function handleSaveCapturedImage(req, sender, sendResponse) {
     
     // 获取或创建当前 session
     const storageResult = await chrome.storage.local.get(['sessions', 'currentSessionId']);
-    const sessions = storageResult.sessions || [];
+    let sessions = Array.isArray(storageResult.sessions) ? storageResult.sessions : [];
     let currentSessionId = storageResult.currentSessionId;
+    
+    console.log('[Background] 📊 Current storage state:', {
+      hasSessions: sessions.length > 0,
+      sessionsCount: sessions.length,
+      currentSessionId: currentSessionId || 'none',
+      sessionIds: sessions.map(s => s?.id).filter(Boolean),
+    });
     
     // 如果没有 session，创建一个新的
     if (!currentSessionId || sessions.length === 0) {
+      console.log('[Background] 🆕 Creating new session for captured image...');
       const newSession = {
         id: `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         name: '洗衣筐1',
@@ -705,22 +772,122 @@ async function handleSaveCapturedImage(req, sender, sendResponse) {
         opengraphData: [],
         tabCount: 0,
       };
-      sessions.unshift(newSession);
+      sessions = [newSession]; // ✅ 确保 sessions 是数组
       currentSessionId = newSession.id;
-      await safeStorageSet({ 
-        sessions,
-        currentSessionId 
+      
+      try {
+        const saveResult = await safeStorageSet({ 
+          sessions,
+          currentSessionId 
+        });
+        
+        if (!saveResult || !saveResult.success) {
+          throw new Error('safeStorageSet returned failure');
+        }
+        
+        console.log('[Background] ✅ New session created and saved:', currentSessionId);
+        
+        // ✅ 等待一小段时间，确保 storage 完全同步
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } catch (error) {
+        console.error('[Background] ❌ Failed to save new session:', error);
+        sendResponse({ success: false, error: `Failed to create session: ${error.message}` });
+        return;
+      }
+    }
+    
+    // ✅ 再次从 storage 读取，确保获取最新数据
+    const latestStorageResult = await new Promise((resolve) => {
+      chrome.storage.local.get(['sessions', 'currentSessionId'], (result) => {
+        if (chrome.runtime.lastError) {
+          console.error('[Background] ❌ Failed to read storage:', chrome.runtime.lastError);
+          resolve({ sessions: [], currentSessionId: null });
+        } else {
+          resolve(result);
+        }
+      });
+    });
+    
+    sessions = Array.isArray(latestStorageResult.sessions) ? latestStorageResult.sessions : [];
+    currentSessionId = latestStorageResult.currentSessionId || currentSessionId;
+    
+    console.log('[Background] 📖 Re-read storage after save:', {
+      sessionsCount: sessions.length,
+      currentSessionId: currentSessionId || 'none',
+      sessionIds: sessions.map(s => s?.id).filter(Boolean),
+    });
+    
+    // 找到当前 session
+    const sessionIndex = sessions.findIndex(s => s && s.id === currentSessionId);
+    if (sessionIndex === -1) {
+      console.error('[Background] ❌ Session not found after save:', {
+        currentSessionId,
+        sessionsCount: sessions.length,
+        sessionIds: sessions.map(s => s?.id).filter(Boolean),
+        allSessions: sessions.map(s => ({
+          id: s?.id,
+          name: s?.name,
+          tabCount: s?.tabCount,
+        })),
+      });
+      
+      // ✅ 如果还是找不到，强制重新创建（可能是并发或同步问题）
+      console.log('[Background] 🔄 Force creating new session as fallback...');
+      const fallbackSession = {
+        id: `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        name: '洗衣筐1',
+        createdAt: Date.now(),
+        opengraphData: [],
+        tabCount: 0,
+      };
+      
+      sessions = [fallbackSession, ...sessions];
+      currentSessionId = fallbackSession.id;
+      
+      try {
+        await safeStorageSet({ sessions, currentSessionId });
+        console.log('[Background] ✅ Fallback session created:', currentSessionId);
+        // 使用新创建的 session
+        const fallbackIndex = sessions.findIndex(s => s && s.id === currentSessionId);
+        if (fallbackIndex === -1) {
+          throw new Error('Fallback session creation failed');
+        }
+        // 继续使用这个 session
+      } catch (fallbackError) {
+        console.error('[Background] ❌ Fallback session creation failed:', fallbackError);
+        // ✅ 即使 session 创建失败，图片已经在 IndexedDB 中，返回成功
+        console.log('[Background] ⚠️ Session creation failed, but image is saved in IndexedDB');
+        sendResponse({ 
+          success: true, // ✅ 返回成功，因为图片已经在 IndexedDB 中
+          warning: 'Session creation failed, but image saved to IndexedDB',
+          imageSaved: true,
+        });
+        return;
+      }
+    }
+    
+    // ✅ 正常情况：找到了 session
+    if (sessionIndex >= 0) {
+      console.log('[Background] ✅ Session found:', {
+        sessionId: currentSessionId,
+        sessionIndex,
+        sessionName: sessions[sessionIndex]?.name,
+        currentTabCount: sessions[sessionIndex]?.tabCount,
       });
     }
     
-    // 找到当前 session
-    const sessionIndex = sessions.findIndex(s => s.id === currentSessionId);
-    if (sessionIndex === -1) {
-      sendResponse({ success: false, error: 'Session not found' });
-      return;
-    }
-    
     const session = sessions[sessionIndex];
+
+    // ✅ 如果 ogData.image 是完整的 data: URL，记录警告（应该在 content script 中先保存到 IndexedDB）
+    if (ogData.image && ogData.image.startsWith('data:image') && ogData.image.length > 10000) {
+      console.warn('[Background] ⚠️ Large data: URL detected in session:', {
+        size: `${(ogData.image.length / 1024).toFixed(1)} KB`,
+        suggestion: 'Image should be saved to IndexedDB first, then use eagle://hash reference',
+        currentImage: ogData.image.substring(0, 50) + '...',
+      });
+      // 注意：Service Worker 无法直接访问 IndexedDB，迁移应该在 content script 中完成
+      // 这里只记录警告，不进行迁移（避免重复处理）
+    }
 
     // 先基于"图片指纹"做一次智能去重（覆盖 dataURL / 普通 URL）
     const imageFingerprint = generateImageFingerprint(ogData.image);
@@ -1194,9 +1361,7 @@ function mergeScreenshotsIntoOpenGraph(opengraphItems, screenshotResults) {
   });
 }
 
-chrome.runtime.onInstalled.addListener(() => {
-  console.log("Tab Cleaner installed");
-});
+// 注意：onInstalled 监听器已在上面定义（197行），这里不再重复
 
 chrome.action.onClicked.addListener(async (tab) => {
   const url = tab?.url ?? "";
@@ -1283,7 +1448,13 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   
   // 处理保存采集的图片（从 image_capture_enhanced.js 或 screenshot_capture.js）
   if (req.action === "save-captured-image") {
-    handleSaveCapturedImage(req, sender, sendResponse);
+    // ✅ 确保异步处理，并正确处理 sendResponse
+    handleSaveCapturedImage(req, sender, sendResponse).catch(error => {
+      console.error('[Background] ❌ Unhandled error in handleSaveCapturedImage:', error);
+      if (sendResponse) {
+        sendResponse({ success: false, error: error.message || 'Unknown error' });
+      }
+    });
     return true; // 异步响应
   }
   

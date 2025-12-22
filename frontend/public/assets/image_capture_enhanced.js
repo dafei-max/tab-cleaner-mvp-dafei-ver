@@ -2141,13 +2141,18 @@
     }
     
     // 构建 OpenGraph 数据
+    // ✅ 数据格式对齐：确保包含所有必要字段
     const ogData = {
       url: window.location.href,
       title: document.title || window.location.href,
       description: '',
-      image: finalImageUrl,
+      image: finalImageUrl, // 可能是 data: URL 或普通 URL
+      original_image_url: finalImageUrl, // ✅ 保存原始图片 URL（用于 IndexedDB 查找和 CDN 失效后的兜底）
       thumbnail: thumbnail,           // 🆕 200px 缩略图用于打标
-      dominant_colors: dominantColors, // 🆕 主色调用于颜色筛选
+      dominant_colors: dominantColors || [], // 🆕 主色调用于颜色筛选（确保是数组）
+      image_caption: '', // ✅ 初始为空，后续 API 会更新
+      style_tags: [], // ✅ 初始为空，后续 API 会更新
+      object_tags: [], // ✅ 初始为空，后续 API 会更新
       site_name: window.location.hostname.replace(/^www\./, ''),
       success: true,
       is_local_fetch: true,
@@ -2171,7 +2176,36 @@
       console.warn('[Image Capture] Failed to extract additional metadata:', e);
     }
     
-    // 发送到 background.js 保存
+    // ✅ 先保存到 IndexedDB（即使 session 保存失败，图片也在 IndexedDB 中）
+    if (finalImageUrl && finalImageUrl.startsWith('data:image') && window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.saveImage) {
+      try {
+        console.log('[Image Capture] 💾 Saving to IndexedDB first...');
+        const imageHash = await window.__TAB_CLEANER_EAGLE_STORAGE.saveImage(
+          finalImageUrl, // 使用 data: URL 作为 key
+          finalImageUrl, // data: URL 作为 dataUrl
+          dominantColors || [],
+          {
+            title: ogData.title,
+            description: ogData.description,
+            url: ogData.url,
+          }
+        );
+        
+        if (imageHash && imageHash.hash) {
+          // ✅ 更新 ogData，使用 eagle://hash 引用
+          ogData.image = `eagle://${imageHash.hash}`;
+          ogData.original_image_url = finalImageUrl; // 保留原始 data: URL
+          ogData.image_storage = 'indexeddb';
+          ogData.image_hash = imageHash.hash;
+          console.log('[Image Capture] ✅ Saved to IndexedDB:', imageHash.hash);
+        }
+      } catch (indexedDbError) {
+        console.warn('[Image Capture] ⚠️ Failed to save to IndexedDB (will continue with session save):', indexedDbError);
+        // 继续执行，即使 IndexedDB 保存失败
+      }
+    }
+    
+    // 发送到 background.js 保存到 session
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({
         action: 'save-captured-image',

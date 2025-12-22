@@ -200,25 +200,18 @@ async def check_table_constraints(conn, table_name: str = ACTIVE_TABLE_NAME) -> 
 async def init_schema():
     """初始化数据库表结构"""
     try:
-        try:
-            pool = await get_pool()
-        except Exception as e:
-            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
-            print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
-            # 返回空列表而不是抛出异常，避免影响前端
-            return []
+        pool = await get_pool()
         
-        try:
-            async with pool.acquire() as conn:
+        async with pool.acquire() as conn:
             # 注意：在阿里云 ADB PostgreSQL 中，Namespace 应该通过 API 创建
             # 如果 Namespace 已通过 API 创建，对应的 Schema 会自动存在于当前连接的数据库中
             # 实际数据库由 ADBPG_DBNAME 环境变量决定（可能是 postgres 或 knowledgebase）
             # 这里只检查 Schema 是否存在，如果不存在会报错（需要先通过 API 创建 Namespace）
             schema_exists = await conn.fetchval(f"""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.schemata 
-                    WHERE schema_name = '{NAMESPACE}'
-                );
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.schemata 
+                        WHERE schema_name = '{NAMESPACE}'
+                    );
             """)
             
             if not schema_exists:
@@ -243,75 +236,75 @@ async def init_schema():
             """)
             
             if not table_exists:
-                await conn.execute(f"""
-                    CREATE TABLE {ACTIVE_TABLE} (
-                        user_id TEXT NOT NULL,
-                        url TEXT NOT NULL,
-                        title TEXT,
-                        description TEXT,
-                        image TEXT,
-                        thumbnail TEXT,
-                        screenshot_image TEXT,
-                        site_name TEXT,
-                        tab_id INTEGER,
-                        tab_title TEXT,
-                        text_embedding vector(1024),
-                        image_embedding vector(1024),
-                        metadata JSONB,
-                        -- Caption 相关字段
-                        image_caption TEXT,
-                        caption_embedding vector(1024),
-                        dominant_colors TEXT[],
-                        style_tags TEXT[],
-                        object_tags TEXT[],
-                        status TEXT DEFAULT 'active' CHECK (status IN ('active', 'deleted')),
-                        deleted_at TIMESTAMP,
-                        created_at TIMESTAMP DEFAULT NOW(),
-                        updated_at TIMESTAMP DEFAULT NOW(),
-                        PRIMARY KEY (user_id, url)
-                    );
-                """)
-                print(f"[VectorDB] ✓ Created new table: {ACTIVE_TABLE}")
-                
-                # 创建 Caption 相关索引
-                await _create_index(
-                    conn,
-                    "dominant_colors GIN index",
-                    f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_dominant_colors_gin ON {ACTIVE_TABLE} USING GIN (dominant_colors);"
-                )
-                
-                await _create_index(
-                    conn,
-                    "style_tags GIN index",
-                    f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_style_tags_gin ON {ACTIVE_TABLE} USING GIN (style_tags);"
-                )
-                
-                await _create_index(
-                    conn,
-                    "object_tags GIN index",
-                    f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_object_tags_gin ON {ACTIVE_TABLE} USING GIN (object_tags);"
-                )
-                
-                await _create_index(
-                    conn,
-                    "caption_embedding index",
-                    f"""
-                    CREATE INDEX idx_{ACTIVE_TABLE_NAME}_caption_embedding
-                    ON {ACTIVE_TABLE}
-                    USING ann(caption_embedding)
-                    WITH (
-                        distancemeasure = cosine,
-                        hnsw_m           = 64,
-                        pq_enable        = 0
-                    );
-                    """
-                )
-                
-                await _create_index(
-                    conn,
-                    "image_caption fulltext index",
-                    f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_image_caption_fts ON {ACTIVE_TABLE} USING GIN (to_tsvector('english', COALESCE(image_caption, '')));"
-                )
+                    await conn.execute(f"""
+                        CREATE TABLE {ACTIVE_TABLE} (
+                            user_id TEXT NOT NULL,
+                            url TEXT NOT NULL,
+                            title TEXT,
+                            description TEXT,
+                            image TEXT,
+                            thumbnail TEXT,
+                            screenshot_image TEXT,
+                            site_name TEXT,
+                            tab_id INTEGER,
+                            tab_title TEXT,
+                            text_embedding vector(1024),
+                            image_embedding vector(1024),
+                            metadata JSONB,
+                            -- Caption 相关字段
+                            image_caption TEXT,
+                            caption_embedding vector(1024),
+                            dominant_colors TEXT[],
+                            style_tags TEXT[],
+                            object_tags TEXT[],
+                            status TEXT DEFAULT 'active' CHECK (status IN ('active', 'deleted')),
+                            deleted_at TIMESTAMP,
+                            created_at TIMESTAMP DEFAULT NOW(),
+                            updated_at TIMESTAMP DEFAULT NOW(),
+                            PRIMARY KEY (user_id, url)
+                        );
+                    """)
+                    print(f"[VectorDB] ✓ Created new table: {ACTIVE_TABLE}")
+                    
+                    # 创建 Caption 相关索引
+                    await _create_index(
+                        conn,
+                        "dominant_colors GIN index",
+                        f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_dominant_colors_gin ON {ACTIVE_TABLE} USING GIN (dominant_colors);"
+                    )
+                    
+                    await _create_index(
+                        conn,
+                        "style_tags GIN index",
+                        f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_style_tags_gin ON {ACTIVE_TABLE} USING GIN (style_tags);"
+                    )
+                    
+                    await _create_index(
+                        conn,
+                        "object_tags GIN index",
+                        f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_object_tags_gin ON {ACTIVE_TABLE} USING GIN (object_tags);"
+                    )
+                    
+                    await _create_index(
+                        conn,
+                        "caption_embedding index",
+                        f"""
+                        CREATE INDEX idx_{ACTIVE_TABLE_NAME}_caption_embedding
+                        ON {ACTIVE_TABLE}
+                        USING ann(caption_embedding)
+                        WITH (
+                            distancemeasure = cosine,
+                            hnsw_m           = 64,
+                            pq_enable        = 0
+                        );
+                        """
+                    )
+                    
+                    await _create_index(
+                        conn,
+                        "image_caption fulltext index",
+                        f"CREATE INDEX idx_{ACTIVE_TABLE_NAME}_image_caption_fts ON {ACTIVE_TABLE} USING GIN (to_tsvector('english', COALESCE(image_caption, '')));"
+                    )
             else:
                 print(f"[VectorDB] ✓ Table {ACTIVE_TABLE} already exists")
                 # 确保 user_id 列存在
@@ -523,13 +516,11 @@ async def upsert_opengraph_item(
         try:
             pool = await get_pool()
         except Exception as e:
-            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Error getting connection pool in upsert_opengraph_item: {e}")
             print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
-            # 返回空列表而不是抛出异常，避免影响前端
-            return []
+            return False
         
-        try:
-            async with pool.acquire() as conn:
+        async with pool.acquire() as conn:
             # 准备 metadata
             metadata_json = json.dumps(metadata or {})
             
@@ -549,40 +540,40 @@ async def upsert_opengraph_item(
             """)
             
             if has_caption_fields:
-                # 使用新字段（包含 thumbnail）
-                # ✅ 修复：使用 COALESCE 避免覆盖已有的 Caption 字段
-                await conn.execute(f"""
-                    INSERT INTO {ACTIVE_TABLE} (
-                        user_id, url, title, description, image, thumbnail, site_name,
-                        tab_id, tab_title, text_embedding, image_embedding, metadata,
-                        image_caption, caption_embedding, dominant_colors, style_tags, object_tags,
-                        status, updated_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::vector(1024), $11::vector(1024), $12::jsonb,
-                        $13, $14::vector(1024), $15, $16, $17,
-                        'active', NOW())
-                    ON CONFLICT (user_id, url) DO UPDATE SET
-                        title = EXCLUDED.title,
-                        description = EXCLUDED.description,
-                        image = EXCLUDED.image,
-                        thumbnail = COALESCE(EXCLUDED.thumbnail, {ACTIVE_TABLE}.thumbnail),
-                        site_name = EXCLUDED.site_name,
-                        tab_id = EXCLUDED.tab_id,
-                        tab_title = EXCLUDED.tab_title,
-                        text_embedding = EXCLUDED.text_embedding,
-                        image_embedding = EXCLUDED.image_embedding,
-                        metadata = EXCLUDED.metadata,
-                        -- ✅ 修复：只在传入值非空时才更新，否则保留数据库中的值
-                        image_caption = COALESCE(NULLIF(EXCLUDED.image_caption, ''), {ACTIVE_TABLE}.image_caption),
-                        caption_embedding = COALESCE(EXCLUDED.caption_embedding, {ACTIVE_TABLE}.caption_embedding),
-                        dominant_colors = COALESCE(EXCLUDED.dominant_colors, {ACTIVE_TABLE}.dominant_colors),
-                        style_tags = COALESCE(EXCLUDED.style_tags, {ACTIVE_TABLE}.style_tags),
-                        object_tags = COALESCE(EXCLUDED.object_tags, {ACTIVE_TABLE}.object_tags),
-                        status = 'active',
-                        deleted_at = NULL,
-                        updated_at = NOW();
-                """, user_id, normalized_url, title, description, image, thumbnail, site_name,
-                    tab_id, tab_title, text_vec, image_vec, metadata_json,
-                    image_caption, caption_vec, dominant_colors, style_tags, object_tags)
+                    # 使用新字段（包含 thumbnail）
+                    # ✅ 修复：使用 COALESCE 避免覆盖已有的 Caption 字段
+                    await conn.execute(f"""
+                        INSERT INTO {ACTIVE_TABLE} (
+                            user_id, url, title, description, image, thumbnail, site_name,
+                            tab_id, tab_title, text_embedding, image_embedding, metadata,
+                            image_caption, caption_embedding, dominant_colors, style_tags, object_tags,
+                            status, updated_at
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::vector(1024), $11::vector(1024), $12::jsonb,
+                            $13, $14::vector(1024), $15, $16, $17,
+                            'active', NOW())
+                        ON CONFLICT (user_id, url) DO UPDATE SET
+                            title = EXCLUDED.title,
+                            description = EXCLUDED.description,
+                            image = EXCLUDED.image,
+                            thumbnail = COALESCE(EXCLUDED.thumbnail, {ACTIVE_TABLE}.thumbnail),
+                            site_name = EXCLUDED.site_name,
+                            tab_id = EXCLUDED.tab_id,
+                            tab_title = EXCLUDED.tab_title,
+                            text_embedding = EXCLUDED.text_embedding,
+                            image_embedding = EXCLUDED.image_embedding,
+                            metadata = EXCLUDED.metadata,
+                            -- ✅ 修复：只在传入值非空时才更新，否则保留数据库中的值
+                            image_caption = COALESCE(NULLIF(EXCLUDED.image_caption, ''), {ACTIVE_TABLE}.image_caption),
+                            caption_embedding = COALESCE(EXCLUDED.caption_embedding, {ACTIVE_TABLE}.caption_embedding),
+                            dominant_colors = COALESCE(EXCLUDED.dominant_colors, {ACTIVE_TABLE}.dominant_colors),
+                            style_tags = COALESCE(EXCLUDED.style_tags, {ACTIVE_TABLE}.style_tags),
+                            object_tags = COALESCE(EXCLUDED.object_tags, {ACTIVE_TABLE}.object_tags),
+                            status = 'active',
+                            deleted_at = NULL,
+                            updated_at = NOW();
+                    """, user_id, normalized_url, title, description, image, thumbnail, site_name,
+                        tab_id, tab_title, text_vec, image_vec, metadata_json,
+                        image_caption, caption_vec, dominant_colors, style_tags, object_tags)
             else:
                 # 降级到旧版本（只使用 metadata）
                 await conn.execute(f"""
@@ -606,8 +597,8 @@ async def upsert_opengraph_item(
                         updated_at = NOW();
                 """, user_id, normalized_url, title, description, image, site_name,
                     tab_id, tab_title, text_vec, image_vec, metadata_json)
-            
-            return True
+        
+        return True
     except Exception as e:
         print(f"[VectorDB] Error upserting item {url[:50]}...: {e}")
         import traceback
@@ -633,21 +624,19 @@ async def update_opengraph_item_screenshot(user_id: Optional[str], url: str, scr
         try:
             pool = await get_pool()
         except Exception as e:
-            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Error getting connection pool in update_opengraph_item_screenshot: {e}")
             print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
-            # 返回空列表而不是抛出异常，避免影响前端
-            return []
+            return False
         
-        try:
-            async with pool.acquire() as conn:
+        async with pool.acquire() as conn:
             await conn.execute(f"""
                 UPDATE {ACTIVE_TABLE}
                 SET screenshot_image = $1,
                     updated_at = NOW()
                 WHERE user_id = $2 AND url = $3;
             """, screenshot_image, user_id, normalized_url)
-            
-            return True
+        
+        return True
     except Exception as e:
         print(f"[VectorDB] Error updating screenshot for {url[:50]}...: {e}")
         import traceback
@@ -672,25 +661,23 @@ async def get_opengraph_item(user_id: Optional[str], url: str) -> Optional[Dict]
         try:
             pool = await get_pool()
         except Exception as e:
-            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Error getting connection pool in get_opengraph_item: {e}")
             print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
-            # 返回空列表而不是抛出异常，避免影响前端
-            return []
+            return None
         
-        try:
-            async with pool.acquire() as conn:
+        async with pool.acquire() as conn:
             row = await conn.fetchrow(f"""
                 SELECT user_id, url, title, description, image, screenshot_image, site_name,
                        tab_id, tab_title, text_embedding, image_embedding, metadata
                 FROM {ACTIVE_TABLE}
                 WHERE user_id = $1 AND url = $2 AND status = 'active';
             """, user_id, normalized_url)
-            
-            if not row:
-                return None
-            
-            # 转换 vector 类型为列表
-            return _row_to_dict(row)
+        
+        if not row:
+            return None
+        
+        # 转换 vector 类型为列表
+        return _row_to_dict(row)
     except Exception as e:
         print(f"[VectorDB] Error getting item {url[:50]}...: {e}")
         return None
@@ -726,65 +713,64 @@ async def get_items_by_urls(user_id: Optional[str], urls: List[str]) -> List[Dic
             # 返回空列表而不是抛出异常，避免影响前端
             return []
         
-        try:
-            async with pool.acquire() as conn:
-                # ✅ 检查是否有 caption 相关字段
-                has_caption_fields = await conn.fetchval(f"""
-                    SELECT EXISTS (
-                        SELECT FROM information_schema.columns 
-                        WHERE table_schema = '{NAMESPACE}'
-                          AND table_name = '{ACTIVE_TABLE_NAME}'
-                          AND column_name = 'image_caption'
-                    );
-                """)
-                
-                # ✅ 关键兼容：同时匹配 url、image，以及 metadata 中常见的网页/图片 URL 字段
-                # （解决"只有页面 URL 的卡片"无法匹配的问题）
-                url_array = normalized_urls
-                metadata_match = """
-                      OR metadata->>'url' = ANY($2::text[])
-                      OR metadata->>'page_url' = ANY($2::text[])
-                      OR metadata->>'pageUrl' = ANY($2::text[])
-                      OR metadata->>'original_url' = ANY($2::text[])
-                      OR metadata->>'originalImageUrl' = ANY($2::text[])
-                      OR metadata->>'image' = ANY($2::text[])
-                """
-                
-                if has_caption_fields:
-                    # ✅ 包含 caption 相关字段
-                    rows = await conn.fetch(f"""
-                        SELECT user_id, url, title, description, image, screenshot_image, site_name,
-                               tab_id, tab_title, text_embedding, image_embedding, metadata,
-                               image_caption, caption_embedding, dominant_colors, style_tags, object_tags
-                        FROM {ACTIVE_TABLE}
-                        WHERE user_id = $1
-                          AND status = 'active'
-                          AND (
-                               url = ANY($2::text[])
-                            OR image = ANY($2::text[])
-                            {metadata_match}
-                          );
-                    """, user_id, url_array)
-                else:
-                    # 降级：不包含 caption 字段（向后兼容）
-                    rows = await conn.fetch(f"""
-                        SELECT user_id, url, title, description, image, screenshot_image, site_name,
-                               tab_id, tab_title, text_embedding, image_embedding, metadata
-                        FROM {ACTIVE_TABLE}
-                        WHERE user_id = $1
-                          AND status = 'active'
-                          AND (
-                               url = ANY($2::text[])
-                            OR image = ANY($2::text[])
-                            {metadata_match}
-                          );
-                    """, user_id, url_array)
-                
-                results = []
-                for row in rows:
-                    results.append(_row_to_dict(row))
-                
-                return results
+        async with pool.acquire() as conn:
+            # ✅ 检查是否有 caption 相关字段
+            has_caption_fields = await conn.fetchval(f"""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns 
+                    WHERE table_schema = '{NAMESPACE}'
+                      AND table_name = '{ACTIVE_TABLE_NAME}'
+                      AND column_name = 'image_caption'
+                );
+            """)
+            
+            # ✅ 关键兼容：同时匹配 url、image，以及 metadata 中常见的网页/图片 URL 字段
+            # （解决"只有页面 URL 的卡片"无法匹配的问题）
+            url_array = normalized_urls
+            metadata_match = """
+                  OR metadata->>'url' = ANY($2::text[])
+                  OR metadata->>'page_url' = ANY($2::text[])
+                  OR metadata->>'pageUrl' = ANY($2::text[])
+                  OR metadata->>'original_url' = ANY($2::text[])
+                  OR metadata->>'originalImageUrl' = ANY($2::text[])
+                  OR metadata->>'image' = ANY($2::text[])
+            """
+            
+            if has_caption_fields:
+                # ✅ 包含 caption 相关字段
+                rows = await conn.fetch(f"""
+                    SELECT user_id, url, title, description, image, screenshot_image, site_name,
+                           tab_id, tab_title, text_embedding, image_embedding, metadata,
+                           image_caption, caption_embedding, dominant_colors, style_tags, object_tags
+                    FROM {ACTIVE_TABLE}
+                    WHERE user_id = $1
+                      AND status = 'active'
+                      AND (
+                           url = ANY($2::text[])
+                        OR image = ANY($2::text[])
+                        {metadata_match}
+                      );
+                """, user_id, url_array)
+            else:
+                # 降级：不包含 caption 字段（向后兼容）
+                rows = await conn.fetch(f"""
+                    SELECT user_id, url, title, description, image, screenshot_image, site_name,
+                           tab_id, tab_title, text_embedding, image_embedding, metadata
+                    FROM {ACTIVE_TABLE}
+                    WHERE user_id = $1
+                      AND status = 'active'
+                      AND (
+                           url = ANY($2::text[])
+                        OR image = ANY($2::text[])
+                        {metadata_match}
+                      );
+                """, user_id, url_array)
+            
+            results = []
+            for row in rows:
+                results.append(_row_to_dict(row))
+            
+            return results
     except Exception as e:
         print(f"[VectorDB] Error getting items by URLs: {e}")
         import traceback
@@ -820,8 +806,7 @@ async def search_by_text_embedding(
             # 返回空列表而不是抛出异常，避免影响前端
             return []
         
-        try:
-            async with pool.acquire() as conn:
+        async with pool.acquire() as conn:
             query_vec = to_vector_str(query_embedding)
             
             rows = await conn.fetch(f"""
@@ -836,13 +821,13 @@ async def search_by_text_embedding(
                 ORDER BY text_embedding <=> $1::vector(1024)
                 LIMIT $4;
             """, query_vec, normalized_user, threshold, top_k)
-            
-            results = []
-            for row in rows:
-                item = _row_to_dict(row)
-                results.append(item)
-            
-            return results
+        
+        results = []
+        for row in rows:
+            item = _row_to_dict(row)
+            results.append(item)
+        
+        return results
     except Exception as e:
         print(f"[VectorDB] Error searching by text embedding: {e}")
         import traceback
@@ -878,8 +863,7 @@ async def search_by_image_embedding(
             # 返回空列表而不是抛出异常，避免影响前端
             return []
         
-        try:
-            async with pool.acquire() as conn:
+        async with pool.acquire() as conn:
             query_vec = to_vector_str(query_embedding)
             
             rows = await conn.fetch(f"""
@@ -899,8 +883,8 @@ async def search_by_image_embedding(
             for row in rows:
                 item = _row_to_dict(row)
                 results.append(item)
-            
-            return results
+        
+        return results
     except Exception as e:
         print(f"[VectorDB] Error searching by image embedding: {e}")
         import traceback
@@ -936,8 +920,7 @@ async def search_by_caption_embedding(
             # 返回空列表而不是抛出异常，避免影响前端
             return []
         
-        try:
-            async with pool.acquire() as conn:
+        async with pool.acquire() as conn:
             # 检查 caption_embedding 字段是否存在
             has_caption_embedding = await conn.fetchval(f"""
                 SELECT EXISTS (
@@ -1425,13 +1408,11 @@ async def soft_delete_tab(user_id: Optional[str], url: str) -> bool:
         try:
             pool = await get_pool()
         except Exception as e:
-            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Error getting connection pool in soft_delete_tab: {e}")
             print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
-            # 返回空列表而不是抛出异常，避免影响前端
-            return []
+            return False
         
-        try:
-            async with pool.acquire() as conn:
+        async with pool.acquire() as conn:
             result = await conn.execute(f"""
                 UPDATE {ACTIVE_TABLE}
                 SET status = 'deleted',
@@ -1439,8 +1420,8 @@ async def soft_delete_tab(user_id: Optional[str], url: str) -> bool:
                     updated_at = NOW()
                 WHERE user_id = $1 AND url = $2 AND status = 'active';
             """, user_id, url)
-            
-            return result == "UPDATE 1"
+        
+        return result == "UPDATE 1"
     except Exception as e:
         print(f"[VectorDB] Error soft deleting tab {url[:50]}...: {e}")
         import traceback
@@ -1464,13 +1445,11 @@ async def soft_delete_session_tabs(user_id: Optional[str], session_id: str) -> i
         try:
             pool = await get_pool()
         except Exception as e:
-            print(f"[VectorDB] Error getting connection pool in get_items_by_urls: {e}")
+            print(f"[VectorDB] Error getting connection pool in soft_delete_session_tabs: {e}")
             print(f"[VectorDB] Connection details: host={DB_HOST}, port={DB_PORT}, database={DB_NAME}")
-            # 返回空列表而不是抛出异常，避免影响前端
-            return []
+            return 0
         
-        try:
-            async with pool.acquire() as conn:
+        async with pool.acquire() as conn:
             # 查找该 session 的所有 tabs（通过 metadata 中的 session_id）
             result = await conn.execute(f"""
                 UPDATE {ACTIVE_TABLE}
@@ -1514,8 +1493,7 @@ async def get_user_active_tabs(user_id: Optional[str]) -> List[Dict]:
             # 返回空列表而不是抛出异常，避免影响前端
             return []
         
-        try:
-            async with pool.acquire() as conn:
+        async with pool.acquire() as conn:
             rows = await conn.fetch(f"""
                 SELECT user_id, url, title, description, image, screenshot_image, site_name,
                        tab_id, tab_title, text_embedding, image_embedding, metadata
