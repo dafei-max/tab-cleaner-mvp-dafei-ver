@@ -9,10 +9,14 @@
     "preview": "vite preview",
     "sync-assets": "node sync-assets.js",
     "watch-assets": "node watch-assets.js",
-    "build:full": "npm run sync-assets && npm run build"
+    "build:full": "npm run sync-assets && npm run build",
+    "check:rules": "node ../build/scripts/check-rules.js",
+    "build:watch": "node ../build/scripts/auto-build-with-check.js",
+    "lint": "npm run check:rules"
   },
   "dependencies": {
     "@react-three/fiber": "^8.18.0",
+    "@tanstack/react-virtual": "^3.11.0",
     "@uiw/react-color": "^2.9.2",
     "colorthief": "^2.6.0",
     "draggabilly": "^3.0.0",
@@ -34,6 +38,7 @@
     "@types/three": "^0.170.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.22",
+    "chokidar": "^5.0.0",
     "postcss": "^8.5.6",
     "sharp": "^0.34.5",
     "tailwindcss": "^4.1.17",

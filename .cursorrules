@@ -1,0 +1,624 @@
+# CleanTab MVP - Cursor Rules
+
+## 项目架构概述
+
+这是一个 Chrome 扩展项目，采用前后端分离架构：
+- 前端：React 18 + Vite，运行在 Chrome Extension 环境
+- 后端：FastAPI + PostgreSQL（向量数据库）
+- 核心功能：标签页管理、本地搜索（Fuse.js）、AI Caption 生成
+
+---
+
+## 核心数据流（必须理解）
+
+### 数据存储位置及职责
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      数据存储层                              │
+├─────────────────────────────────────────────────────────────┤
+│  1. chrome.storage.local                                    │
+│     └── sessions: Session[]  // 会话列表，包含 opengraphData│
+│         └── opengraphData: OGItem[]  // 每个会话的卡片数据   │
+│                                                             │
+│  2. IndexedDB (eagle_storage)                               │
+│     └── images: ImageRecord[]  // 图片+缩略图+颜色+caption  │
+│         - hash (主键): SHA-256(originalUrl)                 │
+│         - dataUrl: base64 完整图                            │
+│         - thumbnail: base64 缩略图                          │
+│         - colors: RGB[]                                     │
+│         - image_caption: string                             │
+│                                                             │
+│  3. PostgreSQL (后端)                                       │
+│     └── opengraph_items: 完整数据 + embedding 向量          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 数据流向图
+
+```
+用户点击"一键清理"
+        │
+        ▼
+┌──────────────────┐
+│  background.js   │ ─── 1. 收集所有 tab 信息
+│  collectAllTabs  │
+└────────┬─────────┘
+         │
+         ▼ chrome.scripting.executeScript
+┌──────────────────┐
+│  content.js /    │ ─── 2. 提取页面 OpenGraph 数据
+│  opengraph_v2.js │
+└────────┬─────────┘
+         │
+         ▼ 返回 OG 数据
+┌──────────────────┐
+│  background.js   │ ─── 3. 保存到 chrome.storage.local
+│  handleCollect   │     4. 保存图片到 IndexedDB
+└────────┬─────────┘     5. 发送到后端（异步，不阻塞）
+         │
+         ▼
+┌──────────────────┐
+│  PersonalSpace   │ ─── 6. 监听 storage 变化，渲染卡片
+│  (React)         │
+└──────────────────┘
+```
+
+---
+
+## 脚本执行顺序与依赖关系
+
+### 关键脚本依赖图
+
+```
+                    manifest.json
+                         │
+           ┌─────────────┴─────────────┐
+           │                           │
+           ▼                           ▼
+    background.js              content_scripts
+    (Service Worker)           ┌───────┴───────┐
+           │                   │               │
+           │                   ▼               ▼
+           │              content.js       pet.js
+           │                   │
+           │           ┌──────┴───────┬────────────────┐
+           │           │              │                │
+           │           ▼              ▼                ▼
+           │    opengraph_v2.js  eagle_storage.js  image_capture.js
+           │
+           └────────────────────────────┐
+                                        │
+                                        ▼
+                              [注入到页面的脚本]
+```
+
+### 消息通信协议
+
+```javascript
+// background.js -> content.js
+chrome.tabs.sendMessage(tabId, {
+  action: 'EXTRACT_OPENGRAPH' | 'SHOW_CARD' | 'HIDE_CARD'
+});
+
+// content.js -> background.js  
+chrome.runtime.sendMessage({
+  action: 'SAVE_IMAGE' | 'GET_SESSIONS' | 'SYNC_TO_BACKEND'
+});
+
+// 消息类型常量（必须使用，禁止硬编码字符串）
+const MessageTypes = {
+  EXTRACT_OPENGRAPH: 'extract-opengraph',
+  SAVE_IMAGE: 'save-captured-image',
+  SAVE_CAPTURED_IMAGE: 'save-captured-image',
+  SYNC_BACKEND: 'sync-to-backend',
+  CAPTION_READY: 'caption-ready',
+  SHOW_CARD: 'show-card',
+  HIDE_CARD: 'hide-card',
+  TOGGLE_CARD: 'toggle-card',
+  CLEAN_ALL_TABS: 'clean-all-tabs',
+  CLEAN_CURRENT_TAB: 'clean-current-tab'
+};
+```
+
+---
+
+## 缓冲点设计（Buffer Requirements）
+
+### 一键清理流程缓冲
+
+| 缓冲点 | 位置 | 类型 | 参数 | 说明 |
+|--------|------|------|------|------|
+| Buffer 1 | UI 反馈 | 立即执行 | - | 点击后立即显示加载动画，不等待 |
+| Buffer 2 | Tab 激活 | 串行等待 | 300ms 激活 + 1200ms 渲染 | 防止瀑布流站点抓图不准 |
+| Buffer 3 | OG 提取 | 批处理 | 5 tabs/批，100ms 批间延迟 | 防止并发过高 |
+| Buffer 4 | Storage 写入 | debounce | 500ms | 合并多次写入 |
+| Buffer 5 | 后端同步 | 队列 | 并发3，间隔100ms | 防止 API 限流 |
+| Buffer 6 | Caption 推送 | WebSocket | 心跳30s，轮询兜底60s | 实时更新 |
+
+### 搜索流程缓冲
+
+| 缓冲点 | 类型 | 参数 | 说明 |
+|--------|------|------|------|
+| 输入防抖 | debounce | 300ms | 快速输入不触发搜索 |
+| 结果缓存 | TTL cache | 30s，最多100条 | 相同查询直接返回 |
+| Fuse 实例 | 哈希检测 | 数据不变复用 | 避免重建开销 |
+| 渲染优化 | useTransition | - | 保持 UI 响应性 |
+
+### 图片加载缓冲
+
+| 缓冲点 | 类型 | 参数 | 说明 |
+|--------|------|------|------|
+| 重试限制 | 计数器 | 最多3次 | 防止无限重试循环 |
+| 加载超时 | timeout | 5000ms | 超时使用占位符 |
+| 源切换 | 优先级队列 | thumbnail→eagle→url→gradient | 有序降级 |
+
+---
+
+## 编码规范
+
+### 1. 异步操作必须有错误处理
+
+```javascript
+// ❌ 错误
+const result = await chrome.storage.local.get('sessions');
+
+// ✅ 正确
+try {
+  const result = await chrome.storage.local.get('sessions');
+  return result.sessions || [];
+} catch (error) {
+  console.error('[Storage] Failed to get sessions:', error);
+  return [];
+}
+```
+
+### 2. chrome.storage 操作必须使用 Promise 封装
+
+```javascript
+// 统一使用这个工具函数
+const safeStorageGet = async (key, defaultValue = null) => {
+  try {
+    const result = await chrome.storage.local.get(key);
+    return result[key] ?? defaultValue;
+  } catch (e) {
+    console.error(`[Storage] Get ${key} failed:`, e);
+    return defaultValue;
+  }
+};
+
+const safeStorageSet = async (data) => {
+  try {
+    await chrome.storage.local.set(data);
+    return true;
+  } catch (e) {
+    console.error('[Storage] Set failed:', e);
+    return false;
+  }
+};
+```
+
+### 3. 批量操作必须有并发控制
+
+```javascript
+// ❌ 错误：并行处理所有项，可能导致内存爆炸或 API 限流
+await Promise.all(items.map(item => processItem(item)));
+
+// ✅ 正确：分批处理
+const BATCH_SIZE = 10;
+const BATCH_DELAY = 100;
+
+for (let i = 0; i < items.length; i += BATCH_SIZE) {
+  const batch = items.slice(i, i + BATCH_SIZE);
+  await Promise.all(batch.map(item => processItem(item)));
+  if (i + BATCH_SIZE < items.length) {
+    await new Promise(r => setTimeout(r, BATCH_DELAY));
+  }
+}
+```
+
+### 4. 图片 URL 处理规范
+
+```javascript
+// 图片 URL 有三种形式，必须正确处理：
+// 1. eagle://hash123  -> IndexedDB 引用，需要查询 eagle_storage
+// 2. data:image/...   -> Base64 内联，直接使用
+// 3. https://...      -> 远程 URL，可能过期需要 fallback
+
+const resolveImageUrl = async (imageRef) => {
+  if (!imageRef) return null;
+  
+  if (imageRef.startsWith('eagle://')) {
+    const hash = imageRef.replace('eagle://', '');
+    const record = await eagle_storage.loadImage(hash);
+    return record?.thumbnail || record?.dataUrl || null;
+  }
+  
+  if (imageRef.startsWith('data:')) {
+    return imageRef;
+  }
+  
+  // 远程 URL，返回原值，由 ImageWithFallback 处理降级
+  return imageRef;
+};
+```
+
+### 5. React 组件性能规范
+
+```javascript
+// ❌ 错误：大列表直接渲染
+{sessions.flatMap(s => s.opengraphData).map(item => (
+  <SessionCard key={item.url} data={item} />
+))}
+
+// ✅ 正确：使用 memo + 虚拟化
+const MemoizedCard = React.memo(SessionCard, (prev, next) => {
+  return prev.data.url === next.data.url 
+      && prev.data.image_caption === next.data.image_caption
+      && prev.data.similarity === next.data.similarity;
+});
+
+// 大列表使用虚拟滚动
+import { useVirtualizer } from '@tanstack/react-virtual';
+```
+
+### 6. 状态更新防竞态
+
+```javascript
+// ❌ 可能出现竞态：闭包捕获旧值
+let isProcessing = false;
+const handleClick = async () => {
+  if (isProcessing) return;
+  isProcessing = true;
+  await doSomething();
+  isProcessing = false;
+};
+
+// ✅ 使用 ref 避免闭包陷阱
+const processingRef = useRef(false);
+const handleClick = async () => {
+  if (processingRef.current) return;
+  processingRef.current = true;
+  try {
+    await doSomething();
+  } finally {
+    processingRef.current = false;
+  }
+};
+```
+
+### 7. Storage 写入防覆盖
+
+```javascript
+// ❌ 直接覆盖可能丢失并发写入的数据
+await chrome.storage.local.set({ sessions: newSessions });
+
+// ✅ 使用 read-modify-write 模式
+const updateSessions = async (updateFn) => {
+  const { sessions = [] } = await chrome.storage.local.get('sessions');
+  const updatedSessions = updateFn(sessions);
+  await chrome.storage.local.set({ sessions: updatedSessions });
+  return updatedSessions;
+};
+
+// 使用
+await updateSessions(sessions => 
+  sessions.map(s => s.id === targetId ? { ...s, ...newData } : s)
+);
+```
+
+---
+
+## 文件修改注意事项
+
+### background.js 修改
+
+⚠️ **高风险文件**，修改前必须理解：
+
+1. **消息监听器顺序**：`chrome.runtime.onMessage.addListener` 的注册顺序影响消息处理
+2. **Service Worker 生命周期**：可能被休眠，不要依赖全局变量持久化
+3. **异步响应**：在 `onMessage` 中返回 `true` 才能异步 `sendResponse`
+4. **关联脚本**：修改消息类型时同步检查 `content.js`、`pet.js`
+
+```javascript
+// background.js 中的异步消息处理
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'async-operation') {
+    handleAsyncOperation(message)
+      .then(result => sendResponse({ success: true, data: result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // 🔴 必须返回 true，否则 sendResponse 会失效
+  }
+});
+```
+
+### content.js 修改
+
+1. **避免全局污染**：使用 IIFE 或 Shadow DOM 隔离
+2. **多次注入**：脚本可能被多次注入，需要检查是否已初始化
+3. **MutationObserver**：记得在适当时机 `disconnect()`
+4. **关联脚本**：依赖 `opengraph_v2.js`、`eagle_storage.js`、`image_capture_enhanced.js`
+
+```javascript
+// 防止多次注入
+if (window.__TAB_CLEANER_INJECTED__) return;
+window.__TAB_CLEANER_INJECTED__ = true;
+
+// 清理 observer
+const observer = new MutationObserver(callback);
+observer.observe(document.body, { childList: true, subtree: true });
+
+// 页面卸载时清理
+window.addEventListener('beforeunload', () => {
+  observer.disconnect();
+});
+```
+
+### PersonalSpace.jsx 修改
+
+1. **大量数据更新**：使用 `React.memo` + `useMemo` + `useCallback`
+2. **Storage 操作**：不要在 render 中直接操作 storage
+3. **搜索相关**：修改 `useSearch.js` 时注意 Fuse.js 实例缓存逻辑
+4. **关联 hooks**：`useSessionManager.js`、`useSearch.js`、`useMasonryLayout.js`
+
+```javascript
+// ❌ 错误：render 中操作 storage
+const PersonalSpace = () => {
+  const [sessions, setSessions] = useState([]);
+  chrome.storage.local.get('sessions').then(r => setSessions(r.sessions));
+  // ...
+};
+
+// ✅ 正确：useEffect 中操作
+const PersonalSpace = () => {
+  const [sessions, setSessions] = useState([]);
+  
+  useEffect(() => {
+    const loadSessions = async () => {
+      const { sessions = [] } = await chrome.storage.local.get('sessions');
+      setSessions(sessions);
+    };
+    loadSessions();
+    
+    // 监听变化
+    const handleChange = (changes) => {
+      if (changes.sessions) {
+        setSessions(changes.sessions.newValue || []);
+      }
+    };
+    chrome.storage.onChanged.addListener(handleChange);
+    return () => chrome.storage.onChanged.removeListener(handleChange);
+  }, []);
+};
+```
+
+### eagle_storage.js 修改
+
+1. **IndexedDB 事务**：注意事务的生命周期，不要跨 await 使用
+2. **哈希计算**：URL 哈希用于去重，修改哈希算法会导致数据不一致
+3. **关联脚本**：被 `content.js`、`background.js`、`image_capture_enhanced.js` 依赖
+
+```javascript
+// ❌ 错误：事务跨 await
+const tx = db.transaction('images', 'readwrite');
+const store = tx.objectStore('images');
+await someAsyncOperation(); // 🔴 事务可能已关闭
+store.put(data);
+
+// ✅ 正确：事务内操作完整
+const tx = db.transaction('images', 'readwrite');
+const store = tx.objectStore('images');
+store.put(data);
+await tx.done;
+```
+
+---
+
+## 常见 Bug 模式
+
+### 1. 图片加载无限循环
+
+```javascript
+// ❌ 可能导致无限重试
+const handleError = () => {
+  setImageSrc(fallbackUrl);
+};
+
+// ✅ 限制重试次数
+const attemptsRef = useRef(0);
+const MAX_RETRIES = 3;
+
+const handleError = () => {
+  if (attemptsRef.current >= MAX_RETRIES) {
+    setImageSrc(gradientPlaceholder);
+    return;
+  }
+  attemptsRef.current++;
+  setImageSrc(getNextFallback());
+};
+```
+
+### 2. 搜索卡顿
+
+```javascript
+// ❌ 每次搜索都重建 Fuse 实例
+const search = (query) => {
+  const fuse = new Fuse(allData, options); // 🔴 开销大
+  return fuse.search(query);
+};
+
+// ✅ 缓存 Fuse 实例，数据变化时才重建
+const fuseRef = useRef(null);
+const dataHashRef = useRef(null);
+
+const search = (query) => {
+  const currentHash = hashData(allData);
+  if (currentHash !== dataHashRef.current) {
+    fuseRef.current = new Fuse(allData, options);
+    dataHashRef.current = currentHash;
+  }
+  return fuseRef.current.search(query);
+};
+```
+
+### 3. Session 数据不同步
+
+```javascript
+// ❌ 多处更新 session，容易不一致
+// 在 background.js
+sessions.push(newSession);
+await chrome.storage.local.set({ sessions });
+
+// 在 PersonalSpace.jsx
+setSessions(prev => [...prev, newSession]);
+
+// ✅ 单一数据源：storage 驱动 UI
+// background.js 只写 storage
+await chrome.storage.local.set({ sessions: [...sessions, newSession] });
+
+// PersonalSpace.jsx 只监听 storage
+useEffect(() => {
+  const handleChange = (changes) => {
+    if (changes.sessions) {
+      setSessions(changes.sessions.newValue);
+    }
+  };
+  chrome.storage.onChanged.addListener(handleChange);
+  return () => chrome.storage.onChanged.removeListener(handleChange);
+}, []);
+```
+
+---
+
+## 文件头注释规范
+
+关键文件必须包含以下注释：
+
+```javascript
+/**
+ * @fileoverview [文件描述]
+ * 
+ * @module [模块名]
+ * @requires [依赖的脚本1] - [用途说明]
+ * @requires [依赖的脚本2] - [用途说明]
+ * 
+ * @dataflow
+ * 触发方式:
+ *   1. [触发条件1] → [事件/函数]
+ *   2. [触发条件2] → [事件/函数]
+ * 
+ * 处理流程:
+ *   [入口函数]() 
+ *     → [步骤1] 
+ *     → [步骤2] 
+ *     → [输出/存储位置]
+ * 
+ * @buffer_requirements
+ * - [操作1] 需要 [debounce/throttle/queue] [参数]
+ * - [操作2] 需要 [超时时间]
+ * 
+ * @storage
+ * 读取: [storage 位置]
+ * 写入: [storage 位置]
+ */
+```
+
+示例：
+
+```javascript
+/**
+ * @fileoverview 图片捕获增强模块 - 处理拖拽、右键、截图保存图片
+ * 
+ * @module image_capture_enhanced
+ * @requires eagle_storage.js - IndexedDB 存储图片数据
+ * @requires background.js - 通过消息通信保存到 session
+ * 
+ * @dataflow
+ * 触发方式:
+ *   1. 拖拽图片到桌宠 → dragend 事件 → captureImage()
+ *   2. 右键菜单保存 → contextmenu → handleContextMenuSave()
+ *   3. 截图快捷键 → keydown (Cmd+Shift+S) → startScreenshot()
+ * 
+ * 处理流程:
+ *   captureImage(url, element) 
+ *     → downloadImage() 下载/压缩 
+ *     → generateThumbnail() 生成缩略图 
+ *     → extractColors() 提取颜色 
+ *     → eagle_storage.saveImage() 存入 IndexedDB
+ *     → sendMessage('save-captured-image') 通知 background
+ * 
+ * @buffer_requirements
+ * - 拖拽事件需要 300ms debounce（防止快速多次拖拽）
+ * - 图片下载需要 5000ms timeout
+ * - 批量保存需要队列控制，并发 ≤ 5
+ * 
+ * @storage
+ * 读取: 无
+ * 写入: IndexedDB → tab_cleaner_images → images
+ */
+```
+
+---
+
+## 调试技巧
+
+### 查看 Service Worker 日志
+1. `chrome://extensions` → 扩展详情 → Service worker → 检查
+
+### 查看 IndexedDB 数据
+1. 开发者工具 → Application → IndexedDB → `tab_cleaner_images`
+
+### 查看 chrome.storage 数据
+```javascript
+// 在 background.js 控制台执行
+chrome.storage.local.get(null, (data) => {
+  console.log('All storage data:', data);
+  console.log('Sessions count:', data.sessions?.length);
+  console.log('First session:', data.sessions?.[0]);
+});
+```
+
+### 模拟慢网络/API 延迟
+```javascript
+// 在代码中临时添加
+const delay = (ms) => new Promise(r => setTimeout(r, ms));
+await delay(2000); // 模拟 2 秒延迟
+```
+
+### 追踪消息流
+```javascript
+// 在 background.js 添加全局消息日志
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('[MSG]', {
+    action: message.action,
+    from: sender.tab ? `tab:${sender.tab.id}` : 'extension',
+    data: message
+  });
+});
+```
+
+---
+
+## 性能检查清单
+
+修改代码前检查：
+
+- [ ] 是否会导致不必要的重渲染？（检查 deps 数组）
+- [ ] 是否有潜在的内存泄漏？（事件监听器、定时器）
+- [ ] 是否需要 debounce/throttle？
+- [ ] 批量操作是否有并发控制？
+- [ ] Storage 操作是否会产生竞态？
+- [ ] 图片加载是否有重试限制？
+- [ ] 是否遵循了单一数据源原则？
+
+---
+
+## 禁止事项
+
+1. ❌ **禁止**在消息类型中使用硬编码字符串，必须使用 `MessageTypes` 常量
+2. ❌ **禁止**在 render 函数中直接调用 chrome.storage API
+3. ❌ **禁止**无限制的并发 Promise.all
+4. ❌ **禁止**在图片加载失败时无限重试
+5. ❌ **禁止**修改 URL 哈希算法（会导致 IndexedDB 数据失效）
+6. ❌ **禁止**在 Service Worker 中依赖全局变量持久化状态
+7. ❌ **禁止**跨 await 使用 IndexedDB 事务

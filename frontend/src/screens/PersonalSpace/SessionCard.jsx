@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState, useEffect } from 'react';
+import React, { useLayoutEffect, useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { MASONRY_CONFIG } from '../../config/masonryConfig';
 import { getBestImageSource, getImageFromIndexedDB, handleImageError, getPlaceholderImage } from '../../utils/imagePlaceholder';
@@ -257,160 +257,209 @@ import { UI_CONFIG } from './uiConfig';
 import GradientPlaceholder from '../../components/BlurGradientBg/GradientPlaceholder';
 
 /**
- * 带错误处理和重试的图片组件
- * 确保即使图片加载失败，也会显示占位符
+ * 带错误处理和重试的图片组件（优化版）
+ * ✅ 优化：图片加载防闪烁优化
+ * - 添加重试次数限制（最多3次）
+ * - 实现图片源优先级队列：thumbnail → eagle:// → 原始URL → 渐变占位符
+ * - 添加加载状态的平滑过渡动画
+ * - 使用 useRef 追踪重试次数，避免闭包陷阱
  */
 const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCardWidth, appearDelay, onColorsExtracted, onThumbnailGenerated }) => {
-  const [imageSrc, setImageSrc] = useState(() => 
-    getBestImageSource(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75)
-  );
-  const [hasError, setHasError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-  const maxRetries = 2; // 最多重试 2 次
+  const [currentSrc, setCurrentSrc] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const attemptsRef = useRef(0);
+  const currentIndexRef = useRef(0);
   const imgRef = useRef(null);
   const [colorExtracted, setColorExtracted] = useState(false);
   const [thumbDone, setThumbDone] = useState(false);
+  const MAX_RETRIES = 3;
+  const LOAD_TIMEOUT = 5000; // 5秒超时
   
-  // 当 og 改变时，重置状态
-  useEffect(() => {
-    // ✅ 优先使用 chrome.storage.local 中的图片（可能是 URL 或 Data URL）
-    const newSrc = getBestImageSource(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75);
+  // 图片源优先级队列：thumbnail → eagle:// → 原始URL → 渐变占位符
+  const sourcePriority = useMemo(() => {
+    const sources = [];
     
-    // ✅ 修复 CSP 问题：如果返回的是 eagle:// 协议，需要从 IndexedDB 加载并转换为 data: URL
-    if (newSrc && newSrc.startsWith('eagle://')) {
-      // 异步加载 eagle:// 协议的图片
-      (async () => {
-        try {
-          const hash = newSrc.replace('eagle://', '');
-          if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.loadImageByHash) {
-            const imageData = await window.__TAB_CLEANER_EAGLE_STORAGE.loadImageByHash(hash);
-            if (imageData && imageData.dataUrl) {
-              setImageSrc(imageData.dataUrl);
-              console.log('[ImageWithFallback] ✅ Loaded eagle:// image from IndexedDB');
-              return;
-            }
-          }
-          // 如果加载失败，使用占位符
-          const placeholder = getPlaceholderImage(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75);
-          setImageSrc(placeholder);
-        } catch (error) {
-          console.warn('[ImageWithFallback] ⚠️ Failed to load eagle:// image:', error);
-          const placeholder = getPlaceholderImage(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75);
-          setImageSrc(placeholder);
-        }
-      })();
-    } else {
-      setImageSrc(newSrc);
+    // 优先级1: thumbnail（如果存在且是 data URL）
+    if (og?.thumbnail && og.thumbnail.startsWith('data:image')) {
+      sources.push({ type: 'thumbnail', src: og.thumbnail });
     }
     
-    setHasError(false);
-    setRetryCount(0);
-    setColorExtracted(false);
-    setThumbDone(false);
-  }, [og, resolvedCardWidth]);
+    // 优先级2: eagle:// 协议（需要从 IndexedDB 加载）
+    if (og?.image && og.image.startsWith('eagle://')) {
+      sources.push({ type: 'eagle', src: og.image });
+    }
+    
+    // 优先级3: 原始图片 URL（og.image 或 original_image_url）
+    const originalUrl = og?.original_image_url || og?.image;
+    if (originalUrl && !originalUrl.startsWith('eagle://') && !originalUrl.startsWith('data:')) {
+      sources.push({ type: 'url', src: originalUrl });
+    }
+    
+    // 优先级4: screenshot_image（截图）
+    if (og?.screenshot_image && og.screenshot_image.trim()) {
+      sources.push({ type: 'screenshot', src: og.screenshot_image });
+    }
+    
+    return sources;
+  }, [og?.thumbnail, og?.image, og?.original_image_url, og?.screenshot_image]);
   
-  const handleError = async (e) => {
-    const img = e.target;
-    const currentSrc = img.src;
+  // 渐变占位符样式（基于 dominant_colors）
+  const gradientStyle = useMemo(() => {
+    if (!og?.dominant_colors || og.dominant_colors.length === 0) {
+      return { background: 'linear-gradient(135deg, #e0e0e0 0%, #f5f5f5 100%)' };
+    }
+    const colors = og.dominant_colors.slice(0, 2);
+    const color1 = colors[0] 
+      ? `rgb(${colors[0].r || colors[0][0] || 224}, ${colors[0].g || colors[0][1] || 224}, ${colors[0].b || colors[0][2] || 224})`
+      : '#e0e0e0';
+    const color2 = colors[1]
+      ? `rgb(${colors[1].r || colors[1][0] || 245}, ${colors[1].g || colors[1][1] || 245}, ${colors[1].b || colors[1][2] || 245})`
+      : '#f5f5f5';
+    return { background: `linear-gradient(135deg, ${color1} 0%, ${color2} 100%)` };
+  }, [og?.dominant_colors]);
+  
+  // 加载下一个图片源
+  const loadNextSource = useCallback(async () => {
+    // 使用最新的 sourcePriority（通过闭包访问）
+    const currentSources = sourcePriority;
     
-    console.warn('[ImageWithFallback] 🚨 Image load failed:', {
-      url: og.url?.substring(0, 50),
-      currentSrc: currentSrc.substring(0, 50),
-      retryCount,
-      ogImage: og.image?.substring(0, 50),
-      originalImageUrl: og.original_image_url?.substring(0, 50),
-    });
-    
-    // 如果已经是占位符，不再重试
-    if (currentSrc.startsWith('data:image/svg+xml') || 
-        currentSrc.startsWith('data:image/jpeg') || 
-        currentSrc.startsWith('data:image/png')) {
-      setHasError(true);
+    // 如果所有源都尝试过了，使用渐变占位符
+    if (currentIndexRef.current >= currentSources.length) {
+      setError(true);
+      setLoading(false);
+      setCurrentSrc(null);
+      console.log('[ImageWithFallback] ❌ All sources failed, using gradient placeholder');
       return;
     }
     
-    // 重试机制
-    if (retryCount < maxRetries) {
-      // 尝试修复 URL
-      let fixedUrl = currentSrc;
-      
-      // 如果是相对路径，尝试使用 og.url 作为基础
-      if (og && og.url && !fixedUrl.startsWith('http://') && !fixedUrl.startsWith('https://') && !fixedUrl.startsWith('data:')) {
-        try {
-          const baseUrl = new URL(og.url);
-          fixedUrl = new URL(fixedUrl, baseUrl.origin).href;
-        } catch (e) {
-          // URL 解析失败
-        }
-      }
-      
-      // 如果是协议相对 URL，添加 https
-      if (fixedUrl.startsWith('//')) {
-        fixedUrl = 'https:' + fixedUrl;
-      }
-      
-      // 如果 URL 被修复了，重试
-      if (fixedUrl !== currentSrc) {
-        setRetryCount(prev => prev + 1);
-        setImageSrc(fixedUrl);
-        console.log('[ImageWithFallback] Retrying with fixed URL:', fixedUrl.substring(0, 50));
-        return;
-      }
-      
-      // 🆕 尝试从 IndexedDB 加载（作为兜底）
-      console.log('[ImageWithFallback] 🔍 Attempting IndexedDB fallback...');
-      try {
-        const indexedDbImage = await getImageFromIndexedDB(og);
-        if (indexedDbImage) {
-          setRetryCount(prev => prev + 1);
-          setImageSrc(indexedDbImage);
-          console.log('[ImageWithFallback] ✅ Loaded from IndexedDB (fallback):', indexedDbImage.substring(0, 50));
-          return;
-        } else {
-          console.log('[ImageWithFallback] ❌ IndexedDB fallback returned null - image not found in IndexedDB');
-        }
-      } catch (error) {
-        console.warn('[ImageWithFallback] ⚠️ Failed to load from IndexedDB:', error);
-      }
-      
-      // 尝试使用截图
-      if (og.screenshot_image && og.screenshot_image.trim() && currentSrc !== og.screenshot_image) {
-        setRetryCount(prev => prev + 1);
-        setImageSrc(og.screenshot_image);
-        console.log('[ImageWithFallback] Retrying with screenshot');
-        return;
-      }
-    }
+    const source = currentSources[currentIndexRef.current];
     
-    // 所有重试都失败，使用占位符
-    const placeholder = getPlaceholderImage(og, 'text', resolvedCardWidth, resolvedCardWidth * 0.75);
-    if (placeholder) {
-      setImageSrc(placeholder);
-      setHasError(true);
-      console.log('[ImageWithFallback] Using placeholder');
+    try {
+      let resolvedSrc = source.src;
+      
+      // 处理 eagle:// 协议
+      if (source.type === 'eagle' && source.src.startsWith('eagle://')) {
+        const hash = source.src.replace('eagle://', '');
+        if (window.__TAB_CLEANER_EAGLE_STORAGE && window.__TAB_CLEANER_EAGLE_STORAGE.loadImageByHash) {
+          const imageData = await window.__TAB_CLEANER_EAGLE_STORAGE.loadImageByHash(hash);
+          if (imageData) {
+            // 优先使用 dataUrl，其次使用 thumbnail
+            resolvedSrc = imageData.dataUrl || imageData.thumbnail;
+            if (resolvedSrc) {
+              console.log('[ImageWithFallback] ✅ Loaded eagle:// image from IndexedDB:', hash.substring(0, 10));
+            } else {
+              throw new Error('Eagle storage returned no data');
+            }
+          } else {
+            throw new Error('Eagle storage not found');
+          }
+        } else {
+          throw new Error('Eagle storage API not available');
+        }
+      }
+      
+      // 预加载图片（带超时）
+      await new Promise((resolve, reject) => {
+        const img = new Image();
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Timeout'));
+        }, LOAD_TIMEOUT);
+        
+        img.onload = () => {
+          clearTimeout(timeoutId);
+          resolve();
+        };
+        
+        img.onerror = () => {
+          clearTimeout(timeoutId);
+          reject(new Error('Image load failed'));
+        };
+        
+        img.src = resolvedSrc;
+      });
+      
+      // 图片加载成功
+      setCurrentSrc(resolvedSrc);
+      setLoading(false);
+      setError(false);
+      console.log('[ImageWithFallback] ✅ Image loaded successfully:', source.type, resolvedSrc.substring(0, 50));
+    } catch (e) {
+      // 当前源失败，尝试下一个
+      console.warn(`[ImageWithFallback] ⚠️ Source ${currentIndexRef.current} (${source.type}) failed:`, e.message);
+      currentIndexRef.current++;
+      attemptsRef.current++;
+      
+      const currentSources = sourcePriority;
+      if (attemptsRef.current < MAX_RETRIES && currentIndexRef.current < currentSources.length) {
+        // 还有重试次数和可用源，继续尝试
+        loadNextSource();
+      } else {
+        // 达到最大重试次数或没有更多源，使用占位符
+        setError(true);
+        setLoading(false);
+        setCurrentSrc(null);
+        console.log('[ImageWithFallback] ❌ Max retries reached or no more sources');
+      }
     }
-  };
+  }, [sourcePriority]);
   
-  const handleLoad = async () => {
-    setHasError(false);
+  // 当 og 改变时，重置状态并开始加载
+  useEffect(() => {
+    // 重置状态
+    attemptsRef.current = 0;
+    currentIndexRef.current = 0;
+    setLoading(true);
+    setError(false);
+    setCurrentSrc(null);
+    setColorExtracted(false);
+    setThumbDone(false);
+    
+    // 开始加载
+    if (sourcePriority.length > 0) {
+      loadNextSource();
+    } else {
+      // 没有可用源，直接使用占位符
+      setError(true);
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [og?.url, og?.image, og?.thumbnail, og?.original_image_url]);
+  
+  // 处理图片加载错误
+  const handleError = useCallback(() => {
+    const currentSources = sourcePriority;
+    if (attemptsRef.current < MAX_RETRIES && currentIndexRef.current < currentSources.length) {
+      // 还有重试次数，尝试下一个源
+      currentIndexRef.current++;
+      attemptsRef.current++;
+      loadNextSource();
+    } else {
+      // 达到最大重试次数，使用占位符
+      setError(true);
+      setLoading(false);
+      setCurrentSrc(null);
+    }
+  }, [sourcePriority, loadNextSource]);
+  
+  // 处理图片加载成功
+  const handleLoad = useCallback(async () => {
+    setLoading(false);
+    setError(false);
+    
     if (process.env.NODE_ENV === 'development') {
       console.log('[ImageWithFallback] Image loaded successfully:', og.url?.substring(0, 50));
     }
+    
     // 本地缩略图/提色：仅当还缺失时执行
     const needsThumb = !thumbDone && (!og?.thumbnail || !og.thumbnail.startsWith('data:image'));
     const needsColor = !colorExtracted && (!og?.dominant_colors || og.dominant_colors.length === 0);
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[ImageWithFallback] Debug load state', {
-        url: og.url?.substring(0, 80),
-        needsThumb,
-        needsColor,
-        hasThumb: !!og?.thumbnail,
-        hasColor: og?.dominant_colors?.length || 0,
-      });
-    }
+    
     if (!needsThumb && !needsColor) return;
+    
     const imgEl = imgRef.current;
     if (!imgEl) return;
+    
     try {
       const cardId = og.id || og.url || og.tab_id;
       if (needsThumb && needsColor) {
@@ -441,43 +490,10 @@ const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCar
       // 静默，可能是 CORS
       console.debug('[ImageWithFallback] Local processing failed (likely CORS)', e?.message);
     }
-  };
+  }, [og, thumbDone, colorExtracted, onColorsExtracted, onThumbnailGenerated]);
   
-  // ✅ 改进：如果之前是占位符，但图片现在 ready 了，尝试重新加载原图
-  useEffect(() => {
-    // 如果当前是占位符，但 og.image 存在，尝试在延迟后重新加载
-    if (hasError && og?.image && og.image.trim() && !og.image.startsWith('data:')) {
-      // 使用 IntersectionObserver 或延迟重试，避免性能问题
-      const retryTimer = setTimeout(() => {
-        // 检查图片是否已经可以加载（通过创建一个新的 Image 对象测试）
-        const testImg = new Image();
-        testImg.onload = () => {
-          // 图片可以加载，更新 src
-          setImageSrc(og.image);
-          setHasError(false);
-          console.log('[ImageWithFallback] Image ready, retrying load:', og.url?.substring(0, 50));
-        };
-        testImg.onerror = () => {
-          // 图片仍然无法加载，保持占位符
-        };
-        testImg.src = og.image;
-      }, 2000); // 延迟2秒，避免频繁重试
-      
-      return () => clearTimeout(retryTimer);
-    }
-  }, [hasError, og?.image, og?.url]);
-  
-  // 检测是否是占位符（SVG data URI）
-  // 无论是初始占位符还是错误后的占位符，都应该使用渐变背景
-  const isPlaceholder = imageSrc && imageSrc.startsWith('data:image/svg+xml');
-  
-  // 调试日志
-  if (process.env.NODE_ENV === 'development' && isPlaceholder) {
-    console.log('[ImageWithFallback] Using GradientPlaceholder for:', og.url?.substring(0, 50), 'src:', imageSrc.substring(0, 50));
-  }
-  
-  // 如果是占位符，使用渐变背景组件
-  if (isPlaceholder) {
+  // 如果是错误状态（所有源都失败），使用渐变占位符
+  if (error || (!currentSrc && sourcePriority.length === 0)) {
     return (
       <GradientPlaceholder
         og={og}
@@ -492,31 +508,59 @@ const ImageWithFallback = ({ og, isDocCard, isTopResult, isSelected, resolvedCar
     );
   }
   
-  // 否则使用普通图片
+  // 渲染图片容器（带渐变占位符背景和平滑过渡）
   return (
-    <img
-      ref={imgRef}
-      src={imageSrc}
-      alt={og.title || og.url}
-      className={`opengraph-image ${isDocCard ? 'doc-card' : ''} ${isTopResult ? 'top-result' : ''} ${isSelected ? 'selected' : ''}`}
+    <div 
+      className="image-container"
       style={{
+        position: 'relative',
         width: '100%',
-        height: 'auto',
-        display: 'block',
+        overflow: 'hidden',
         borderRadius: '0 0 8px 8px',
-        cursor: 'pointer',
-        transition: 'box-shadow 0.2s ease',
-        objectFit: 'contain',
         backgroundColor: '#f5f5f5',
-        minHeight: hasError ? '120px' : 'auto', // 确保占位符有足够高度
+        minHeight: '120px',
       }}
-      // ✅ 改进：对于前几张图片（前 10 张），不使用懒加载，确保立即加载
-      loading={appearDelay < 10 ? 'eager' : 'lazy'}
-      onError={handleError}
-      onLoad={handleLoad}
-      crossOrigin="anonymous"
-      referrerPolicy="no-referrer"
-    />
+    >
+      {/* 渐变占位符背景（加载时显示） */}
+      <div 
+        className="gradient-background"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          ...gradientStyle,
+          opacity: loading || error ? 1 : 0,
+          transition: 'opacity 0.3s ease-in-out',
+          zIndex: 1,
+        }}
+      />
+      
+      {/* 实际图片（加载成功后显示） */}
+      {currentSrc && !error && (
+        <img
+          ref={imgRef}
+          src={currentSrc}
+          alt={og.title || og.url}
+          className={`opengraph-image ${isDocCard ? 'doc-card' : ''} ${isTopResult ? 'top-result' : ''} ${isSelected ? 'selected' : ''}`}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: 'auto',
+            display: 'block',
+            objectFit: 'contain',
+            opacity: loading ? 0 : 1,
+            transition: 'opacity 0.3s ease-in-out',
+            zIndex: 2,
+            cursor: 'pointer',
+          }}
+          loading={appearDelay < 10 ? 'eager' : 'lazy'}
+          decoding="async"
+          onError={handleError}
+          onLoad={handleLoad}
+          crossOrigin="anonymous"
+          referrerPolicy="no-referrer"
+        />
+      )}
+    </div>
   );
 };
 

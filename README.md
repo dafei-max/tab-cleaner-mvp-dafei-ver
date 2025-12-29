@@ -380,6 +380,55 @@ npm run dev
 
 #### 开发流程
 
+##### 自动构建和规范检查
+
+项目提供了自动构建和代码规范检查工具：
+
+**1. 自动构建 + 规范检查（推荐）**
+```bash
+cd frontend
+npm run build:watch
+```
+- 监听 `src/` 和 `public/` 目录变化
+- 文件变化时自动构建（500ms 防抖）
+- 构建完成后自动执行规范检查
+- 显示构建和检查结果
+
+**2. 手动规范检查**
+```bash
+cd frontend
+npm run check:rules
+```
+- 检查代码是否符合 `.cursorrules` 规范
+- 检查 ESLint/Prettier 配置
+- 检查常见代码问题（硬编码、竞态条件等）
+- 检查性能优化（Fuse.js 缓存、Storage 防抖等）
+
+**3. 仅构建**
+```bash
+cd frontend
+npm run build
+```
+
+**规范检查内容：**
+- ✅ 硬编码消息类型字符串
+- ✅ render 中直接调用 chrome.storage
+- ✅ 无限制的 Promise.all
+- ✅ 图片加载重试限制
+- ✅ chrome.storage 错误处理
+- ✅ 状态更新防竞态
+- ✅ Fuse.js 实例缓存
+- ✅ Storage 写入防抖
+
+**依赖安装（可选，用于文件监听）：**
+```bash
+cd frontend
+npm install --save-dev chokidar
+```
+如果不安装 `chokidar`，自动构建工具会使用简单模式（仅执行一次构建和检查）。
+
+#### 开发流程（原有内容）
+
 1. **安装依赖**：
    ```bash
    cd frontend

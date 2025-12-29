@@ -1,6 +1,30 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { searchContent } from "../shared/api";
 import Fuse from "fuse.js";
+
+/**
+ * 简单的哈希函数（用于检测数据变化）
+ */
+const hashData = (data) => {
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return 'empty';
+  }
+  // 使用 URL 和 ID 生成哈希（更高效）
+  const str = JSON.stringify(data.map(d => d.url || d.id || d.tab_id || '').sort());
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // 转换为 32 位整数
+  }
+  return hash.toString(36);
+};
+
+/**
+ * 搜索结果缓存
+ */
+const searchCache = new Map();
+const CACHE_TTL = 30 * 1000; // 30秒
 
 /**
  * 搜索功能 Hook
@@ -137,17 +161,24 @@ export const useSearch = (opengraphData = []) => {
     }));
   };
 
-  // 🆕 增强版本地模糊搜索（使用 Fuse.js）
-  const fuzzyRankLocally = (query, items) => {
+  // ✅ 优化：获取或创建 Fuse 实例（带缓存）
+  const getFuseInstance = useCallback((items) => {
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return [];
+      return null;
     }
     
-    const q = query.trim();
-    if (!q) return items;
+    // 计算数据哈希
+    const currentHash = hashData(items);
+    
+    // 如果数据没有变化且 Fuse 实例存在，直接返回
+    if (currentHash === dataHashRef.current && fuseRef.current) {
+      return fuseRef.current;
+    }
+    
+    // 需要重建 Fuse 实例
+    console.log('[useSearch] 🔄 Rebuilding Fuse instance, data changed');
     
     // 预处理数据：保留原始数组字段，Fuse.js 会自动处理数组
-    // 同时确保 searchableText 字段存在（如果数据源已提供）
     const processedItems = items.map((it, idx) => ({
       ...it,
       _idx: idx,
@@ -165,11 +196,45 @@ export const useSearch = (opengraphData = []) => {
       ].filter(Boolean).join(' ').toLowerCase(),
     }));
     
-    const fuse = new Fuse(processedItems, fuseOptions);
-    const results = fuse.search(q);
+    // 创建新的 Fuse 实例
+    fuseRef.current = new Fuse(processedItems, fuseOptions);
+    dataHashRef.current = currentHash;
+    
+    return fuseRef.current;
+  }, [fuseOptions]);
+
+  // 🆕 增强版本地模糊搜索（使用缓存的 Fuse.js 实例）
+  const fuzzyRankLocally = useCallback((query, items) => {
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return [];
+    }
+    
+    const q = query.trim();
+    if (!q || q.length < 2) {
+      return items;
+    }
+    
+    // ✅ 优化：使用缓存的 Fuse 实例
+    const fuse = getFuseInstance(items);
+    if (!fuse) {
+      return [];
+    }
+    
+    // 检查缓存
+    const normalizedQuery = q.toLowerCase().trim();
+    const cacheKey = `${normalizedQuery}_${dataHashRef.current}`;
+    const cached = searchCache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      console.log('[useSearch] ✅ Using cached search results');
+      return cached.results;
+    }
+    
+    // 执行搜索
+    const results = fuse.search(normalizedQuery);
     
     // 转换结果格式
-    return results.map(result => ({
+    const formattedResults = results.map(result => ({
       ...result.item,
       // 恢复原始数组字段
       style_tags: items[result.item._idx]?.style_tags || [],
@@ -179,7 +244,25 @@ export const useSearch = (opengraphData = []) => {
       similarity: 1 - (result.score || 0),
       idx: result.item._idx,
     }));
-  };
+    
+    // 更新缓存
+    searchCache.set(cacheKey, {
+      results: formattedResults,
+      timestamp: Date.now(),
+    });
+    
+    // 限制缓存大小（最多保留 100 个结果）
+    if (searchCache.size > 100) {
+      const entries = [...searchCache.entries()];
+      entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+      // 删除最旧的 20 个
+      for (let i = 0; i < 20 && i < entries.length; i++) {
+        searchCache.delete(entries[i][0]);
+      }
+    }
+    
+    return formattedResults;
+  }, [getFuseInstance]);
 
   // ✅ 已移除：generateEmbeddingsForData - 不再需要本地生成 embedding
   // 后端现在负责从数据库读取和生成 embedding
@@ -187,9 +270,9 @@ export const useSearch = (opengraphData = []) => {
   //   // ... 已移除的代码
   // };
 
-  // 执行搜索
-  const performSearch = async (query, calculateRadialLayout, filterUrls = null, filterTabIds = null) => {
-    if (!query.trim()) {
+  // ✅ 优化：执行搜索（带防抖）
+  const performSearch = useCallback(async (query, calculateRadialLayout, filterUrls = null, filterTabIds = null) => {
+    if (!query || !query.trim()) {
       setSearchResults(null);
       return [];
     }
@@ -223,7 +306,6 @@ export const useSearch = (opengraphData = []) => {
       console.log('[useSearch] ✅ Local search only (AI search disabled)');
       
       // 返回本地搜索结果（立即返回，不等待 AI）
-      // 注意：isSearching 保持为 true，直到 AI 搜索完成
       if (localDisplayed) {
         const queryColors = extractQueryColors(query);
         const sortedLocalResults = sortResultsByColorAndSimilarity(localResults, queryColors);
@@ -248,24 +330,82 @@ export const useSearch = (opengraphData = []) => {
       setSearchResults(finalFallback);
       return finalFallback;
     }
-  };
+  }, [fuzzyRankLocally, extractQueryColors, sortResultsByColorAndSimilarity, calculateLayoutForResults]);
+
+  // ✅ 优化：带防抖的搜索函数
+  const performSearchDebounced = useCallback((query, calculateRadialLayout, filterUrls = null, filterTabIds = null) => {
+    // 清除之前的定时器
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    
+    // 如果查询为空，立即清除结果
+    if (!query || !query.trim()) {
+      setSearchResults(null);
+      setIsSearching(false);
+      return Promise.resolve([]);
+    }
+    
+    setIsSearching(true);
+    
+    // 设置防抖定时器（300ms）
+    return new Promise((resolve) => {
+      debounceTimerRef.current = setTimeout(async () => {
+        const results = await performSearch(query, calculateRadialLayout, filterUrls, filterTabIds);
+        resolve(results);
+      }, 300);
+    });
+  }, [performSearch]);
+
+  // ✅ 优化：立即搜索（不防抖，用于初始搜索或用户明确触发）
+  const performSearchImmediate = useCallback(async (query, calculateRadialLayout, filterUrls = null, filterTabIds = null) => {
+    // 清除防抖定时器
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    return await performSearch(query, calculateRadialLayout, filterUrls, filterTabIds);
+  }, [performSearch]);
 
   // 清空搜索
-  const clearSearch = () => {
+  const clearSearch = useCallback(() => {
+    // 清除防抖定时器
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
     setSearchQuery("");
     setSearchResults(null);
+    setIsSearching(false);
     console.log('[useSearch] Search cleared');
-  };
+  }, []);
+
+  // ✅ 优化：清除缓存
+  const clearCache = useCallback(() => {
+    searchCache.clear();
+    fuseRef.current = null;
+    dataHashRef.current = null;
+    console.log('[useSearch] Cache cleared');
+  }, []);
+
+  // 清理函数：组件卸载时清除定时器
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
 
   return {
     searchQuery,
     setSearchQuery,
     isSearching,
+    searchResults,
+    performSearch: performSearchDebounced, // 默认使用防抖版本
+    performSearchImmediate, // 立即搜索（不防抖）
+    clearSearch,
+    clearCache, // ✅ 新增：清除缓存
     // ✅ 已移除：opengraphWithEmbeddings - 不再需要
     // opengraphWithEmbeddings,
-    searchResults,
-    performSearch,
-    clearSearch,
     // ✅ 已移除：generateEmbeddingsForData - 不再需要
     // generateEmbeddingsForData,
   };
