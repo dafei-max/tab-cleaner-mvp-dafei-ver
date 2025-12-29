@@ -2,6 +2,20 @@
   if (window.__TAB_CLEANER_CONTENT_INSTALLED) return;
   window.__TAB_CLEANER_CONTENT_INSTALLED = true;
 
+  // 消息类型常量（禁止硬编码字符串）
+  const MessageTypes = {
+    EXTRACT_OPENGRAPH: 'extract-opengraph',
+    SAVE_IMAGE: 'save-captured-image',
+    SAVE_CAPTURED_IMAGE: 'save-captured-image',
+    SYNC_BACKEND: 'sync-to-backend',
+    CAPTION_READY: 'caption-ready',
+    SHOW_CARD: 'show-card',
+    HIDE_CARD: 'hide-card',
+    TOGGLE_CARD: 'toggle-card',
+    CLEAN_ALL_TABS: 'clean-all-tabs',
+    CLEAN_CURRENT_TAB: 'clean-current-tab'
+  };
+
   // 🆕 先加载 Eagle Storage（opengraph_local_v2.js 需要它）
   (function loadEagleStorage() {
     if (window.__TAB_CLEANER_EAGLE_STORAGE_LOADED) {
@@ -1699,10 +1713,10 @@ HiHi我在这里！！
     // 处理保存采集的图片（从 image_capture_enhanced.js）
     // 注意：image_capture_enhanced.js 直接发送到 background.js，不需要通过 content.js
     // 这里保留是为了兼容性，但通常不会被调用
-    if (req.action === "save-captured-image") {
+    if (req.action === MessageTypes.SAVE_CAPTURED_IMAGE) {
       // 转发到 background.js
       chrome.runtime.sendMessage({
-        action: 'save-captured-image',
+        action: MessageTypes.SAVE_CAPTURED_IMAGE,
         data: req.data,
       }, (response) => {
         sendResponse?.(response);
@@ -1711,7 +1725,7 @@ HiHi我在这里！！
     }
 
     // 🆕 来自后台 WS 的 caption 推送
-    if (req.action === 'caption-ready' && req.payload) {
+    if (req.action === MessageTypes.CAPTION_READY && req.payload) {
       window.postMessage({
         type: 'TAB_CLEANER_CAPTION_PUSH',
         payload: req.payload,

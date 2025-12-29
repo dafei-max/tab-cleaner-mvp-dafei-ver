@@ -3,6 +3,20 @@
 // 导入 API 配置
 importScripts('api_config.js');
 
+// 消息类型常量（禁止硬编码字符串）
+const MessageTypes = {
+  EXTRACT_OPENGRAPH: 'extract-opengraph',
+  SAVE_IMAGE: 'save-captured-image',
+  SAVE_CAPTURED_IMAGE: 'save-captured-image',
+  SYNC_BACKEND: 'sync-to-backend',
+  CAPTION_READY: 'caption-ready',
+  SHOW_CARD: 'show-card',
+  HIDE_CARD: 'hide-card',
+  TOGGLE_CARD: 'toggle-card',
+  CLEAN_ALL_TABS: 'clean-all-tabs',
+  CLEAN_CURRENT_TAB: 'clean-current-tab'
+};
+
 // ==================== Caption WebSocket (backend push) ====================
 let captionWs = null;
 let captionWsReconnectTimer = null;
@@ -45,14 +59,14 @@ function connectCaptionWs() {
           // 1) 转发到所有普通标签页的 content scripts
           chrome.tabs.query({}, (tabs) => {
             tabs.forEach(tab => {
-              chrome.tabs.sendMessage(tab.id, { action: 'caption-ready', payload: data }, () => {
+              chrome.tabs.sendMessage(tab.id, { action: MessageTypes.CAPTION_READY, payload: data }, () => {
                 // 忽略没有 content script 的错误
                 chrome.runtime.lastError;
               });
             });
           });
           // 2) 同时通知扩展内部页面（如 PersonalSpace）
-          chrome.runtime.sendMessage({ action: 'caption-ready', payload: data }, () => {
+          chrome.runtime.sendMessage({ action: MessageTypes.CAPTION_READY, payload: data }, () => {
             chrome.runtime.lastError;
           });
         }
@@ -1383,7 +1397,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   }
   
   // 处理保存采集的图片（从 image_capture_enhanced.js 或 screenshot_capture.js）
-  if (req.action === "save-captured-image") {
+  if (req.action === MessageTypes.SAVE_CAPTURED_IMAGE) {
     // ✅ 确保异步处理，并正确处理 sendResponse
     handleSaveCapturedImage(req, sender, sendResponse).catch(error => {
       console.error('[Background] ❌ Unhandled error in handleSaveCapturedImage:', error);
